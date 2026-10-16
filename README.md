@@ -4,7 +4,7 @@ Rust firmware for the Waveshare [Pico-Clock-Green](https://www.waveshare.com/wik
 a USB terminal, a web configuration page and full use of the clock's hardware. Built on [Embassy](https://embassy.dev).
 
 **Requires a Raspberry Pi Pico W** (RP2040) **or Pico 2 W** (RP2350), both with the CYW43439 radio, in the clock.
-A plain Pico or Pico 2 has no WiFi. The Pico W is tested on hardware; the Pico 2 W build is not (see *Status*).
+A plain Pico or Pico 2 has no WiFi. Both have run in the clock; the Pico W has had far more use (see *Status*).
 
 ## Features
 
@@ -34,13 +34,18 @@ cargo build --release -p picoclock
 elf2uf2-rs -d target/thumbv6m-none-eabi/release/picoclock
 ```
 
-For the **Pico 2 W** build the other chip feature and target:
+For the **Pico 2 W** build the other chip feature and target. `elf2uf2-rs` stamps the RP2040's UF2 family ID on every file
+and the RP2350 boot ROM ignores such a file without a word (the board just stays in BOOTSEL), so the family is set to
+RP2350 Arm Secure first:
 
 ```sh
 rustup target add thumbv8m.main-none-eabihf
 cargo build --release -p picoclock --no-default-features --features rp235x --target thumbv8m.main-none-eabihf
-elf2uf2-rs -d target/thumbv8m.main-none-eabihf/release/picoclock    # BOOTSEL as above
+elf2uf2-rs target/thumbv8m.main-none-eabihf/release/picoclock pico2w.uf2
+python3 tools/uf2_family.py set pico2w.uf2 pico2w-s.uf2 rp2350-arm-s
+cp pico2w-s.uf2 /media/$USER/RP2350/      # hold BOOTSEL while plugging in the Pico 2 W
 ```
+(`picotool load -x` does the same in one step if you have it.)
 
 The two builds differ only in the chip feature (`rp2040` default / `rp235x`), the memory map (`firmware/memory-*.x`;
 the settings sector is the last 4 KiB of the 2 MiB / 4 MiB flash), the RP2350 `IMAGE_DEF` boot block and the WiFi
@@ -111,7 +116,7 @@ What you need to know:
 - **Which servers work:** those whose certificate chain is ECDSA and ends at ISRG Root X2 or the SSL.com ECC root:
   `time.cloudflare.com`, `nts.time.nl`, `ntppool1.time.nl`, `nts.teambelgium.net`, `ntp3.fau.de`, `time.txryan.com`, and any
   server with a Let's Encrypt ECDSA certificate. Servers with RSA certificates (Netnod, PTB, System76) are not supported.
-- **The key exchange takes 5 to 7 seconds** on the RP2040, during which the console, the web page and the buttons wait
+- **The key exchange takes 5 to 7 seconds** on the RP2040 (about 1 second on the RP2350), during which the console, the web page and the buttons wait
   (the display stays lit). It happens once after boot; later hourly syncs reuse the cookies and are as fast as plain NTP.
 - **The certificate is checked after the key exchange, not during the handshake.** The clock's CPU needs about five
   seconds for the checks, and NTS servers drop a client that is silent for more than about two seconds in the middle of the
@@ -218,14 +223,20 @@ password), and the NTP server (replies, off switch, junk packets ignored, offset
 **NTS:** works on the clock against `time.cloudflare.com` and `nts.time.nl` (key exchange 5.0 s and 6.9 s, then reused
 cookies); the whole client is also tested against those servers from a PC (`cargo test -p picoclock-core --test nts_live --
 --ignored`, needs internet), the TLS exporter against OpenSSL, and the certificate checks against a three-level chain made
-with OpenSSL (these run in `tools/gate.sh`, which needs the `openssl` binary). Not covered: RSA servers (refused), the Pico 2 W
-(builds only), and a server that sends a malformed key exchange message beyond what the unit tests construct.
+with OpenSSL (these run in `tools/gate.sh`, which needs the `openssl` binary). Not covered: RSA servers (refused) and a server
+that sends a malformed key exchange message beyond what the unit tests construct.
 
 **Checked on the host:** the core crate's unit tests, mutation-checked by hand (bugs planted in DST, alarm, HTTP, CRC, SNTP client and server code were each caught); every one of the 486 zones parses and gives sane offsets; the SNTP exchange and the ip-api response format were checked against the real servers.
 
-**Pico 2 W:** the RP2350 build compiles without warnings; the image has the boot block in the first 4 KiB, ends
-below the settings sector, and converts to an RP2350 UF2. It has **never run on a Pico 2 W**: expect to check WiFi
-SPI speed, the settings sector, the temperature sensor and the high-priority display interrupt first.
+**Pico 2 W (RP2350):** the same source runs on it. Checked from the console of a board in the clock (no debug probe was
+attached): boot and USB console, the radio (name from its MAC address), WiFi join, NTP sync, the DS3231 and its temperature,
+settings saved to the 4 MB flash and read back after a reboot, the web page, the NTP server, the location lookup and the
+DST option. The display scan stays on time (no wait more than 100 µs late in 74 s with 50 page loads) and a settings save
+pauses it for the same ~34 ms as on the Pico W. NTS key exchange takes 0.85 s (Cloudflare) and 1.25 s (`nts.time.nl`)
+against 5.0 s and 6.9 s on the Pico W. The owner looked at the board and reports that the user-facing parts, the display and
+the beeper named explicitly, are fine (a report, not a measurement; the buttons and the light sensor were not singled
+out). Not checked: the firmware log (RTT needs a probe) and long-term behaviour. A UF2 file for it needs the family-ID step
+in *Build and flash*; without it the board silently ignores the file.
 
 **Checked by the owner by eye and ear** (a user report, not a measurement): the display looks right, and the buttons,
 the buzzer, the alarm, the settings menu, the hourly chime and the light sensor work. The key-beep setting was not
@@ -262,14 +273,14 @@ Planned for future releases (requirements, not implemented):
   device at first boot (self-signed, fingerprint in `status`) and can be replaced by an uploaded certificate and key; no
   key is shipped in the repository, since a shipped key would be public. Done so far (on the host, no hardware needed): the
   certificate code (`core/src/x509.rs`, checked against OpenSSL) and a feasibility test of `rustls` as a server with
-  `curl` and OpenSSL. Next: run the Pico 2 W build on real hardware, then the server itself. Estimated cost of a
+  `curl` and OpenSSL. The Pico 2 W build now runs on real hardware (see *Status*); next is the server itself. Estimated cost of a
   handshake: under a second.
 - **NTS beyond what works today:** RSA certificate chains (Netnod, PTB, System76 servers), user-supplied roots, a TRNG
   for the Pico 2 W, and offering the exporter patch upstream.
 - **DCF77 receiver module** as an additional time source (a free GPIO and a module that fits the clock's case).
 - **GPS module (u-blox)** as a time source over UART (NMEA/UBX, optionally the PPS pulse for sub-millisecond
   accuracy), which would also let the NTP server claim a low stratum.
-- Pico 2 W: run and verify on hardware.
+- Pico 2 W: run it for days; press the buttons and cover the light sensor on it.
 - Scan for the strongest known WiFi network instead of trying slots in order.
 - DHCP option 42 (NTP server from the router) and mDNS (`picoclock.local`).
 

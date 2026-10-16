@@ -20,11 +20,11 @@ last_updated: 2026-10-16
 | Ratified                                                          | 58    |
 | Draft (roadmap)                                                   | 4     |
 | Retired                                                           | 0     |
-| Ratified with hardware evidence                                   | 41    |
+| Ratified with hardware evidence                                   | 42    |
 | Ratified with unit tests only (no hardware, host or build record) | 8     |
-| Ratified and UNVERIFIED (stated reason)                           | 2     |
+| Ratified and UNVERIFIED (stated reason)                           | 1     |
 | Unit tests bound to requirements                                  | 110   |
-| Verification records                                              | 38    |
+| Verification records                                              | 41    |
 
 ## Forward: requirement to evidence
 
@@ -87,10 +87,10 @@ last_updated: 2026-10-16
 | REQ-HW-03   | ratified | medium | BUZZER                 | 0          | VR-17                             | hardware             |
 | REQ-HW-04   | ratified | medium | APP, DISPLAY           | 0          | VR-21                             | hardware             |
 | REQ-HW-05   | ratified | high   | APP                    | 0          | VR-01, VR-11                      | hardware             |
-| REQ-HW-06   | ratified | medium | APP                    | 0          | -                                 | UNVERIFIED           |
+| REQ-HW-06   | ratified | medium | APP                    | 0          | VR-39, VR-41                      | hardware             |
 | REQ-HW-07   | draft    | low    | -                      | 0          | -                                 | -                    |
 | REQ-HW-08   | ratified | medium | NTS, SNTP, NET         | 0          | VR-29, VR-34                      | hardware             |
-| REQ-NFR-01  | ratified | medium | APP, CONFIG            | 2          | VR-12, VR-36                      | unit, build          |
+| REQ-NFR-01  | ratified | medium | APP, CONFIG            | 2          | VR-12, VR-36, VR-40               | unit, build          |
 | REQ-NFR-02  | ratified | high   | APP, DISPLAY           | 0          | -                                 | UNVERIFIED           |
 
 ## Ratified requirements without hardware evidence
@@ -113,7 +113,6 @@ These have never been seen working on the clock (they may still have unit tests)
 | REQ-WEB-07  | unit, host  |                                                                                                                                                                                                |
 | REQ-UI-02   | unit        |                                                                                                                                                                                                |
 | REQ-UI-07   | unit        |                                                                                                                                                                                                |
-| REQ-HW-06   | UNVERIFIED  | The RP2350 image builds and converts to a UF2, but has never run on a Pico 2 W.                                                                                                                |
 | REQ-NFR-01  | unit, build |                                                                                                                                                                                                |
 | REQ-NFR-02  | UNVERIFIED  | This is the design property; its outcome (scan timing under load, and the owner seeing no flicker) is recorded under REQ-DSP-02 (VR-22, VR-24). Nothing tests the priority arrangement itself. |
 
@@ -232,3 +231,6 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-36  | 2026-10-16 | build    | Size of the NTS build                                                              | REQ-NFR-01                                                                                   |
 | VR-37  | 2026-10-16 | host     | rustls with the RustCrypto provider as a TLS 1.3 server (feasibility for ADR-0002) | REQ-WEB-06                                                                                   |
 | VR-38  | 2026-10-16 | host     | The device's certificate code against OpenSSL                                      | REQ-WEB-07                                                                                   |
+| VR-39  | 2026-10-16 | hardware | The Pico 2 W (RP2350) runs the firmware                                            | REQ-HW-06                                                                                    |
+| VR-40  | 2026-10-16 | build    | Correction: the UF2 family ID                                                      | REQ-NFR-01                                                                                   |
+| VR-41  | 2026-10-16 | hardware | Pico 2 W: display and beeper fine (user observation)                               | REQ-HW-06                                                                                    |

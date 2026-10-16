@@ -104,6 +104,9 @@ the same source, an RP2350. Requirements: REQ-HW-08 and REQ-NTS-01 to REQ-NTS-07
   `time.cloudflare.com` 4.98 s and 5.04 s; with `nts.time.nl` 6.8 to 6.9 s (a longer chain); later syncs reuse the cookies
   and cost one UDP exchange plus about 1.5 ms of AES-SIV. Primitives measured separately: ECDSA P-256 verify 558 to
   580 ms, P-256 ECDH 283 to 294 ms, AES-SIV of a request 1.4 to 1.5 ms (`spikes/crypto-bench`).
+- **On the RP2350 (Pico 2 W, hardware, 2026-10-16, one run each, measured as the console's stall):** 0.85 s with Cloudflare and
+  1.25 s with `nts.time.nl`, roughly six times faster than the RP2040 (the Cortex-M33 has a 32x32 to 64-bit multiplier). The
+  deferred checks are not needed there (well inside the servers' limit) but do no harm.
 - The public-key operations run without yielding, so during a key exchange the cooperative executor is busy for 5 to 7 s:
   the console, the web page and the UI wait (the display scan runs on its own interrupt executor and stays lit). It
   happens once per boot, and again only after a NAK or when the cookies are used up.

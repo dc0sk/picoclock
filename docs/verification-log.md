@@ -404,3 +404,45 @@ positive check nor the tamper check had tested our signature. Not done: the cert
 or run on a device.
 
 Verifies: REQ-WEB-07
+
+### VR-39 · 2026-10-16 · hardware · The Pico 2 W (RP2350) runs the firmware
+
+A Pico 2 W, fitted in the clock board (the DS3231 answered with a valid time and temperature), flashed over USB with no
+debug probe attached. The UF2 from `elf2uf2-rs` was ignored: both a plain copy and `elf2uf2-rs -d` left the board in
+BOOTSEL with no sign of an error, because the file carries the RP2040 family ID (see VR-40). With the family set to RP2350
+Arm Secure the board rebooted at once and enumerated as `1209:0001`. From the console, then: `status` shows the name
+`picoclock-d6` (so the radio chip answered and its MAC was read), WiFi joined with the provisioned credentials, plain NTP
+synced; the DS3231 and the die temperature read plausibly; the settings were saved to flash and a reboot loaded them again
+(the last sector of the 4 MB flash); the web page answered 200 (5662 bytes) and refused a cross-site POST with 403; with
+`ntp_serve on` three queries from a PC returned stratum 5, an echoed timestamp and an offset within 1 ms, and none after
+`off`; `timezone auto` resolved through `ipwho.is`; `dst off`/`on` gave UTC+01:00/+02:00; the display scan's worst
+lateness was 81 µs with no wait over 100 µs in 74 s including 40 page loads and 10 zone-list downloads, and 34 ms during a
+settings save (the flash erase, as on the Pico W). NTS key exchange, measured as how long the console stalled: 0.85 s with
+`time.cloudflare.com` and 1.25 s with `nts.time.nl` (5.0 s and 6.9 s on the Pico W), after which the status showed
+`(NTS, authenticated)`. **Not verified by me:** the display content, the buttons, the buzzer and the light sensor on this
+board (they need someone to look and press), the firmware log (RTT needs a probe), long-term behaviour.
+I changed the saved settings during the run (`hour12`, `ntp_servers`) and restored them; the final `show` matches the defaults
+plus the WiFi and timezone settings.
+
+Verifies: REQ-HW-06
+
+### VR-40 · 2026-10-16 · build · Correction: the UF2 family ID
+
+VR-12 and the README said the UF2 made by `elf2uf2-rs` from the RP2350 image carried "the RP2350 family ID". It does not:
+`elf2uf2-rs` writes the RP2040 family ID (`0xe48bff56`) for every chip, and the RP2350 boot ROM ignores such a file without any
+indication. The RP2350 Arm Secure family is `0xe48bff59`. I had compared the number with nothing and repeated it; the first
+real attempt on a board showed the mistake. Fixed by `tools/uf2_family.py` (sets or checks the family), the corrected README
+instructions, and a check in `tools/gate.sh` that fails if either chip's UF2 has the wrong family or if `elf2uf2-rs` starts
+writing the right one (so the patch step can be dropped). The file the tool makes is byte-identical to the one that booted
+the Pico 2 W.
+
+Verifies: REQ-NFR-01
+
+### VR-41 · 2026-10-16 · hardware · Pico 2 W: display and beeper fine (user observation)
+
+After VR-39 the clock's owner looked at and listened to the clock with the Pico 2 W fitted and reported that the user-facing
+elements, "like display and beeper", are all fine. This is the user's word, not a measurement. The display and the beeper
+are named; the report does not say whether the buttons, the menu, the alarm or the light sensor were tried, so those are
+not claimed here.
+
+Verifies: REQ-HW-06

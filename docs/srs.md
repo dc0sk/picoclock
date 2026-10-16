@@ -368,8 +368,7 @@ The firmware shall run on the Raspberry Pi Pico W (RP2040).
 **REQ-HW-06** (ratified, medium)  
 The firmware shall run on the Raspberry Pi Pico 2 W (RP2350) from the same source, selected by a build feature.  
 *Why:* The user may fit a Pico 2 W.  
-*Implemented by:* Composition: task wiring, shared state, chip selection  
-*Unverified:* The RP2350 image builds and converts to a UF2, but has never run on a Pico 2 W.
+*Implemented by:* Composition: task wiring, shared state, chip selection
 
 **REQ-HW-07** (draft, low)  
 The clock shall accept a DCF77 receiver module and a u-blox GPS module as additional time sources.  

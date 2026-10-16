@@ -81,6 +81,10 @@ implementation without a fork or hand-written protocol code, at the price that t
   certificate (valid from a day before the RTC time for ten years, DNS names for the device name and `.local`, leaf only,
   digital signature and server authentication) and inspects, matches and validates an uploaded certificate and key (PEM or
   DER, PKCS#8 or SEC1, P-256 only). REQ-WEB-07, VR-38.
+- **The first step is done.** The existing build runs on a Pico 2 W in the clock (VR-39): WiFi, NTP, settings in the 4 MB
+  flash, the web page, the display scan, NTS. The RP2350 is much faster at this kind of work: the NTS key exchange, which
+  includes verifying a P-384 chain, took 0.85 to 1.25 s against 5.0 to 6.9 s on the RP2040, so the estimate of "under a
+  second" for an HTTPS handshake is conservative. Still open: the heap, the `rustls` integration, certificate storage.
 - Open questions for the implementation: where the key and certificate live (the 2 KiB settings record is too small; a
   second flash sector next to the settings one, in the Pico 2 W memory map only), when to generate (only with a valid RTC
   time), and whether port 80 stays open or redirects.
