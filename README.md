@@ -3,8 +3,8 @@
 Rust firmware for the Waveshare [Pico-Clock-Green](https://www.waveshare.com/wiki/Pico-Clock-Green) with WiFi, NTP,
 a USB terminal, a web configuration page and full use of the clock's hardware. Built on [Embassy](https://embassy.dev).
 
-**Requires a Raspberry Pi Pico W** (RP2040 + CYW43439 radio) in the clock. A plain Pico has no WiFi. (Pico 2 W:
-see *Roadmap*.)
+**Requires a Raspberry Pi Pico W** (RP2040) **or Pico 2 W** (RP2350), both with the CYW43439 radio, in the clock.
+A plain Pico or Pico 2 has no WiFi. The Pico W is tested on hardware; the Pico 2 W build is not (see *Status*).
 
 ## Features
 
@@ -31,6 +31,18 @@ cargo build --release -p picoclock
 # Hold BOOTSEL while plugging in the Pico, then:
 elf2uf2-rs -d target/thumbv6m-none-eabi/release/picoclock
 ```
+
+For the **Pico 2 W** build the other chip feature and target:
+
+```sh
+rustup target add thumbv8m.main-none-eabihf
+cargo build --release -p picoclock --no-default-features --features rp235x --target thumbv8m.main-none-eabihf
+elf2uf2-rs -d target/thumbv8m.main-none-eabihf/release/picoclock    # BOOTSEL as above
+```
+
+The two builds differ only in the chip feature (`rp2040` default / `rp235x`), the memory map (`firmware/memory-*.x`;
+the settings sector is the last 4 KiB of the 2 MiB / 4 MiB flash), the RP2350 `IMAGE_DEF` boot block and the WiFi
+SPI clock divider. Everything else, including the pin map, is shared.
 
 To flash with a debug probe instead (for example the Raspberry Pi Debug Probe, CMSIS-DAP, with OpenOCD):
 
@@ -141,6 +153,10 @@ cross-site POST), and the NTP server (replies, off switch, junk packets ignored)
 client and SNTP server code were each caught); every one of the 486 zones parses and gives sane offsets; the SNTP
 exchange and the ip-api response format were checked against the real servers.
 
+**Pico 2 W:** the RP2350 build compiles without warnings; the image has the boot block in the first 4 KiB, ends
+below the settings sector, and converts to an RP2350 UF2. It has **never run on a Pico 2 W**: expect to check WiFi
+SPI speed, the settings sector, the temperature sensor and the high-priority display interrupt first.
+
 **Not checked yet:** how the display looks, the buttons and menu, the buzzer, the light sensor and auto-brightness,
 `timezone=auto` on the clock, and the web page's look in a browser. Known unknowns: whether the buzzer is the active
 type the demo drives, the polarity of the light sensor (copied from the demo: high reading = dark), and whether the
@@ -152,8 +168,23 @@ is the pid.codes test pair `1209:0001`. The firmware image is about 440 KB of fl
 
 ## Roadmap
 
-- Pico 2 W (RP2350): needs a chip feature, a different `memory.x` and flash size, and a second target; the
-  hardware pin map and radio are the same.
+Planned for future releases (requirements, not implemented):
+
+- **HTTPS** for the web page, with a custom certificate that can be uploaded (web page and console) and a default
+  certificate included. Note: a default key shipped in an open-source repository is public, so it protects nothing
+  against an attacker; a per-device self-signed certificate generated on first boot is the better default. There is
+  no mature `no_std` TLS *server* crate, so this needs a design decision (and RAM/flash budget) first.
+- **Secure NTP (NTS, RFC 8915)** for the NTP client. This needs a TLS 1.3 client for the key-exchange step (TCP 4460),
+  server certificate validation, and AES-SIV authenticated NTP packets with a cookie store. Design notes: the
+  default `pool.ntp.org` does not offer NTS and a typical router does not either, so NTS needs its own server list
+  (for example `time.cloudflare.com`) and a per-server `nts` option; certificate checks need a roughly correct clock,
+  which the battery-backed RTC provides but a first boot with a dead battery does not (the plain NTP fallback and
+  its trade-off must be an explicit setting); and the root-certificate store costs flash. The TLS pieces are shared
+  with the HTTPS item above, so the two should be designed together.
+- **DCF77 receiver module** as an additional time source (a free GPIO and a module that fits the clock's case).
+- **GPS module (u-blox)** as a time source over UART (NMEA/UBX, optionally the PPS pulse for sub-millisecond
+  accuracy), which would also let the NTP server claim a low stratum.
+- Pico 2 W: run and verify on hardware.
 - Scan for the strongest known WiFi network instead of trying slots in order.
 - DHCP option 42 (NTP server from the router) and mDNS (`picoclock.local`).
 

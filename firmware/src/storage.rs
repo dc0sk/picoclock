@@ -11,7 +11,11 @@ use picoclock_core::config::Config;
 
 use crate::state;
 
+/// Pico W: 2 MiB, Pico 2 W: 4 MiB. The configuration lives in the last sector (memory-*.x keeps it free).
+#[cfg(feature = "rp2040")]
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
+#[cfg(feature = "rp235x")]
+const FLASH_SIZE: usize = 4 * 1024 * 1024;
 const OFFSET: u32 = (FLASH_SIZE - ERASE_SIZE) as u32;
 const RECORD: usize = 2048;
 /// Edits via buttons arrive in bursts; wait for this long without a new one before writing flash.

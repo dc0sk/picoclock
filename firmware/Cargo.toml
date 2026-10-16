@@ -3,7 +3,14 @@ name = "picoclock"
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
-description = "Pico-Clock-Green firmware for the Raspberry Pi Pico W with WiFi and NTP"
+description = "Pico-Clock-Green firmware for the Raspberry Pi Pico W / Pico 2 W with WiFi and NTP"
+
+[features]
+# Pick exactly one chip. Pico W (default): target thumbv6m-none-eabi. Pico 2 W: --no-default-features --features rp235x
+# --target thumbv8m.main-none-eabihf.
+default = ["rp2040"]
+rp2040 = ["embassy-rp/rp2040"]
+rp235x = ["embassy-rp/rp235xa"]
 
 [dependencies]
 picoclock-core = { path = "../core" }
@@ -11,7 +18,7 @@ embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "cbb79
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967" }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967" }
-embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040", "executor-thread", "executor-interrupt"] }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "executor-thread", "executor-interrupt"] }
 embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt", "udp", "tcp", "tcp-listener", "dhcpv4", "medium-ethernet", "dns", "ipv4", "hostname"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt"] }
 cyw43 = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt"] }

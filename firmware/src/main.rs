@@ -1,4 +1,4 @@
-//! Pico-Clock-Green firmware for the Raspberry Pi Pico W.
+//! Pico-Clock-Green firmware for the Raspberry Pi Pico W (RP2040) and Pico 2 W (RP2350, feature `rp235x`).
 //!
 //! The DS3231 RTC runs on UTC; local time is derived at display time from the configured timezone (or UTC is shown
 //! directly). Time is kept in sync over WiFi/NTP. Settings come from flash and are edited over the USB serial
@@ -20,7 +20,11 @@ mod web;
 use core::sync::atomic::Ordering;
 
 use cyw43::aligned_bytes;
-use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
+use cyw43_pio::PioSpi;
+#[cfg(feature = "rp2040")]
+use cyw43_pio::DEFAULT_CLOCK_DIVIDER as WIFI_CLOCK_DIVIDER;
+#[cfg(feature = "rp235x")]
+use cyw43_pio::RM2_CLOCK_DIVIDER as WIFI_CLOCK_DIVIDER; // the RP2350 runs faster; see cyw43-pio docs
 use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -57,6 +61,12 @@ bind_interrupts!(struct Irqs {
     ADC_IRQ_FIFO => adc::InterruptHandler;
     USBCTRL_IRQ => usb::InterruptHandler<USB>;
 });
+
+/// Tells the RP2350 boot ROM this is a secure Arm executable. The RP2040 uses a second-stage bootloader instead.
+#[cfg(feature = "rp235x")]
+#[unsafe(link_section = ".start_block")]
+#[used]
+pub static IMAGE_DEF: embassy_rp::block::ImageDef = embassy_rp::block::ImageDef::secure_exe();
 
 static EXECUTOR_HIGH: InterruptExecutor = InterruptExecutor::new();
 
@@ -251,7 +261,7 @@ async fn main(spawner: Spawner) {
     let spi = PioSpi::new(
         &mut pio.common,
         pio.sm0,
-        DEFAULT_CLOCK_DIVIDER,
+        WIFI_CLOCK_DIVIDER,
         pio.irq0,
         cs,
         p.PIN_24,
