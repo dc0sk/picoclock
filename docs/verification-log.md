@@ -138,3 +138,12 @@ password does not appear in the page. After clearing it the page answered 200 ag
 crosses the LAN unencrypted (stated in the README).
 
 Verifies: REQ-WEB-04, REQ-CFG-03
+
+### VR-16 · 2026-10-16 · hardware · Display looks right (user observation)
+
+The clock's owner looked at the display running the current image and reported that it looks fine. This is a
+visual check by the user, not a measurement: no photo was taken, and it does not say which views (time, date,
+temperature), brightness levels or the 12-hour setting were looked at. Flicker while WiFi is busy and the status
+icons were not specifically reported on.
+
+Verifies: REQ-DSP-01

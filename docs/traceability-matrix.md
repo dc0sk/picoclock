@@ -20,11 +20,11 @@ last_updated: 2026-10-16
 | Ratified                                                          | 45    |
 | Draft (roadmap)                                                   | 5     |
 | Retired                                                           | 0     |
-| Ratified with hardware evidence                                   | 23    |
-| Ratified with unit tests only (no hardware, host or build record) | 13    |
+| Ratified with hardware evidence                                   | 24    |
+| Ratified with unit tests only (no hardware, host or build record) | 12    |
 | Ratified and UNVERIFIED (stated reason)                           | 4     |
 | Unit tests bound to requirements                                  | 78    |
-| Verification records                                              | 15    |
+| Verification records                                              | 16    |
 
 ## Forward: requirement to evidence
 
@@ -62,7 +62,7 @@ last_updated: 2026-10-16
 | REQ-WEB-04  | ratified | high   | HTTP               | 1          | VR-15               | unit, hardware       |
 | REQ-WEB-05  | ratified | medium | HTTP               | 2          | -                   | unit                 |
 | REQ-WEB-06  | draft    | high   | -                  | 0          | -                   | -                    |
-| REQ-DSP-01  | ratified | high   | FRAME, DISPLAY     | 6          | -                   | unit                 |
+| REQ-DSP-01  | ratified | high   | FRAME, DISPLAY     | 6          | VR-16               | unit, hardware       |
 | REQ-UI-01   | ratified | high   | UI, INPUT          | 2          | -                   | unit                 |
 | REQ-UI-02   | ratified | medium | UI                 | 2          | -                   | unit                 |
 | REQ-UI-03   | ratified | medium | UI, INPUT          | 1          | -                   | unit                 |
@@ -96,7 +96,6 @@ These have never been seen working on the clock (they may still have unit tests)
 | REQ-CLI-02  | unit        |                                                                                                                                             |
 | REQ-WEB-02  | unit, host  |                                                                                                                                             |
 | REQ-WEB-05  | unit        |                                                                                                                                             |
-| REQ-DSP-01  | unit        |                                                                                                                                             |
 | REQ-UI-01   | unit        |                                                                                                                                             |
 | REQ-UI-02   | unit        |                                                                                                                                             |
 | REQ-UI-03   | unit        |                                                                                                                                             |
@@ -190,3 +189,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-13  | 2026-10-16 | host     | Real-server format checks                                            | REQ-NTP-01, REQ-TZ-04                                                                        |
 | VR-14  | 2026-10-16 | hardware | NTP server accuracy after the boundary logic moved to the core crate | REQ-TIME-04, REQ-SRV-04                                                                      |
 | VR-15  | 2026-10-16 | hardware | Web password                                                         | REQ-WEB-04, REQ-CFG-03                                                                       |
+| VR-16  | 2026-10-16 | hardware | Display looks right (user observation)                               | REQ-DSP-01                                                                                   |
