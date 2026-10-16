@@ -300,8 +300,7 @@ The clock shall drive the buzzer for key beeps, the hourly chime and the alarm.
 **REQ-HW-04** (ratified, medium)  
 The clock shall set the display brightness from the ambient light sensor when brightness is `auto`.  
 *Why:* Requested ambient light sensor support.  
-*Implemented by:* Composition: task wiring, shared state, chip selection, LED matrix scan  
-*Unverified:* Light-sensor polarity (high reading = dark) is copied from the vendor demo and unconfirmed; the sensor reads, but dimming was not observed.
+*Implemented by:* Composition: task wiring, shared state, chip selection, LED matrix scan
 
 **REQ-HW-05** (ratified, high)  
 The firmware shall run on the Raspberry Pi Pico W (RP2040).  

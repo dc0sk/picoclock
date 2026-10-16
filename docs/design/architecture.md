@@ -235,8 +235,8 @@ rendering are all unit-tested with a fake `Env`.
 - Alarm: fires once per matching minute in local time, any button stops it, it stops itself after a minute (`ALARM_MAX_MS`).
 - The panel has no WiFi icon, so the blinking colon and the count-up icon carry the sync state.
 - Brightness: fixed levels use the display duty directly; `auto` maps the light sensor's raw ADC value to a duty
-  (full brightness up to 1500, linearly down to 15 % at 3500). The polarity is copied from the vendor demo and is
-  unconfirmed on the hardware.
+  (full brightness up to 1500, linearly down to 15 % at 3500). The polarity (high reading = dark) comes from the vendor
+  demo; the owner reports that the sensor works, but the thresholds were not measured.
 
 `core::frame` knows the panel's quirks (inherited from the vendor demo): the shift-register row layout, the column
 offset caused by the status LED group, and glyphs that straddle two groups. Two rows of the vendor's font table were

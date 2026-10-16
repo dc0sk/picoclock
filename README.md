@@ -165,11 +165,11 @@ below the settings sector, and converts to an RP2350 UF2. It has **never run on 
 SPI speed, the settings sector, the temperature sensor and the high-priority display interrupt first.
 
 **Checked by the owner by eye and ear** (a user report, not a measurement): the display looks right, and the buttons,
-the buzzer, the alarm and the settings menu work. The hourly chime and the key-beep setting were not singled out.
+the buzzer, the alarm, the settings menu and the light sensor work. The hourly chime and the key-beep setting were not
+singled out, and the light-sensor thresholds were not measured.
 
-**Not checked yet:** the light sensor and auto-brightness, `timezone=auto` on the clock, and the web page's look in a
-browser. Known unknowns: the polarity of the light sensor (copied from the demo: high reading = dark), and whether
-the count-up icon suits the sync indicator.
+**Not checked yet:** `timezone=auto` on the clock and the web page's look in a browser. A known unknown: whether the
+count-up icon suits the sync indicator.
 
 Other limits: saving pauses the CPU for tens of milliseconds (the display blinks once); the hourly NTP sync pauses
 the display for up to a second while the RTC is set on the second boundary; no countdown/stopwatch; the USB VID/PID

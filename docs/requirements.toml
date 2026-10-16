@@ -520,7 +520,6 @@ criticality = "medium"
 statement = "The clock shall set the display brightness from the ambient light sensor when brightness is `auto`."
 rationale = "Requested ambient light sensor support."
 cap = ["CAP-APP", "CAP-DISPLAY"]
-unverified = "Light-sensor polarity (high reading = dark) is copied from the vendor demo and unconfirmed; the sensor reads, but dimming was not observed."
 
 [[req]]
 id = "REQ-HW-05"

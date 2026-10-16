@@ -185,3 +185,12 @@ a measurement. It does not say which menu items were changed, whether the alarm 
 timeout, or whether it stayed silent when disabled. The hourly chime and the key-beep setting were not singled out.
 
 Verifies: REQ-UI-04, REQ-UI-05
+
+### VR-21 · 2026-10-16 · hardware · Light sensor and auto-brightness work (user observation)
+
+The clock's owner reported that the light sensor works on the current image. This is the user's word, not a
+measurement. It is taken to mean that `brightness auto` follows the room light in the right direction, which would
+confirm that a high ADC reading means dark, as copied from the vendor demo. No readings or brightness values were
+recorded, so the thresholds (full brightness up to a raw 1500, 15 % at 3500) are not checked beyond "works".
+
+Verifies: REQ-HW-04

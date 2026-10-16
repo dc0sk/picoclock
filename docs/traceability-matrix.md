@@ -20,11 +20,11 @@ last_updated: 2026-10-16
 | Ratified                                                          | 47    |
 | Draft (roadmap)                                                   | 5     |
 | Retired                                                           | 0     |
-| Ratified with hardware evidence                                   | 31    |
+| Ratified with hardware evidence                                   | 32    |
 | Ratified with unit tests only (no hardware, host or build record) | 9     |
-| Ratified and UNVERIFIED (stated reason)                           | 3     |
+| Ratified and UNVERIFIED (stated reason)                           | 2     |
 | Unit tests bound to requirements                                  | 80    |
-| Verification records                                              | 20    |
+| Verification records                                              | 21    |
 
 ## Forward: requirement to evidence
 
@@ -75,7 +75,7 @@ last_updated: 2026-10-16
 | REQ-HW-01   | ratified | medium | RTC, UI, CLI       | 2          | VR-02                      | unit, hardware       |
 | REQ-HW-02   | ratified | low    | APP, CLI           | 1          | VR-02                      | unit, hardware       |
 | REQ-HW-03   | ratified | medium | BUZZER             | 0          | VR-17                      | hardware             |
-| REQ-HW-04   | ratified | medium | APP, DISPLAY       | 0          | -                          | UNVERIFIED           |
+| REQ-HW-04   | ratified | medium | APP, DISPLAY       | 0          | VR-21                      | hardware             |
 | REQ-HW-05   | ratified | high   | APP                | 0          | VR-01, VR-11               | hardware             |
 | REQ-HW-06   | ratified | medium | APP                | 0          | -                          | UNVERIFIED           |
 | REQ-HW-07   | draft    | low    | -                  | 0          | -                          | -                    |
@@ -87,24 +87,23 @@ last_updated: 2026-10-16
 
 These have never been seen working on the clock (they may still have unit tests).
 
-| Requirement | Evidence    | Reason given                                                                                                                                |
-|-------------|-------------|---------------------------------------------------------------------------------------------------------------------------------------------|
-| REQ-TIME-02 | unit        |                                                                                                                                             |
-| REQ-TIME-03 | unit        |                                                                                                                                             |
-| REQ-TZ-02   | unit        |                                                                                                                                             |
-| REQ-TZ-04   | unit, host  |                                                                                                                                             |
-| REQ-NTP-02  | unit, host  |                                                                                                                                             |
-| REQ-CFG-04  | unit        |                                                                                                                                             |
-| REQ-CLI-02  | unit        |                                                                                                                                             |
-| REQ-WEB-02  | unit, host  |                                                                                                                                             |
-| REQ-WEB-05  | unit        |                                                                                                                                             |
-| REQ-UI-02   | unit        |                                                                                                                                             |
-| REQ-UI-06   | unit        |                                                                                                                                             |
-| REQ-UI-07   | unit        |                                                                                                                                             |
-| REQ-HW-04   | UNVERIFIED  | Light-sensor polarity (high reading = dark) is copied from the vendor demo and unconfirmed; the sensor reads, but dimming was not observed. |
-| REQ-HW-06   | UNVERIFIED  | The RP2350 image builds and converts to a UF2, but has never run on a Pico 2 W.                                                             |
-| REQ-NFR-01  | unit, build |                                                                                                                                             |
-| REQ-NFR-02  | UNVERIFIED  | Designed in (interrupt executor at higher priority) but flicker was not observed or measured on hardware.                                   |
+| Requirement | Evidence    | Reason given                                                                                              |
+|-------------|-------------|-----------------------------------------------------------------------------------------------------------|
+| REQ-TIME-02 | unit        |                                                                                                           |
+| REQ-TIME-03 | unit        |                                                                                                           |
+| REQ-TZ-02   | unit        |                                                                                                           |
+| REQ-TZ-04   | unit, host  |                                                                                                           |
+| REQ-NTP-02  | unit, host  |                                                                                                           |
+| REQ-CFG-04  | unit        |                                                                                                           |
+| REQ-CLI-02  | unit        |                                                                                                           |
+| REQ-WEB-02  | unit, host  |                                                                                                           |
+| REQ-WEB-05  | unit        |                                                                                                           |
+| REQ-UI-02   | unit        |                                                                                                           |
+| REQ-UI-06   | unit        |                                                                                                           |
+| REQ-UI-07   | unit        |                                                                                                           |
+| REQ-HW-06   | UNVERIFIED  | The RP2350 image builds and converts to a UF2, but has never run on a Pico 2 W.                           |
+| REQ-NFR-01  | unit, build |                                                                                                           |
+| REQ-NFR-02  | UNVERIFIED  | Designed in (interrupt executor at higher priority) but flicker was not observed or measured on hardware. |
 
 ## Backward: capability to code and requirements
 
@@ -192,3 +191,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-18  | 2026-10-16 | hardware | Daylight-saving option                                               | REQ-TZ-05                                                                                    |
 | VR-19  | 2026-10-16 | hardware | WiFi join robustness after the join timeout and retry change         | REQ-NET-01, REQ-NET-06                                                                       |
 | VR-20  | 2026-10-16 | hardware | Alarm and menu work (user observation)                               | REQ-UI-04, REQ-UI-05                                                                         |
+| VR-21  | 2026-10-16 | hardware | Light sensor and auto-brightness work (user observation)             | REQ-HW-04                                                                                    |
