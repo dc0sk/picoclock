@@ -85,7 +85,14 @@ implementation without a fork or hand-written protocol code, at the price that t
   flash, the web page, the display scan, NTS. The RP2350 is much faster at this kind of work: the NTS key exchange, which
   includes verifying a P-384 chain, took 0.85 to 1.25 s against 5.0 to 6.9 s on the RP2040, so the estimate of "under a
   second" for an HTTPS handshake is conservative. Still open: the heap, the `rustls` integration, certificate storage.
-- Open questions for the implementation: where the key and certificate live (the 2 KiB settings record is too small; a
+- **Implemented and run on the Pico 2 W (hardware, 2026-10-16, VR-42).** rustls 0.23 (unbuffered API, `rustls-rustcrypto`
+  0.0.2-alpha provider) on a 144 KiB heap (`embedded-alloc`); only TLS 1.3 with `TLS_AES_128_GCM_SHA256`, no session tickets;
+  handshake 0.14 to 0.2 s. The key and chain live in the sector before the settings sector (`firmware/memory-rp235x.x` keeps
+  both free; record with magic, length and CRC32 in `core/src/tlsstore.rs`). The certificate is made when the RTC holds a valid
+  time, reused after a reboot while valid, replaced by `cert new` or by an upload on the HTTPS page (P-256 PEM, key never
+  shown). Port 80 redirects (307, GET only, Host header sanitised, own address as fallback) while HTTPS is up; setting
+  `http_redirect` (default) and `https` control it. Still open: a browser test, heap headroom over a long run, the RP2350 TRNG.
+- Questions that were open for the implementation (answered above): where the key and certificate live (the 2 KiB settings record is too small; a
   second flash sector next to the settings one, in the Pico 2 W memory map only), when to generate (only with a valid RTC
   time), and whether port 80 stays open or redirects.
 

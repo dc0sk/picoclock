@@ -315,6 +315,24 @@ pub fn validate_pair(cert: &[u8], secret: &[u8; 32], now_unix: i64) -> Result<In
     Ok(info)
 }
 
+/// True if `der` is one complete DER SEQUENCE and nothing else: the shape of a certificate. Used for the intermediates of an
+/// uploaded chain, which are passed on to clients without being interpreted.
+pub fn is_certificate_der(der: &[u8]) -> bool {
+    if der.len() > MAX_CERT {
+        return false;
+    }
+    let mut top = Reader(der);
+    matches!(top.expect(0x30), Ok(body) if body.len() > 8) && top.done()
+}
+
+/// True if `secret` is the private key of the P-256 certificate `cert` (no time check; see [`validate_pair`]).
+pub fn key_matches(cert: &[u8], secret: &[u8; 32]) -> bool {
+    match (inspect(cert), SigningKey::from_bytes(secret.into())) {
+        (Ok(info), Ok(sk)) => sk.verifying_key().to_sec1_point(false).as_bytes() == info.public_key,
+        _ => false,
+    }
+}
+
 /// SHA-256 of the certificate, the usual fingerprint.
 pub fn fingerprint(cert: &[u8]) -> [u8; 32] {
     Sha256::digest(cert).into()
@@ -328,6 +346,21 @@ pub fn fingerprint_hex(f: &[u8; 32]) -> String<95> {
         let _ = write!(s, "{}{:02X}", if i == 0 { "" } else { ":" }, b);
     }
     s
+}
+
+/// The private key as an unencrypted PKCS#8 `PrivateKeyInfo` (RFC 5208) for P-256, which is what TLS libraries load. The
+/// optional public key is left out, as OpenSSL does when asked for the minimal form.
+pub fn secret_to_pkcs8(secret: &[u8; 32]) -> Result<Vec<u8, 67>, X509Error> {
+    SigningKey::from_bytes(secret.into()).map_err(|_| X509Error::BadSecret)?; // zero or not below the group order
+    let mut out = Vec::new();
+    // SEQ { INTEGER 0, SEQ { OID ecPublicKey, OID prime256v1 }, OCTET STRING { SEQ { INTEGER 1, OCTET STRING key } } }
+    out.extend_from_slice(&[0x30, 0x41, 0x02, 0x01, 0x00, 0x30, 0x13, 0x06, 0x07]).map_err(|_| X509Error::TooLarge)?;
+    out.extend_from_slice(OID_EC_PUBLIC_KEY).map_err(|_| X509Error::TooLarge)?;
+    out.extend_from_slice(&[0x06, 0x08]).map_err(|_| X509Error::TooLarge)?;
+    out.extend_from_slice(OID_PRIME256V1).map_err(|_| X509Error::TooLarge)?;
+    out.extend_from_slice(&[0x04, 0x27, 0x30, 0x25, 0x02, 0x01, 0x01, 0x04, 0x20]).map_err(|_| X509Error::TooLarge)?;
+    out.extend_from_slice(secret).map_err(|_| X509Error::TooLarge)?;
+    Ok(out)
 }
 
 // ---- PEM and private keys ----------------------------------------------------------------------------------------
@@ -533,6 +566,20 @@ mod tests {
         assert_eq!(inspect(&[0u8; MAX_CERT + 1]), Err(X509Error::TooLarge));
         assert!(inspect(&[]).is_err());
         assert!(inspect(&[0x30, 0x00]).is_err());
+    }
+
+    // VERIFIES: REQ-WEB-07
+    #[test]
+    fn pkcs8_form_of_a_secret_reads_back_and_is_well_formed() {
+        let der = secret_to_pkcs8(&SECRET).unwrap();
+        assert_eq!(der.len(), 67);
+        assert_eq!(parse_private_key(&der).unwrap(), SECRET, "our own reader gets the key back");
+        // the outer lengths are right: SEQUENCE 0x41 = the 65 bytes that follow
+        let mut r = Reader(&der);
+        assert_eq!(r.expect(0x30).unwrap().len(), 65);
+        assert!(r.done());
+        assert_eq!(secret_to_pkcs8(&[0; 32]), Err(X509Error::BadSecret));
+        assert_eq!(secret_to_pkcs8(&[0xFF; 32]), Err(X509Error::BadSecret));
     }
 
     // VERIFIES: REQ-WEB-07

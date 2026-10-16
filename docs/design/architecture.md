@@ -260,7 +260,7 @@ The device is a LAN appliance and the design says so plainly.
 
 | Concern                      | Design                                                                                          |
 |------------------------------|-------------------------------------------------------------------------------------------------|
-| Web traffic                  | Plain HTTP. Passwords cross the LAN in clear. HTTPS is a roadmap item (see section 9).          |
+| Web traffic                  | Pico 2 W: HTTPS (TLS 1.3, per-device or uploaded certificate), port 80 redirects. Pico W: plain HTTP, passwords cross the LAN in clear. |
 | Web access control           | Optional HTTP Basic (`admin` + `web_password`), constant-time comparison. Off if no password.   |
 | Cross-site requests          | `POST /save` is refused unless `Origin` matches `Host` (when an `Origin` is sent).              |
 | Secrets                      | Never printed by the terminal or written into the page; a blank field keeps the stored value.   |
@@ -327,7 +327,7 @@ crates.io releases.
   A source abstraction would let several producers publish (seconds, sub-second, quality) and let `ui_task` pick the
   best; a GPS with a PPS pulse could replace the anchor's free-running phase and allow a lower stratum. Needs free
   GPIOs that reach the clock's case.
-- **HTTPS.** Needs a TLS *server*; nothing vetted builds for the RP2040. Decided in ADR-0002: `rustls` on the Pico 2 W only, a per-device certificate generated at first boot, uploadable replacement; the Pico W keeps HTTP.
+- **HTTPS.** Needs a TLS *server*; nothing vetted builds for the RP2040. Implemented per ADR-0002: `rustls` on the Pico 2 W only (`firmware/src/{https,tls,heap}.rs`, record format in `core/src/tlsstore.rs`), a per-device certificate generated once the RTC is valid and stored in its own flash sector, uploadable replacement over HTTPS; the Pico W keeps HTTP.
 - **NTS beyond today:** RSA chains, user roots, TRNG on the RP2350.
 - **DHCP option 42, mDNS, strongest-network selection** touch only `net.rs`.
 

@@ -446,3 +446,24 @@ are named; the report does not say whether the buttons, the menu, the alarm or t
 not claimed here.
 
 Verifies: REQ-HW-06
+
+### VR-42 · 2026-10-16 · hardware · Pico 2 W: HTTPS server, certificate lifecycle, redirect and upload
+
+On the Pico 2 W in the clock (name `picoclock-d6`), tested with `curl` and `openssl s_client` from the Raspberry Pi.
+**HTTPS:** TLS 1.3 only with `TLS_AES_128_GCM_SHA256`; X25519 and P-256 key exchange work; TLS 1.2 and a hybrid-only client are
+refused. A handshake took 0.14 to 0.2 s. `GET /` (5.7 KB, 30 form fields) and `/zones` (7.7 KB) work; 100 sequential requests
+all succeeded (17.7 s); the display scan had one wait over 100 us (106 us) in 75 s. A POST with the right `https://` Origin
+saved a setting; a wrong scheme or a foreign Origin gave 403; with the web password set: none and wrong gave 401, right gave
+200, and the page never shows the password. **Certificate:** generated at first boot, OpenSSL shows CN and SAN
+`picoclock-d6`, `picoclock-d6.local`, CA:FALSE, digital signature, server authentication, ten years. The fingerprint in
+`status`/`cert` equals the one `openssl s_client` sees. After a reboot the same certificate was served (stored in its own
+flash sector); `cert new` replaced it and the new fingerprint was served and reported. **Redirect:** plain `GET /` and
+`GET /zones` gave 307 with the `https://` location; a POST over HTTP gave 403; a Host header with an injection attempt
+(`evil.example/x`) was replaced by the clock's own address; HTTP/1.0 without Host worked; `http_redirect off` served the page
+on port 80 again. **Upload:** a matching P-256 pair was accepted and served, shown as "uploaded", and survived a reflash and
+reboot; refused with the right message: wrong key, RSA, P-384, missing key; refused (403) over plain HTTP and with a foreign
+Origin. **Not verified:** a browser (no one has opened the page in one yet), a chain with intermediates on hardware (host
+test only), heap use over a long run (no RTT on this board), the expiry path on hardware (host test only).
+I restored the board afterwards to a fresh self-signed certificate and the default settings.
+
+Verifies: REQ-WEB-06, REQ-WEB-08

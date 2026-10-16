@@ -92,6 +92,13 @@ fn openssl_reads_verifies_and_fingerprints_the_generated_certificate() {
     let fp = openssl(d, &["x509", "-in", "c.pem", "-noout", "-fingerprint", "-sha256"]).unwrap();
     assert!(fp.trim().ends_with(x509::fingerprint_hex(&x509::fingerprint(&cert)).as_str()), "{fp}");
 
+    // the PKCS#8 form of the secret is a key OpenSSL reads, and it is the key of this certificate
+    let pk8 = x509::secret_to_pkcs8(&[0x42; 32]).unwrap();
+    std::fs::write(d.join("k.pem"), pem("PRIVATE KEY", &pk8)).unwrap();
+    let from_key = openssl(d, &["pkey", "-in", "k.pem", "-pubout"]).expect("openssl must read our PKCS#8 key");
+    let from_cert = openssl(d, &["x509", "-in", "c.pem", "-noout", "-pubkey"]).unwrap();
+    assert_eq!(from_key.trim(), from_cert.trim(), "the key and the certificate must belong together");
+
     // tampering with any byte makes OpenSSL refuse the self-signature (or the parse)
     for i in (0..cert.len()).step_by(7) {
         let mut bad = cert.clone();

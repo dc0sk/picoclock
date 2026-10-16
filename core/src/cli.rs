@@ -40,6 +40,12 @@ pub struct Status {
     pub geo_provider: u8,
     /// The last sync was authenticated (NTS).
     pub sync_secure: bool,
+    /// The HTTPS server: 0 = not part of this build, 1 = starting (needs a valid time), 2 = serving.
+    pub https_state: u8,
+    /// SHA-256 of the HTTPS certificate in use, its end of validity (unix seconds), and whether the user uploaded it.
+    pub cert_fp: [u8; 32],
+    pub cert_not_after: i64,
+    pub cert_uploaded: bool,
     pub geo_addr: [u8; 4],
     /// Config differs from what is saved in flash.
     pub unsaved: bool,
@@ -56,6 +62,8 @@ pub enum Action {
     Bootsel,
     SyncNow,
     Geolocate,
+    /// Replace the HTTPS certificate with a new self-signed one.
+    NewCertificate,
 }
 
 const HELP: &str = "\
@@ -70,9 +78,19 @@ commands:
   tz [prefix]           list known timezone names, e.g. 'tz europe/'
   sync                  query NTP now
   geo                   look up the timezone from the public IP now (needs timezone=auto)
+  cert                  show the HTTPS certificate (fingerprint, validity)
+  cert new              replace the HTTPS certificate with a new self-signed one
   reboot | bootsel      restart / enter USB flashing mode
   help                  this text
 ";
+
+/// `YYYY-MM-DD` of a unix time.
+fn date(unix: i64) -> heapless::String<12> {
+    let d = crate::time::unix_to_datetime(unix);
+    let mut s = heapless::String::new();
+    let _ = write!(s, "{:04}-{:02}-{:02}", d.year, d.month, d.day);
+    s
+}
 
 fn ip(out: &mut impl Write, a: Option<[u8; 4]>) {
     match a {
@@ -236,6 +254,15 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             };
             let host = crate::geo::PROVIDERS.get(st.geo_provider as usize).map_or("?", |p| p.host);
             let _ = write!(out, "\ngeo     : {geo} via {host} ({} bytes, {end}, server {}.{}.{}.{})", st.geo_bytes, st.geo_addr[0], st.geo_addr[1], st.geo_addr[2], st.geo_addr[3]);
+            let _ = write!(out, "\nhttps   : ");
+            match (st.https_state, cfg.https) {
+                (0, _) => { let _ = out.write_str("not in this build (Pico 2 W only)"); }
+                (_, false) => { let _ = out.write_str("off"); }
+                (1, true) => { let _ = out.write_str("starting (needs a valid time)"); }
+                _ => {
+                    let _ = write!(out, "on, certificate {} ({}), valid until {}", crate::x509::fingerprint_hex(&st.cert_fp), if st.cert_uploaded { "uploaded" } else { "self-signed" }, date(st.cert_not_after));
+                }
+            }
             let _ = write!(out, "\nscan    : worst late {} us, {} waits > 100 us in {} s\n", st.scan_late_max_us, st.scan_late_count, st.uptime_s);
             if st.unsaved {
                 let _ = out.write_str("unsaved changes: type 'save'\n");
@@ -243,6 +270,30 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             Action::None
         }
         "sync" => Action::SyncNow,
+        "cert" => match (rest, st.https_state) {
+            (_, 0) => {
+                let _ = out.write_str("no HTTPS in this build (Pico 2 W only)\n");
+                Action::None
+            }
+            ("" | "show", 1) | ("new", 1) => {
+                let _ = out.write_str("starting: the certificate is made once the clock has a valid time\n");
+                Action::None
+            }
+            ("" | "show", _) => {
+                let _ = writeln!(out, "fingerprint (SHA-256): {}", crate::x509::fingerprint_hex(&st.cert_fp));
+                let _ = writeln!(out, "kind                 : {}", if st.cert_uploaded { "uploaded" } else { "self-signed, made by this device" });
+                let _ = writeln!(out, "valid until          : {}", date(st.cert_not_after));
+                Action::None
+            }
+            ("new", _) => {
+                let _ = out.write_str("making a new self-signed certificate; browsers will ask you to trust it again\n");
+                Action::NewCertificate
+            }
+            _ => {
+                let _ = out.write_str("usage: cert | cert new\n");
+                Action::None
+            }
+        },
         "geo" => {
             if cfg.wants_geolocation() {
                 Action::Geolocate
@@ -431,5 +482,43 @@ mod tests {
         assert_eq!(line(&base), "synced  : 10 s ago (plain NTP)");
         assert_eq!(line(&Status { sync_secure: true, ..base }), "synced  : 10 s ago (NTS, authenticated)");
         assert_eq!(line(&Status::default()), "synced  : never");
+    }
+
+    // VERIFIES: REQ-WEB-08
+    #[test]
+    fn cert_command_and_https_line_in_status() {
+        let mut c = Config::default();
+        let mut fp = [0u8; 32];
+        fp[0] = 0xAB;
+        fp[31] = 0x01;
+        let ready = Status { https_state: 2, cert_fp: fp, cert_not_after: 2_086_000_000, cert_uploaded: false, ..Default::default() };
+        let run = |c: &mut Config, line: &str, st: &Status| {
+            let mut out = String::new();
+            let a = execute(line, c, st, &mut out);
+            (a, out)
+        };
+        let (_, s) = run(&mut c, "status", &ready);
+        assert!(s.contains("https   : on, certificate AB:00:"), "{s}");
+        assert!(s.contains(":01 (self-signed), valid until 2036-"), "{s}");
+        let (_, s) = run(&mut c, "status", &Status { cert_uploaded: true, ..ready });
+        assert!(s.contains("(uploaded)"), "{s}");
+        let (_, s) = run(&mut c, "status", &Status { https_state: 0, ..Default::default() });
+        assert!(s.contains("https   : not in this build"), "{s}");
+        let (_, s) = run(&mut c, "status", &Status { https_state: 1, ..Default::default() });
+        assert!(s.contains("https   : starting"), "{s}");
+        c.set("https", "off").unwrap();
+        let (_, s) = run(&mut c, "status", &ready);
+        assert!(s.contains("https   : off"), "{s}");
+        c.set("https", "on").unwrap();
+
+        let (a, s) = run(&mut c, "cert", &ready);
+        assert_eq!(a, Action::None);
+        assert!(s.contains("fingerprint (SHA-256): AB:") && s.contains("self-signed, made by this device") && s.contains("valid until          : 2036-"), "{s}");
+        assert_eq!(run(&mut c, "cert new", &ready).0, Action::NewCertificate);
+        assert_eq!(run(&mut c, "cert new", &Status { https_state: 1, ..Default::default() }).0, Action::None, "nothing to replace yet");
+        assert_eq!(run(&mut c, "cert new", &Status::default()).0, Action::None, "no HTTPS in this build");
+        assert!(run(&mut c, "cert", &Status::default()).1.contains("no HTTPS in this build"));
+        assert!(run(&mut c, "cert bogus", &ready).1.contains("usage"));
+        assert!(run(&mut c, "help", &ready).1.contains("cert new"));
     }
 }

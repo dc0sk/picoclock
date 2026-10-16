@@ -6,9 +6,18 @@
 #![no_std]
 #![no_main]
 
+#[cfg(feature = "https")]
+extern crate alloc;
+
 mod buttons;
 mod buzzer;
 mod crypto;
+#[cfg(feature = "https")]
+mod heap;
+#[cfg(feature = "https")]
+mod https;
+#[cfg(feature = "https")]
+mod tls;
 mod display;
 mod net;
 mod nts;
@@ -189,6 +198,8 @@ async fn light_task(mut adc: Adc<'static, Async>, mut ch: Channel<'static>, mut 
 
 #[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
+    #[cfg(feature = "https")]
+    heap::init();
     let p = embassy_rp::init(Default::default());
 
     // Settings first: they decide how everything else behaves.
@@ -199,6 +210,11 @@ async fn main(spawner: Spawner) {
             state::set_config(cfg);
         }
         None => info!("config: none stored, using defaults"),
+    }
+    #[cfg(feature = "https")]
+    if let Some(m) = storage::load_tls(&mut flash) {
+        info!("https: certificate loaded from flash");
+        state::set_tls_material(m);
     }
 
     // Display on its own high-priority interrupt executor, so WiFi/USB activity can never make it flicker.
@@ -287,4 +303,6 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(net::wifi_task(control, stack, iface)));
     spawner.spawn(unwrap!(net::ntp_server_task(stack)));
     spawner.spawn(unwrap!(web::web_task(stack)));
+    #[cfg(feature = "https")]
+    spawner.spawn(unwrap!(https::https_task(stack)));
 }

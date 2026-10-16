@@ -16,82 +16,83 @@ last_updated: 2026-10-16
 
 | Measure                                                           | Count |
 |-------------------------------------------------------------------|-------|
-| Requirements                                                      | 62    |
-| Ratified                                                          | 58    |
-| Draft (roadmap)                                                   | 4     |
+| Requirements                                                      | 63    |
+| Ratified                                                          | 60    |
+| Draft (roadmap)                                                   | 3     |
 | Retired                                                           | 0     |
-| Ratified with hardware evidence                                   | 42    |
+| Ratified with hardware evidence                                   | 44    |
 | Ratified with unit tests only (no hardware, host or build record) | 8     |
 | Ratified and UNVERIFIED (stated reason)                           | 1     |
-| Unit tests bound to requirements                                  | 110   |
-| Verification records                                              | 41    |
+| Unit tests bound to requirements                                  | 118   |
+| Verification records                                              | 42    |
 
 ## Forward: requirement to evidence
 
-| Requirement | Status   | Crit.  | Capabilities           | Unit tests | Records                           | Evidence             |
-|-------------|----------|--------|------------------------|------------|-----------------------------------|----------------------|
-| REQ-TIME-01 | ratified | high   | APP, UI, RTC, TIME     | 4          | VR-01                             | unit, hardware       |
-| REQ-TIME-02 | ratified | medium | UI, CONFIG             | 4          | -                                 | unit                 |
-| REQ-TIME-03 | ratified | high   | TIME, SNTP             | 3          | -                                 | unit                 |
-| REQ-TIME-04 | ratified | high   | APP, RTC               | 1          | VR-05, VR-14                      | unit, hardware       |
-| REQ-TZ-01   | ratified | high   | TZ                     | 7          | VR-03, VR-10                      | unit, host, hardware |
-| REQ-TZ-02   | ratified | high   | TZ, CLI                | 4          | -                                 | unit                 |
-| REQ-TZ-03   | ratified | medium | TZ, CONFIG             | 5          | VR-02                             | unit, hardware       |
-| REQ-TZ-04   | ratified | medium | GEO, NET, CONFIG       | 7          | VR-13, VR-23, VR-25, VR-28        | unit, host, hardware |
-| REQ-TZ-05   | ratified | medium | TZ, CONFIG             | 2          | VR-18                             | unit, hardware       |
-| REQ-NTP-01  | ratified | high   | SNTP, NET, CONFIG      | 3          | VR-04, VR-13, VR-28               | unit, host, hardware |
-| REQ-NTP-02  | ratified | high   | SNTP                   | 1          | VR-10                             | unit, host           |
-| REQ-NTP-03  | ratified | medium | NET, CLI               | 1          | VR-04                             | unit, hardware       |
-| REQ-NTS-01  | ratified | high   | NTS, SNTP, NET, CONFIG | 9          | VR-31, VR-34                      | unit, host, hardware |
-| REQ-NTS-02  | ratified | high   | NTS                    | 2          | VR-31                             | unit, host           |
-| REQ-NTS-03  | ratified | high   | NTS, SNTP, CONFIG      | 2          | VR-34                             | unit, hardware       |
-| REQ-NTS-04  | ratified | medium | CLI                    | 1          | VR-34                             | unit, hardware       |
-| REQ-NTS-05  | ratified | medium | NTS                    | 3          | VR-31, VR-34                      | unit, host, hardware |
-| REQ-NTS-06  | ratified | high   | NTS                    | 1          | VR-31, VR-32                      | unit, host           |
-| REQ-NTS-07  | ratified | high   | NTS                    | 3          | VR-32, VR-33                      | unit, host           |
-| REQ-SRV-01  | ratified | medium | CONFIG, NET            | 1          | VR-06                             | unit, hardware       |
-| REQ-SRV-02  | ratified | high   | SNTP, NET              | 2          | VR-06, VR-10                      | unit, host, hardware |
-| REQ-SRV-03  | ratified | high   | SNTP, NET              | 3          | VR-06, VR-10                      | unit, host, hardware |
-| REQ-SRV-04  | ratified | medium | NET, APP               | 0          | VR-05, VR-14                      | hardware             |
-| REQ-NET-01  | ratified | high   | CONFIG, NET            | 2          | VR-04, VR-07, VR-11, VR-19, VR-28 | unit, hardware       |
-| REQ-NET-02  | ratified | medium | CONFIG, NET, CLI       | 3          | VR-08                             | unit, hardware       |
-| REQ-NET-03  | ratified | medium | NET                    | 0          | VR-07, VR-28                      | hardware             |
-| REQ-NET-06  | ratified | medium | NET                    | 0          | VR-19                             | hardware             |
-| REQ-NET-04  | draft    | low    | -                      | 0          | -                                 | -                    |
-| REQ-NET-05  | draft    | low    | -                      | 0          | -                                 | -                    |
-| REQ-CFG-01  | ratified | high   | CONFIG, CLI, HTTP      | 4          | VR-03                             | unit, hardware       |
-| REQ-CFG-02  | ratified | high   | CONFIG                 | 5          | VR-03, VR-10                      | unit, host, hardware |
-| REQ-CFG-03  | ratified | high   | CONFIG, HTTP, CLI      | 5          | VR-15                             | unit, hardware       |
-| REQ-CFG-04  | ratified | medium | CONFIG                 | 2          | -                                 | unit                 |
-| REQ-CFG-05  | ratified | medium | CLI, CONFIG            | 0          | VR-35                             | hardware             |
-| REQ-CLI-01  | ratified | medium | CLI                    | 6          | VR-01, VR-02                      | unit, hardware       |
-| REQ-CLI-02  | ratified | low    | CLI                    | 1          | -                                 | unit                 |
-| REQ-WEB-01  | ratified | medium | HTTP                   | 3          | VR-09, VR-27                      | unit, hardware       |
-| REQ-WEB-02  | ratified | high   | HTTP                   | 5          | VR-10                             | unit, host           |
-| REQ-WEB-03  | ratified | high   | HTTP                   | 1          | VR-09, VR-10                      | unit, host, hardware |
-| REQ-WEB-04  | ratified | high   | HTTP                   | 1          | VR-15                             | unit, hardware       |
-| REQ-WEB-05  | ratified | medium | HTTP                   | 2          | -                                 | unit                 |
-| REQ-WEB-06  | draft    | high   | -                      | 0          | VR-29, VR-30, VR-37               | -                    |
-| REQ-WEB-07  | ratified | high   | CERT                   | 9          | VR-38                             | unit, host           |
-| REQ-DSP-01  | ratified | high   | FRAME, DISPLAY         | 6          | VR-16                             | unit, hardware       |
-| REQ-DSP-02  | ratified | high   | DISPLAY, APP, CLI      | 1          | VR-22, VR-24                      | unit, hardware       |
-| REQ-UI-01   | ratified | high   | UI, INPUT              | 2          | VR-17                             | unit, hardware       |
-| REQ-UI-02   | ratified | medium | UI                     | 2          | -                                 | unit                 |
-| REQ-UI-03   | ratified | medium | UI, INPUT              | 1          | VR-17                             | unit, hardware       |
-| REQ-UI-04   | ratified | medium | UI, INPUT              | 3          | VR-20                             | unit, hardware       |
-| REQ-UI-05   | ratified | high   | UI, BUZZER             | 4          | VR-10, VR-20                      | unit, host, hardware |
-| REQ-UI-06   | ratified | low    | UI, BUZZER             | 2          | VR-26                             | unit, hardware       |
-| REQ-UI-07   | ratified | low    | UI                     | 2          | -                                 | unit                 |
-| REQ-HW-01   | ratified | medium | RTC, UI, CLI           | 2          | VR-02                             | unit, hardware       |
-| REQ-HW-02   | ratified | low    | APP, CLI               | 1          | VR-02                             | unit, hardware       |
-| REQ-HW-03   | ratified | medium | BUZZER                 | 0          | VR-17                             | hardware             |
-| REQ-HW-04   | ratified | medium | APP, DISPLAY           | 0          | VR-21                             | hardware             |
-| REQ-HW-05   | ratified | high   | APP                    | 0          | VR-01, VR-11                      | hardware             |
-| REQ-HW-06   | ratified | medium | APP                    | 0          | VR-39, VR-41                      | hardware             |
-| REQ-HW-07   | draft    | low    | -                      | 0          | -                                 | -                    |
-| REQ-HW-08   | ratified | medium | NTS, SNTP, NET         | 0          | VR-29, VR-34                      | hardware             |
-| REQ-NFR-01  | ratified | medium | APP, CONFIG            | 2          | VR-12, VR-36, VR-40               | unit, build          |
-| REQ-NFR-02  | ratified | high   | APP, DISPLAY           | 0          | -                                 | UNVERIFIED           |
+| Requirement | Status   | Crit.  | Capabilities           | Unit tests | Records                           | Evidence              |
+|-------------|----------|--------|------------------------|------------|-----------------------------------|-----------------------|
+| REQ-TIME-01 | ratified | high   | APP, UI, RTC, TIME     | 4          | VR-01                             | unit, hardware        |
+| REQ-TIME-02 | ratified | medium | UI, CONFIG             | 4          | -                                 | unit                  |
+| REQ-TIME-03 | ratified | high   | TIME, SNTP             | 3          | -                                 | unit                  |
+| REQ-TIME-04 | ratified | high   | APP, RTC               | 1          | VR-05, VR-14                      | unit, hardware        |
+| REQ-TZ-01   | ratified | high   | TZ                     | 7          | VR-03, VR-10                      | unit, host, hardware  |
+| REQ-TZ-02   | ratified | high   | TZ, CLI                | 4          | -                                 | unit                  |
+| REQ-TZ-03   | ratified | medium | TZ, CONFIG             | 5          | VR-02                             | unit, hardware        |
+| REQ-TZ-04   | ratified | medium | GEO, NET, CONFIG       | 7          | VR-13, VR-23, VR-25, VR-28        | unit, host, hardware  |
+| REQ-TZ-05   | ratified | medium | TZ, CONFIG             | 2          | VR-18                             | unit, hardware        |
+| REQ-NTP-01  | ratified | high   | SNTP, NET, CONFIG      | 3          | VR-04, VR-13, VR-28               | unit, host, hardware  |
+| REQ-NTP-02  | ratified | high   | SNTP                   | 1          | VR-10                             | unit, host            |
+| REQ-NTP-03  | ratified | medium | NET, CLI               | 1          | VR-04                             | unit, hardware        |
+| REQ-NTS-01  | ratified | high   | NTS, SNTP, NET, CONFIG | 9          | VR-31, VR-34                      | unit, host, hardware  |
+| REQ-NTS-02  | ratified | high   | NTS                    | 2          | VR-31                             | unit, host            |
+| REQ-NTS-03  | ratified | high   | NTS, SNTP, CONFIG      | 2          | VR-34                             | unit, hardware        |
+| REQ-NTS-04  | ratified | medium | CLI                    | 1          | VR-34                             | unit, hardware        |
+| REQ-NTS-05  | ratified | medium | NTS                    | 3          | VR-31, VR-34                      | unit, host, hardware  |
+| REQ-NTS-06  | ratified | high   | NTS                    | 1          | VR-31, VR-32                      | unit, host            |
+| REQ-NTS-07  | ratified | high   | NTS                    | 3          | VR-32, VR-33                      | unit, host            |
+| REQ-SRV-01  | ratified | medium | CONFIG, NET            | 1          | VR-06                             | unit, hardware        |
+| REQ-SRV-02  | ratified | high   | SNTP, NET              | 2          | VR-06, VR-10                      | unit, host, hardware  |
+| REQ-SRV-03  | ratified | high   | SNTP, NET              | 3          | VR-06, VR-10                      | unit, host, hardware  |
+| REQ-SRV-04  | ratified | medium | NET, APP               | 0          | VR-05, VR-14                      | hardware              |
+| REQ-NET-01  | ratified | high   | CONFIG, NET            | 2          | VR-04, VR-07, VR-11, VR-19, VR-28 | unit, hardware        |
+| REQ-NET-02  | ratified | medium | CONFIG, NET, CLI       | 3          | VR-08                             | unit, hardware        |
+| REQ-NET-03  | ratified | medium | NET                    | 0          | VR-07, VR-28                      | hardware              |
+| REQ-NET-06  | ratified | medium | NET                    | 0          | VR-19                             | hardware              |
+| REQ-NET-04  | draft    | low    | -                      | 0          | -                                 | -                     |
+| REQ-NET-05  | draft    | low    | -                      | 0          | -                                 | -                     |
+| REQ-CFG-01  | ratified | high   | CONFIG, CLI, HTTP      | 4          | VR-03                             | unit, hardware        |
+| REQ-CFG-02  | ratified | high   | CONFIG                 | 5          | VR-03, VR-10                      | unit, host, hardware  |
+| REQ-CFG-03  | ratified | high   | CONFIG, HTTP, CLI      | 5          | VR-15                             | unit, hardware        |
+| REQ-CFG-04  | ratified | medium | CONFIG                 | 2          | -                                 | unit                  |
+| REQ-CFG-05  | ratified | medium | CLI, CONFIG            | 0          | VR-35                             | hardware              |
+| REQ-CLI-01  | ratified | medium | CLI                    | 6          | VR-01, VR-02                      | unit, hardware        |
+| REQ-CLI-02  | ratified | low    | CLI                    | 1          | -                                 | unit                  |
+| REQ-WEB-01  | ratified | medium | HTTP                   | 3          | VR-09, VR-27                      | unit, hardware        |
+| REQ-WEB-02  | ratified | high   | HTTP                   | 5          | VR-10                             | unit, host            |
+| REQ-WEB-03  | ratified | high   | HTTP                   | 1          | VR-09, VR-10                      | unit, host, hardware  |
+| REQ-WEB-04  | ratified | high   | HTTP                   | 1          | VR-15                             | unit, hardware        |
+| REQ-WEB-05  | ratified | medium | HTTP                   | 2          | -                                 | unit                  |
+| REQ-WEB-06  | ratified | high   | HTTPS, HTTP            | 0          | VR-29, VR-30, VR-37, VR-42        | host, build, hardware |
+| REQ-WEB-08  | ratified | high   | HTTPS, HTTP, CERT, CLI | 7          | VR-42                             | unit, hardware        |
+| REQ-WEB-07  | ratified | high   | CERT                   | 10         | VR-38                             | unit, host            |
+| REQ-DSP-01  | ratified | high   | FRAME, DISPLAY         | 6          | VR-16                             | unit, hardware        |
+| REQ-DSP-02  | ratified | high   | DISPLAY, APP, CLI      | 1          | VR-22, VR-24                      | unit, hardware        |
+| REQ-UI-01   | ratified | high   | UI, INPUT              | 2          | VR-17                             | unit, hardware        |
+| REQ-UI-02   | ratified | medium | UI                     | 2          | -                                 | unit                  |
+| REQ-UI-03   | ratified | medium | UI, INPUT              | 1          | VR-17                             | unit, hardware        |
+| REQ-UI-04   | ratified | medium | UI, INPUT              | 3          | VR-20                             | unit, hardware        |
+| REQ-UI-05   | ratified | high   | UI, BUZZER             | 4          | VR-10, VR-20                      | unit, host, hardware  |
+| REQ-UI-06   | ratified | low    | UI, BUZZER             | 2          | VR-26                             | unit, hardware        |
+| REQ-UI-07   | ratified | low    | UI                     | 2          | -                                 | unit                  |
+| REQ-HW-01   | ratified | medium | RTC, UI, CLI           | 2          | VR-02                             | unit, hardware        |
+| REQ-HW-02   | ratified | low    | APP, CLI               | 1          | VR-02                             | unit, hardware        |
+| REQ-HW-03   | ratified | medium | BUZZER                 | 0          | VR-17                             | hardware              |
+| REQ-HW-04   | ratified | medium | APP, DISPLAY           | 0          | VR-21                             | hardware              |
+| REQ-HW-05   | ratified | high   | APP                    | 0          | VR-01, VR-11                      | hardware              |
+| REQ-HW-06   | ratified | medium | APP                    | 0          | VR-39, VR-41                      | hardware              |
+| REQ-HW-07   | draft    | low    | -                      | 0          | -                                 | -                     |
+| REQ-HW-08   | ratified | medium | NTS, SNTP, NET         | 0          | VR-29, VR-34                      | hardware              |
+| REQ-NFR-01  | ratified | medium | APP, CONFIG            | 2          | VR-12, VR-36, VR-40               | unit, build           |
+| REQ-NFR-02  | ratified | high   | APP, DISPLAY           | 0          | -                                 | UNVERIFIED            |
 
 ## Ratified requirements without hardware evidence
 
@@ -118,25 +119,26 @@ These have never been seen working on the clock (they may still have unit tests)
 
 ## Backward: capability to code and requirements
 
-| Capability  | Name                                                      | Code                                                                                                    | Requirements                                                                                                                                                                                 |
-|-------------|-----------------------------------------------------------|---------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| CAP-FRAME   | Frame buffer and font                                     | core/src/font.rs, core/src/frame.rs                                                                     | REQ-DSP-01                                                                                                                                                                                   |
-| CAP-TIME    | Calendar maths                                            | core/src/time.rs                                                                                        | REQ-TIME-01, REQ-TIME-03                                                                                                                                                                     |
-| CAP-TZ      | Timezone rules and zone table                             | core/src/tz.rs, core/src/tzdb.rs                                                                        | REQ-TZ-01, REQ-TZ-02, REQ-TZ-03, REQ-TZ-05                                                                                                                                                   |
-| CAP-GEO     | IP geolocation reply parser                               | core/src/geo.rs                                                                                         | REQ-TZ-04                                                                                                                                                                                    |
-| CAP-SNTP    | SNTP packets and client transport                         | core/src/sntp.rs, firmware/src/ntp.rs                                                                   | REQ-TIME-03, REQ-NTP-01, REQ-NTP-02, REQ-NTS-01, REQ-NTS-03, REQ-SRV-02, REQ-SRV-03, REQ-HW-08                                                                                               |
-| CAP-NTS     | NTS client: key exchange, authenticated packets, sessions | core/src/nts.rs, core/src/nts_ke.rs, firmware/src/nts.rs                                                | REQ-NTS-01, REQ-NTS-02, REQ-NTS-03, REQ-NTS-05, REQ-NTS-06, REQ-NTS-07, REQ-HW-08                                                                                                            |
-| CAP-CONFIG  | Configuration model and flash storage                     | core/src/config.rs, firmware/src/storage.rs                                                             | REQ-TIME-02, REQ-TZ-03, REQ-TZ-04, REQ-TZ-05, REQ-NTP-01, REQ-NTS-01, REQ-NTS-03, REQ-SRV-01, REQ-NET-01, REQ-NET-02, REQ-CFG-01, REQ-CFG-02, REQ-CFG-03, REQ-CFG-04, REQ-CFG-05, REQ-NFR-01 |
-| CAP-CLI     | Terminal commands and USB serial console                  | core/src/cli.rs, firmware/src/usb_cli.rs                                                                | REQ-TZ-02, REQ-NTP-03, REQ-NTS-04, REQ-NET-02, REQ-CFG-01, REQ-CFG-03, REQ-CFG-05, REQ-CLI-01, REQ-CLI-02, REQ-DSP-02, REQ-HW-01, REQ-HW-02                                                  |
-| CAP-HTTP    | HTTP parsing, settings page and web server                | core/src/http.rs, firmware/src/web.rs                                                                   | REQ-CFG-01, REQ-CFG-03, REQ-WEB-01, REQ-WEB-02, REQ-WEB-03, REQ-WEB-04, REQ-WEB-05                                                                                                           |
-| CAP-CERT    | Web page TLS certificate: generate, inspect, validate     | core/src/x509.rs                                                                                        | REQ-WEB-07                                                                                                                                                                                   |
-| CAP-UI      | Button, menu, alarm and view state machine                | core/src/ui.rs                                                                                          | REQ-TIME-01, REQ-TIME-02, REQ-UI-01, REQ-UI-02, REQ-UI-03, REQ-UI-04, REQ-UI-05, REQ-UI-06, REQ-UI-07, REQ-HW-01                                                                             |
-| CAP-DISPLAY | LED matrix scan                                           | firmware/src/display.rs                                                                                 | REQ-DSP-01, REQ-DSP-02, REQ-HW-04, REQ-NFR-02                                                                                                                                                |
-| CAP-INPUT   | Button polling                                            | firmware/src/buttons.rs                                                                                 | REQ-UI-01, REQ-UI-03, REQ-UI-04                                                                                                                                                              |
-| CAP-BUZZER  | Buzzer driver                                             | firmware/src/buzzer.rs                                                                                  | REQ-UI-05, REQ-UI-06, REQ-HW-03                                                                                                                                                              |
-| CAP-RTC     | DS3231 driver                                             | firmware/src/rtc.rs                                                                                     | REQ-TIME-01, REQ-TIME-04, REQ-HW-01                                                                                                                                                          |
-| CAP-NET     | WiFi, hourly sync, geolocation request and NTP server     | firmware/src/net.rs                                                                                     | REQ-TZ-04, REQ-NTP-01, REQ-NTP-03, REQ-NTS-01, REQ-SRV-01, REQ-SRV-02, REQ-SRV-03, REQ-SRV-04, REQ-NET-01, REQ-NET-02, REQ-NET-03, REQ-NET-06, REQ-HW-08                                     |
-| CAP-APP     | Composition: task wiring, shared state, chip selection    | core/src/lib.rs, firmware/build.rs, firmware/src/crypto.rs, firmware/src/main.rs, firmware/src/state.rs | REQ-TIME-01, REQ-TIME-04, REQ-SRV-04, REQ-DSP-02, REQ-HW-02, REQ-HW-04, REQ-HW-05, REQ-HW-06, REQ-NFR-01, REQ-NFR-02                                                                         |
+| Capability  | Name                                                                               | Code                                                                                                    | Requirements                                                                                                                                                                                 |
+|-------------|------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| CAP-FRAME   | Frame buffer and font                                                              | core/src/font.rs, core/src/frame.rs                                                                     | REQ-DSP-01                                                                                                                                                                                   |
+| CAP-TIME    | Calendar maths                                                                     | core/src/time.rs                                                                                        | REQ-TIME-01, REQ-TIME-03                                                                                                                                                                     |
+| CAP-TZ      | Timezone rules and zone table                                                      | core/src/tz.rs, core/src/tzdb.rs                                                                        | REQ-TZ-01, REQ-TZ-02, REQ-TZ-03, REQ-TZ-05                                                                                                                                                   |
+| CAP-GEO     | IP geolocation reply parser                                                        | core/src/geo.rs                                                                                         | REQ-TZ-04                                                                                                                                                                                    |
+| CAP-SNTP    | SNTP packets and client transport                                                  | core/src/sntp.rs, firmware/src/ntp.rs                                                                   | REQ-TIME-03, REQ-NTP-01, REQ-NTP-02, REQ-NTS-01, REQ-NTS-03, REQ-SRV-02, REQ-SRV-03, REQ-HW-08                                                                                               |
+| CAP-NTS     | NTS client: key exchange, authenticated packets, sessions                          | core/src/nts.rs, core/src/nts_ke.rs, firmware/src/nts.rs                                                | REQ-NTS-01, REQ-NTS-02, REQ-NTS-03, REQ-NTS-05, REQ-NTS-06, REQ-NTS-07, REQ-HW-08                                                                                                            |
+| CAP-CONFIG  | Configuration model and flash storage                                              | core/src/config.rs, firmware/src/storage.rs                                                             | REQ-TIME-02, REQ-TZ-03, REQ-TZ-04, REQ-TZ-05, REQ-NTP-01, REQ-NTS-01, REQ-NTS-03, REQ-SRV-01, REQ-NET-01, REQ-NET-02, REQ-CFG-01, REQ-CFG-02, REQ-CFG-03, REQ-CFG-04, REQ-CFG-05, REQ-NFR-01 |
+| CAP-CLI     | Terminal commands and USB serial console                                           | core/src/cli.rs, firmware/src/usb_cli.rs                                                                | REQ-TZ-02, REQ-NTP-03, REQ-NTS-04, REQ-NET-02, REQ-CFG-01, REQ-CFG-03, REQ-CFG-05, REQ-CLI-01, REQ-CLI-02, REQ-WEB-08, REQ-DSP-02, REQ-HW-01, REQ-HW-02                                      |
+| CAP-HTTP    | HTTP parsing, settings page and web server                                         | core/src/http.rs, firmware/src/web.rs                                                                   | REQ-CFG-01, REQ-CFG-03, REQ-WEB-01, REQ-WEB-02, REQ-WEB-03, REQ-WEB-04, REQ-WEB-05, REQ-WEB-06, REQ-WEB-08                                                                                   |
+| CAP-HTTPS   | HTTPS server (Pico 2 W): heap, rustls glue, certificate lifecycle and flash record | core/src/tlsstore.rs, firmware/src/heap.rs, firmware/src/https.rs, firmware/src/tls.rs                  | REQ-WEB-06, REQ-WEB-08                                                                                                                                                                       |
+| CAP-CERT    | Web page TLS certificate: generate, inspect, validate                              | core/src/x509.rs                                                                                        | REQ-WEB-08, REQ-WEB-07                                                                                                                                                                       |
+| CAP-UI      | Button, menu, alarm and view state machine                                         | core/src/ui.rs                                                                                          | REQ-TIME-01, REQ-TIME-02, REQ-UI-01, REQ-UI-02, REQ-UI-03, REQ-UI-04, REQ-UI-05, REQ-UI-06, REQ-UI-07, REQ-HW-01                                                                             |
+| CAP-DISPLAY | LED matrix scan                                                                    | firmware/src/display.rs                                                                                 | REQ-DSP-01, REQ-DSP-02, REQ-HW-04, REQ-NFR-02                                                                                                                                                |
+| CAP-INPUT   | Button polling                                                                     | firmware/src/buttons.rs                                                                                 | REQ-UI-01, REQ-UI-03, REQ-UI-04                                                                                                                                                              |
+| CAP-BUZZER  | Buzzer driver                                                                      | firmware/src/buzzer.rs                                                                                  | REQ-UI-05, REQ-UI-06, REQ-HW-03                                                                                                                                                              |
+| CAP-RTC     | DS3231 driver                                                                      | firmware/src/rtc.rs                                                                                     | REQ-TIME-01, REQ-TIME-04, REQ-HW-01                                                                                                                                                          |
+| CAP-NET     | WiFi, hourly sync, geolocation request and NTP server                              | firmware/src/net.rs                                                                                     | REQ-TZ-04, REQ-NTP-01, REQ-NTP-03, REQ-NTS-01, REQ-SRV-01, REQ-SRV-02, REQ-SRV-03, REQ-SRV-04, REQ-NET-01, REQ-NET-02, REQ-NET-03, REQ-NET-06, REQ-HW-08                                     |
+| CAP-APP     | Composition: task wiring, shared state, chip selection                             | core/src/lib.rs, firmware/build.rs, firmware/src/crypto.rs, firmware/src/main.rs, firmware/src/state.rs | REQ-TIME-01, REQ-TIME-04, REQ-SRV-04, REQ-DSP-02, REQ-HW-02, REQ-HW-04, REQ-HW-05, REQ-HW-06, REQ-NFR-01, REQ-NFR-02                                                                         |
 
 ## Unit tests by requirement
 
@@ -175,7 +177,8 @@ These have never been seen working on the clock (they may still have unit tests)
 - **REQ-WEB-03**: `http::csrf_origin_check`
 - **REQ-WEB-04**: `http::basic_auth`
 - **REQ-WEB-05**: `http::page_escapes_and_hides_secrets`, `http::page_with_all_slots_full_fits`
-- **REQ-WEB-07**: `x509::generated_certificate_can_be_read_back_and_matches_its_key`, `x509::validation_refuses_a_wrong_key_and_the_wrong_time`, `x509::generation_refuses_bad_inputs`, `x509::the_serial_is_always_positive_and_minimal`, `x509::inspect_rejects_malformed_and_unsupported_certificates`, `x509::fingerprint_is_formatted_like_openssl`, `x509::base64_and_pem_parsing`, `lib::openssl_reads_verifies_and_fingerprints_the_generated_certificate`, `lib::keys_and_certificates_made_by_openssl_are_read_and_matched`
+- **REQ-WEB-08**: `cli::cert_command_and_https_line_in_status`, `http::redirect_target_is_built_only_from_safe_parts`, `http::upload_form_is_offered_only_over_tls_and_only_when_https_runs`, `http::certificate_upload_is_checked_before_it_is_accepted`, `tlsstore::a_record_round_trips`, `tlsstore::a_chain_keeps_its_order`, `tlsstore::blank_torn_corrupt_and_inconsistent_records_read_as_no_certificate`
+- **REQ-WEB-07**: `x509::generated_certificate_can_be_read_back_and_matches_its_key`, `x509::validation_refuses_a_wrong_key_and_the_wrong_time`, `x509::generation_refuses_bad_inputs`, `x509::the_serial_is_always_positive_and_minimal`, `x509::inspect_rejects_malformed_and_unsupported_certificates`, `x509::pkcs8_form_of_a_secret_reads_back_and_is_well_formed`, `x509::fingerprint_is_formatted_like_openssl`, `x509::base64_and_pem_parsing`, `lib::openssl_reads_verifies_and_fingerprints_the_generated_certificate`, `lib::keys_and_certificates_made_by_openssl_are_read_and_matched`
 - **REQ-DSP-01**: `frame::font_table_has_all_glyphs`, `frame::zero_at_column_zero_is_shifted_by_status_offset`, `frame::glyph_spanning_two_groups_keeps_neighbours`, `frame::time_render_leaves_led_row_alone`, `frame::icons_survive_time_render`, `frame::weekday_leds_are_exclusive`
 - **REQ-DSP-02**: `cli::status_shows_scan_timing_and_the_last_lookup`
 - **REQ-UI-01**: `ui::set_cycles_views_and_times_out_to_time`, `ui::date_view_shows_the_local_date_across_midnight`
@@ -234,3 +237,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-39  | 2026-10-16 | hardware | The Pico 2 W (RP2350) runs the firmware                                            | REQ-HW-06                                                                                    |
 | VR-40  | 2026-10-16 | build    | Correction: the UF2 family ID                                                      | REQ-NFR-01                                                                                   |
 | VR-41  | 2026-10-16 | hardware | Pico 2 W: display and beeper fine (user observation)                               | REQ-HW-06                                                                                    |
+| VR-42  | 2026-10-16 | hardware | Pico 2 W: HTTPS server, certificate lifecycle, redirect and upload                 | REQ-WEB-06, REQ-WEB-08                                                                       |

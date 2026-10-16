@@ -59,6 +59,10 @@ async fn run_line(class: &mut Class, line: &str) -> Result<(), Disconnected> {
             send(class, "saving...\r\n").await?;
         }
         Action::Defaults => state::mark_edited(),
+        #[cfg(feature = "https")]
+        Action::NewCertificate => state::CERT_NEW.signal(()),
+        #[cfg(not(feature = "https"))]
+        Action::NewCertificate => {}
         Action::SyncNow => {
             state::SYNC_NOW.signal(());
             send(class, "NTP sync requested\r\n").await?;

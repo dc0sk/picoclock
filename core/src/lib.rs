@@ -11,6 +11,7 @@ pub mod nts_ke;
 pub mod frame;
 pub mod sntp;
 pub mod time;
+pub mod tlsstore;
 pub mod tz;
 pub mod ui;
 pub mod tzdb;

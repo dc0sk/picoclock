@@ -54,6 +54,10 @@ pub struct Config {
     pub web_enabled: bool,
     /// Serve NTP to the LAN (UDP 123). Off by default.
     pub ntp_serve: bool,
+    /// Serve the web page over HTTPS (Pico 2 W builds only; other builds have no TLS).
+    pub https: bool,
+    /// While HTTPS is available, answer plain-HTTP page requests with a redirect to it.
+    pub http_redirect: bool,
 }
 
 impl Default for Config {
@@ -74,6 +78,8 @@ impl Default for Config {
             web_password: Text::new(),
             web_enabled: true,
             ntp_serve: false,
+            https: true,
+            http_redirect: true,
         }
     }
 }
@@ -114,6 +120,8 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { name: "alarm_time", help: "HH:MM local time", secret: false },
     KeyInfo { name: "web_password", help: "password for the web interface (user 'admin'); empty = none", secret: true },
     KeyInfo { name: "web_enabled", help: "on|off: web interface", secret: false },
+    KeyInfo { name: "https", help: "on|off: serve the web page over HTTPS with a self-signed or uploaded certificate (Pico 2 W only)", secret: false },
+    KeyInfo { name: "http_redirect", help: "on|off: while HTTPS is available, redirect plain-HTTP page requests to it", secret: false },
     KeyInfo { name: "ntp_serve", help: "on|off: answer NTP requests from the LAN (accuracy about +-1 s)", secret: false },
 ];
 
@@ -251,6 +259,8 @@ impl Config {
             "web_password" => self.web_password = text(value)?,
             "web_enabled" => self.web_enabled = parse_bool(value)?,
             "ntp_serve" => self.ntp_serve = parse_bool(value)?,
+            "https" => self.https = parse_bool(value)?,
+            "http_redirect" => self.http_redirect = parse_bool(value)?,
             _ => return Err(ConfigError::UnknownKey),
         }
         Ok(())
@@ -280,6 +290,8 @@ impl Config {
             "web_password" => out.write_str(&self.web_password),
             "web_enabled" => out.write_str(on_off(self.web_enabled)),
             "ntp_serve" => out.write_str(on_off(self.ntp_serve)),
+            "https" => out.write_str(on_off(self.https)),
+            "http_redirect" => out.write_str(on_off(self.http_redirect)),
             _ => return Err(ConfigError::UnknownKey),
         };
         r.map_err(|_: fmt::Error| ConfigError::InvalidValue)
@@ -324,7 +336,7 @@ impl Config {
 const MAGIC: [u8; 4] = *b"PCK1";
 const HEADER: usize = 4 + 2 + 4;
 
-fn crc32(data: &[u8]) -> u32 {
+pub(crate) fn crc32(data: &[u8]) -> u32 {
     let mut crc = !0u32;
     for &b in data {
         crc ^= b as u32;

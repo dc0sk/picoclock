@@ -58,6 +58,11 @@ name = "HTTP parsing, settings page and web server"
 code = ["core/src/http.rs", "firmware/src/web.rs"]
 
 [[cap]]
+id = "CAP-HTTPS"
+name = "HTTPS server (Pico 2 W): heap, rustls glue, certificate lifecycle and flash record"
+code = ["firmware/src/https.rs", "firmware/src/tls.rs", "firmware/src/heap.rs", "core/src/tlsstore.rs"]
+
+[[cap]]
 id = "CAP-CERT"
 name = "Web page TLS certificate: generate, inspect, validate"
 code = ["core/src/x509.rs"]
@@ -485,11 +490,20 @@ cap = ["CAP-HTTP"]
 [[req]]
 id = "REQ-WEB-06"
 area = "Web"
-status = "draft"
+status = "ratified"
 criticality = "high"
-statement = "On the Pico 2 W build the web page shall be available over HTTPS with a certificate generated on the device at first boot and replaceable by an uploaded certificate and key; the Pico W build keeps plain HTTP."
-rationale = "Decided in ADR-0002 (2026-10-16). A default private key shipped in an open repository is public, so none is shipped. rustls does not build for the RP2040, so HTTPS comes with the Pico 2 W; it needs the Pico 2 W build to run on hardware first (REQ-HW-06)."
-cap = []
+statement = "On the Pico 2 W build the web page shall be available over HTTPS (TLS 1.3 only, port 443) with a certificate generated on the device, so that the settings page, the web password and the WiFi passphrases are not sent in clear; the Pico W build keeps plain HTTP."
+rationale = "Decided in ADR-0002 (2026-10-16). A default private key shipped in an open repository is public, so none is shipped. rustls does not build for the RP2040, so HTTPS comes with the Pico 2 W."
+cap = ["CAP-HTTPS", "CAP-HTTP"]
+
+[[req]]
+id = "REQ-WEB-08"
+area = "Web"
+status = "ratified"
+criticality = "high"
+statement = "The HTTPS certificate and key shall be kept in their own flash sector and survive a reboot; a damaged or expired one shall be replaced by a new self-signed certificate; `cert` shall show its SHA-256 fingerprint and validity and `cert new` shall replace it; an uploaded certificate and key (web form, HTTPS only, same-origin only) shall be checked before use and the key never shown; while HTTPS runs, plain-HTTP page requests shall be redirected to it (setting `http_redirect`, default on) and nothing shall be changed over the plain port."
+rationale = "A browser pins trust to the certificate, so it must not change at every boot; a private key sent over plain HTTP would defeat the point of HTTPS; a redirect must not become a header-injection or open-redirect hole."
+cap = ["CAP-HTTPS", "CAP-HTTP", "CAP-CERT", "CAP-CLI"]
 
 [[req]]
 id = "REQ-WEB-07"

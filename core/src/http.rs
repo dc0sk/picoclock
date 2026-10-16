@@ -95,11 +95,12 @@ pub fn parse_request(buf: &[u8]) -> Parse<'_> {
     Parse::Complete(Request { method, path, body: &buf[head_end + 4..total], authorization, host, origin })
 }
 
-/// CSRF defence for browser-submitted forms: if the browser sent an Origin, its host must be the Host we were asked for.
-pub fn same_origin(req: &Request) -> bool {
+/// CSRF defence for browser-submitted forms: if the browser sent an Origin, its scheme must be the one of this connection
+/// (`https` when `secure`, `http` otherwise) and its host must be the Host we were asked for.
+pub fn same_origin(req: &Request, secure: bool) -> bool {
     match (req.origin, req.host) {
         (None, _) => true, // non-browser clients (curl) send no Origin
-        (Some(o), Some(h)) => o.split_once("://").is_some_and(|(_, oh)| oh == h),
+        (Some(o), Some(h)) => o.split_once("://").is_some_and(|(scheme, oh)| scheme == if secure { "https" } else { "http" } && oh == h),
         (Some(_), None) => false,
     }
 }
@@ -225,6 +226,111 @@ pub fn apply_form(body: &[u8], cfg: &mut Config, errors: &mut impl Write) -> usi
     changed
 }
 
+/// Where a plain-HTTP page request should be sent when HTTPS is available: `https://<host><path>` for a GET. The host is
+/// the Host header if it is made only of host-name characters (so nothing can be injected into the `Location` header), and
+/// otherwise `fallback_host`, the clock's own address (a client without a usable Host header still gets to HTTPS). The port
+/// is dropped, because the HTTPS port is the default one. `None` for a request that is not a GET or has an unsafe path:
+/// that is refused, never served over the plain connection.
+pub fn https_redirect(req: &Request, fallback_host: &str) -> Option<heapless::String<128>> {
+    if req.method != Method::Get {
+        return None;
+    }
+    let host = req.host.filter(|h| host_part(h).is_some()).unwrap_or(fallback_host);
+    let bare = host_part(host)?;
+    let path_ok = req.path.starts_with('/') && req.path.bytes().all(|b| (0x21..0x7F).contains(&b));
+    if !path_ok {
+        return None;
+    }
+    let mut s = heapless::String::new();
+    write!(s, "https://{bare}{}", req.path).ok()?;
+    Some(s)
+}
+
+/// The host of a Host header value without its port, if it is only host-name characters: `name`, `name:80`, `1.2.3.4:80`,
+/// `[::1]:80`.
+fn host_part(host: &str) -> Option<&str> {
+    let bare = if let Some(rest) = host.strip_prefix('[') {
+        let end = rest.find(']')?;
+        if !rest[end + 1..].is_empty() && !rest[end + 1..].starts_with(':') {
+            return None;
+        }
+        &host[..end + 2]
+    } else {
+        host.split(':').next()?
+    };
+    (!bare.is_empty() && bare.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':' | b'[' | b']'))).then_some(bare)
+}
+
+/// Why a certificate upload was refused.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CertFormError {
+    /// A field is missing or empty.
+    Missing,
+    /// A field is larger than we accept.
+    TooLarge,
+    /// The certificate text is not PEM with P-256 certificates.
+    BadCertificate,
+    /// The key is not a P-256 private key in PEM or DER.
+    BadKey,
+    /// The first certificate is not for this key (wrong order, or another key).
+    Mismatch,
+    Expired,
+    NotYetValid,
+}
+
+impl CertFormError {
+    pub fn message(&self) -> &'static str {
+        match self {
+            CertFormError::Missing => "both the certificate and the private key are needed",
+            CertFormError::TooLarge => "the certificate chain is too large (at most about 3 KB, four certificates)",
+            CertFormError::BadCertificate => "the certificate must be PEM with ECDSA P-256 certificates (RSA and other curves are not supported)",
+            CertFormError::BadKey => "the private key must be a P-256 key in PEM (PRIVATE KEY or EC PRIVATE KEY)",
+            CertFormError::Mismatch => "the first certificate does not belong to this private key; put the server's own certificate first",
+            CertFormError::Expired => "that certificate has expired",
+            CertFormError::NotYetValid => "that certificate is not valid yet (or the clock is wrong)",
+        }
+    }
+}
+
+/// Reads the certificate upload form (`cert` = PEM chain, `key` = PEM key) and checks it against the time `now_unix`.
+pub fn parse_cert_form(body: &[u8], now_unix: i64) -> Result<crate::tlsstore::Material, CertFormError> {
+    let body = core::str::from_utf8(body).map_err(|_| CertFormError::BadCertificate)?;
+    let (mut cert_buf, mut key_buf) = ([0u8; crate::x509::MAX_CHAIN + 512], [0u8; 1024]);
+    let (mut cert, mut key) = (None, None);
+    for pair in body.split('&').filter(|p| !p.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        match k {
+            "cert" if cert.is_none() => cert = Some(url_decode(v, &mut cert_buf).ok_or(CertFormError::TooLarge)?),
+            "key" if key.is_none() => key = Some(url_decode(v, &mut key_buf).ok_or(CertFormError::BadKey)?), // longer than any P-256 key: some other kind of key
+            _ => {}
+        }
+    }
+    let (cert, key) = (cert.filter(|c| !c.trim().is_empty()).ok_or(CertFormError::Missing)?, key.filter(|k| !k.trim().is_empty()).ok_or(CertFormError::Missing)?);
+    let mut chain = heapless::Vec::new();
+    let mut lens = heapless::Vec::new();
+    crate::x509::parse_pem_chain(cert, &mut chain, &mut lens).map_err(|e| match e {
+        crate::x509::X509Error::TooLarge => CertFormError::TooLarge,
+        _ => CertFormError::BadCertificate,
+    })?;
+    let secret = crate::x509::parse_private_key(key.as_bytes()).map_err(|_| CertFormError::BadKey)?;
+    let material = crate::tlsstore::Material { key: secret, uploaded: true, chain, lens };
+    let checked = {
+        let mut certs = material.certs();
+        let leaf = certs.next().ok_or(CertFormError::BadCertificate)?;
+        if !certs.all(crate::x509::is_certificate_der) {
+            return Err(CertFormError::BadCertificate);
+        }
+        crate::x509::validate_pair(leaf, &secret, now_unix)
+    };
+    match checked {
+        Ok(_) => Ok(material),
+        Err(crate::x509::X509Error::KeyMismatch) => Err(CertFormError::Mismatch),
+        Err(crate::x509::X509Error::Expired) => Err(CertFormError::Expired),
+        Err(crate::x509::X509Error::NotYetValid) => Err(CertFormError::NotYetValid),
+        Err(_) => Err(CertFormError::BadCertificate),
+    }
+}
+
 struct Esc<'a>(&'a str);
 impl core::fmt::Display for Esc<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -245,13 +351,13 @@ impl core::fmt::Display for Esc<'_> {
 const PAGE_HEAD: &str = "<!doctype html><html><head><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">\
 <title>picoclock</title><style>body{font:16px system-ui,sans-serif;max-width:34rem;margin:1rem auto;padding:0 1rem}\
 label{display:block;margin-top:.8rem;font-weight:600}small{display:block;color:#666;font-weight:400}\
-input,select{width:100%;box-sizing:border-box;padding:.4rem;font:inherit}button{margin-top:1rem;padding:.5rem 1.2rem;font:inherit}\
+input,select,textarea{width:100%;box-sizing:border-box;padding:.4rem;font:inherit}button{margin-top:1rem;padding:.5rem 1.2rem;font:inherit}\
 .msg{background:#eef;padding:.5rem;border-radius:4px}.err{background:#fdd}pre{background:#f4f4f4;padding:.5rem;overflow:auto}\
-@media(prefers-color-scheme:dark){body{background:#111;color:#eee}small{color:#aaa}pre{background:#222}.msg{background:#223}.err{background:#522}input,select{background:#222;color:#eee;border:1px solid #555}}\
+@media(prefers-color-scheme:dark){body{background:#111;color:#eee}small{color:#aaa}pre{background:#222}.msg{background:#223}.err{background:#522}input,select,textarea{background:#222;color:#eee;border:1px solid #555}}textarea{font:12px monospace}\
 </style></head><body><h1>picoclock</h1>";
 
 /// Renders the status and settings page. Fails (`fmt::Error`) only if `out` is too small.
-pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, out: &mut impl Write) -> core::fmt::Result {
+pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure: bool, out: &mut impl Write) -> core::fmt::Result {
     out.write_str(PAGE_HEAD)?;
     if let Some((m, is_err)) = msg {
         write!(out, "<p class=\"msg{}\">{}</p>", if is_err { " err" } else { "" }, Esc(m))?;
@@ -278,7 +384,18 @@ pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, out: &m
         }
         out.write_str("</label>")?;
     }
-    out.write_str("<button>Save</button></form><p><a href=/zones>List of timezone names</a></p></body></html>")
+    out.write_str("<button>Save</button></form><p><a href=/zones>List of timezone names</a></p>")?;
+    // Replacing the certificate means sending a private key: offered only over TLS, and only once the HTTPS server runs.
+    if secure && st.https_state == 2 {
+        out.write_str(
+            "<form method=post action=/cert><h2>HTTPS certificate</h2><p>Replace the certificate with your own. P-256 (ECDSA) only, in PEM form: \
+the server's own certificate first, then any intermediates, and the matching private key. The key is stored on the clock and never shown again.</p>\
+<label>Certificate chain (PEM)<textarea name=cert rows=8 placeholder=\"-----BEGIN CERTIFICATE-----\"></textarea></label>\
+<label>Private key (PEM)<textarea name=key rows=4 placeholder=\"-----BEGIN PRIVATE KEY-----\" autocomplete=off></textarea></label>\
+<button>Replace certificate</button></form>",
+        )?;
+    }
+    out.write_str("</body></html>")
 }
 
 /// Plain-text list of all timezone names, one per line, streamed by the caller in chunks.
@@ -351,11 +468,19 @@ mod tests {
     #[test]
     fn csrf_origin_check() {
         let mk = |o, h| Request { method: Method::Post, path: "/", body: b"", authorization: None, host: h, origin: o };
-        assert!(same_origin(&mk(None, Some("1.2.3.4"))));
-        assert!(same_origin(&mk(Some("http://1.2.3.4"), Some("1.2.3.4"))));
-        assert!(!same_origin(&mk(Some("http://evil.example"), Some("1.2.3.4"))));
-        assert!(!same_origin(&mk(Some("null"), Some("1.2.3.4"))));
-        assert!(!same_origin(&mk(Some("http://1.2.3.4"), None)));
+        for secure in [false, true] {
+            assert!(same_origin(&mk(None, Some("1.2.3.4")), secure));
+            assert!(!same_origin(&mk(Some("http://evil.example"), Some("1.2.3.4")), secure));
+            assert!(!same_origin(&mk(Some("https://evil.example"), Some("1.2.3.4")), secure));
+            assert!(!same_origin(&mk(Some("null"), Some("1.2.3.4")), secure));
+            assert!(!same_origin(&mk(Some("http://1.2.3.4"), None), secure));
+            assert!(!same_origin(&mk(Some("1.2.3.4"), Some("1.2.3.4")), secure), "no scheme");
+        }
+        assert!(same_origin(&mk(Some("http://1.2.3.4"), Some("1.2.3.4")), false));
+        assert!(!same_origin(&mk(Some("https://1.2.3.4"), Some("1.2.3.4")), false), "an https page posting to the plain http port");
+        assert!(same_origin(&mk(Some("https://1.2.3.4"), Some("1.2.3.4")), true));
+        assert!(!same_origin(&mk(Some("http://1.2.3.4"), Some("1.2.3.4")), true), "a plain http page posting to the https port");
+        assert!(same_origin(&mk(Some("https://picoclock-d6:443"), Some("picoclock-d6:443")), true), "a port is part of both");
     }
 
     // VERIFIES: REQ-WEB-04
@@ -412,7 +537,7 @@ mod tests {
         c.set("wifi_password", "topsecret1").unwrap();
         c.set("web_password", "adminpw").unwrap();
         let mut page = heapless::String::<12288>::new();
-        render_page(&c, &Status::default(), Some(("a <b> message", true)), &mut page).unwrap();
+        render_page(&c, &Status::default(), Some(("a <b> message", true)), false, &mut page).unwrap();
         assert!(!page.contains("<script>"), "ssid must be escaped");
         assert!(page.contains("&lt;script&gt;&quot;x&quot;&amp;"));
         assert!(page.contains("a &lt;b&gt; message"));
@@ -431,7 +556,7 @@ mod tests {
             c.set(&format!("wifi{n}_password"), &"p".repeat(63)).unwrap();
         }
         let mut page = heapless::String::<12288>::new();
-        render_page(&c, &Status::default(), None, &mut page).expect("worst-case page must fit");
+        render_page(&c, &Status::default(), None, false, &mut page).expect("worst-case page must fit");
         assert!(page.contains("name=wifi8_ssid") && page.contains("name=wifi8_password"));
         assert!(!page.contains(&"p".repeat(63)));
     }
@@ -440,6 +565,125 @@ mod tests {
     #[test]
     fn page_overflow_is_an_error_not_a_panic() {
         let mut tiny = heapless::String::<100>::new();
-        assert!(render_page(&Config::default(), &Status::default(), None, &mut tiny).is_err());
+        assert!(render_page(&Config::default(), &Status::default(), None, false, &mut tiny).is_err());
+    }
+
+    fn get(host: Option<&'static str>, path: &'static str) -> Request<'static> {
+        Request { method: Method::Get, path, body: b"", authorization: None, host, origin: None }
+    }
+
+    // VERIFIES: REQ-WEB-08
+    #[test]
+    fn redirect_target_is_built_only_from_safe_parts() {
+        let r = |h, p| https_redirect(&get(h, p), "192.0.2.7").map(|s| s.to_string());
+        assert_eq!(r(Some("picoclock-d6"), "/"), Some("https://picoclock-d6/".into()));
+        assert_eq!(r(Some("192.168.1.41"), "/zones"), Some("https://192.168.1.41/zones".into()));
+        assert_eq!(r(Some("192.168.1.41:80"), "/"), Some("https://192.168.1.41/".into()), "the port is dropped");
+        assert_eq!(r(Some("picoclock-d6.local:8080"), "/x"), Some("https://picoclock-d6.local/x".into()));
+        assert_eq!(r(Some("[fe80::1]:80"), "/"), Some("https://[fe80::1]/".into()));
+        assert_eq!(r(Some("[::1]"), "/"), Some("https://[::1]/".into()));
+        // nothing that could break out of the header line or point somewhere else: such a Host is replaced by our own address
+        for bad in ["evil.example\r\nSet-Cookie: x=1", "a b", "a/b", "evil.example/x", "a@b", "host\"", "", "[::1]x", "[::1", "a\u{e9}.example"] {
+            let got = r(Some(bad), "/").unwrap();
+            assert_eq!(got, "https://192.0.2.7/", "{bad:?} -> {got}");
+        }
+        assert_eq!(r(None, "/x"), Some("https://192.0.2.7/x".into()), "no Host header (HTTP/1.0)");
+        // a path that is not safe to put in a header is refused outright
+        for bad in ["/a b", "/a\r\nX: y", "x", "/\u{e9}"] {
+            assert_eq!(r(Some("h"), bad), None, "{bad:?}");
+        }
+        // only a GET is redirected: a POST would carry its data over the plain connection
+        let post = Request { method: Method::Post, ..get(Some("h"), "/save") };
+        assert_eq!(https_redirect(&post, "192.0.2.7"), None);
+        // and a bad fallback never produces a bad header either
+        assert_eq!(https_redirect(&get(None, "/"), "evil\r\nX: y"), None);
+    }
+
+    // VERIFIES: REQ-WEB-08
+    #[test]
+    fn upload_form_is_offered_only_over_tls_and_only_when_https_runs() {
+        let c = Config::default();
+        let ready = Status { https_state: 2, ..Default::default() };
+        let page = |st: &Status, secure| {
+            let mut p = heapless::String::<12288>::new();
+            render_page(&c, st, None, secure, &mut p).unwrap();
+            p
+        };
+        assert!(page(&ready, true).contains("action=/cert") && page(&ready, true).contains("name=key"));
+        assert!(!page(&ready, false).contains("action=/cert"), "never on plain HTTP: it would send a private key in the clear");
+        assert!(!page(&Status { https_state: 1, ..Default::default() }, true).contains("action=/cert"));
+        assert!(!page(&Status::default(), true).contains("action=/cert"), "not in a build without HTTPS");
+        assert!(page(&ready, true).len() < 11_000);
+    }
+
+    fn pem(label: &str, der: &[u8]) -> std::string::String {
+        const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut s = std::string::String::new();
+        for chunk in der.chunks(3) {
+            let n = chunk.iter().enumerate().fold(0u32, |a, (i, &b)| a | (b as u32) << (16 - 8 * i));
+            for i in 0..4 {
+                s.push(if i <= chunk.len() { T[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+            }
+        }
+        let lines: std::vec::Vec<_> = s.as_bytes().chunks(64).map(|c| std::string::String::from_utf8_lossy(c).into_owned()).collect();
+        format!("-----BEGIN {label}-----\n{}\n-----END {label}-----\n", lines.join("\n"))
+    }
+
+    fn enc(s: &str) -> std::string::String {
+        s.bytes().map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+    }
+
+    const NOW: i64 = 1_792_000_000;
+
+    fn pair(secret: u8) -> (std::vec::Vec<u8>, std::string::String) {
+        let key = [secret; 32];
+        let cert = crate::x509::generate_self_signed(key, [1; 8], &["picoclock-d6"], NOW).unwrap();
+        (cert.to_vec(), pem("PRIVATE KEY", &crate::x509::secret_to_pkcs8(&key).unwrap()))
+    }
+
+    // VERIFIES: REQ-WEB-08
+    #[test]
+    fn certificate_upload_is_checked_before_it_is_accepted() {
+        let (cert, key) = pair(0x31);
+        let form = |c: &str, k: &str| format!("cert={}&key={}", enc(c), enc(k)).into_bytes();
+        let ok = parse_cert_form(&form(&pem("CERTIFICATE", &cert), &key), NOW).expect("a matching pair");
+        assert!(ok.uploaded);
+        assert_eq!(ok.leaf(), &cert[..]);
+        assert_eq!(ok.key, [0x31; 32]);
+        // fields in the other order, extra fields, and a chain with an intermediate-shaped second certificate
+        let (cert2, _) = pair(0x32);
+        let chain = format!("{}{}", pem("CERTIFICATE", &cert), pem("CERTIFICATE", &cert2));
+        let swapped = format!("key={}&junk=1&cert={}", enc(&key), enc(&chain)).into_bytes();
+        let two = parse_cert_form(&swapped, NOW).unwrap();
+        assert_eq!(two.certs().count(), 2);
+        // refusals, each with its own reason
+        assert_eq!(parse_cert_form(b"", NOW).err(), Some(CertFormError::Missing));
+        assert_eq!(parse_cert_form(&form(&pem("CERTIFICATE", &cert), ""), NOW).err(), Some(CertFormError::Missing));
+        assert_eq!(parse_cert_form(&form("", &key), NOW).err(), Some(CertFormError::Missing));
+        assert_eq!(parse_cert_form(&form("not a certificate", &key), NOW).err(), Some(CertFormError::BadCertificate));
+        assert_eq!(parse_cert_form(&form(&pem("CERTIFICATE", &cert), "not a key"), NOW).err(), Some(CertFormError::BadKey));
+        let long_key = format!("-----BEGIN RSA PRIVATE KEY-----\n{}\n-----END RSA PRIVATE KEY-----\n", "A".repeat(1700));
+        assert_eq!(parse_cert_form(&form(&pem("CERTIFICATE", &cert), &long_key), NOW).err(), Some(CertFormError::BadKey), "a key longer than any P-256 key is a key problem, not a chain problem");
+        let (_, other_key) = pair(0x33);
+        assert_eq!(parse_cert_form(&form(&pem("CERTIFICATE", &cert), &other_key), NOW).err(), Some(CertFormError::Mismatch));
+        let intermediate_first = format!("{}{}", pem("CERTIFICATE", &cert2), pem("CERTIFICATE", &cert));
+        assert_eq!(parse_cert_form(&form(&intermediate_first, &key), NOW).err(), Some(CertFormError::Mismatch), "the server's own certificate must come first");
+        assert_eq!(parse_cert_form(&form(&pem("CERTIFICATE", &cert), &key), NOW + 3651 * 86_400).err(), Some(CertFormError::Expired));
+        assert_eq!(parse_cert_form(&form(&pem("CERTIFICATE", &cert), &key), NOW - 3 * 86_400).err(), Some(CertFormError::NotYetValid));
+        // garbage as a "second certificate", and a certificate where the key should be
+        let junk = format!("{}{}", pem("CERTIFICATE", &cert), pem("CERTIFICATE", b"\x01\x02\x03 not der at all, long enough to pass"));
+        assert_eq!(parse_cert_form(&form(&junk, &key), NOW).err(), Some(CertFormError::BadCertificate));
+        assert_eq!(parse_cert_form(&form(&pem("CERTIFICATE", &cert), &pem("CERTIFICATE", &cert)), NOW).err(), Some(CertFormError::BadKey));
+        // too much data never panics: a field beyond the buffers, five certificates, invalid percent escapes
+        let huge = format!("cert={}&key=x", "A".repeat(5000)).into_bytes();
+        assert!(parse_cert_form(&huge, NOW).is_err());
+        let five = pem("CERTIFICATE", &cert).repeat(5);
+        assert_eq!(parse_cert_form(&form(&five, &key), NOW).err(), Some(CertFormError::TooLarge));
+        assert!(parse_cert_form(b"cert=%zz&key=%", NOW).is_err());
+        assert!(parse_cert_form(&[0xFF, 0xFE], NOW).is_err());
+        // the message for every error exists and says something
+        for e in [CertFormError::Missing, CertFormError::TooLarge, CertFormError::BadCertificate, CertFormError::BadKey, CertFormError::Mismatch, CertFormError::Expired, CertFormError::NotYetValid] {
+            assert!(e.message().len() > 20);
+        }
     }
 }

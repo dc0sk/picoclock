@@ -276,10 +276,15 @@ All setting values written into the page shall be HTML-escaped.
 *Why:* A stored SSID must not become script.  
 *Implemented by:* HTTP parsing, settings page and web server
 
-**REQ-WEB-06** (draft, high)  
-On the Pico 2 W build the web page shall be available over HTTPS with a certificate generated on the device at first boot and replaceable by an uploaded certificate and key; the Pico W build keeps plain HTTP.  
-*Why:* Decided in ADR-0002 (2026-10-16). A default private key shipped in an open repository is public, so none is shipped. rustls does not build for the RP2040, so HTTPS comes with the Pico 2 W; it needs the Pico 2 W build to run on hardware first (REQ-HW-06).  
-*Implemented by:* none yet
+**REQ-WEB-06** (ratified, high)  
+On the Pico 2 W build the web page shall be available over HTTPS (TLS 1.3 only, port 443) with a certificate generated on the device, so that the settings page, the web password and the WiFi passphrases are not sent in clear; the Pico W build keeps plain HTTP.  
+*Why:* Decided in ADR-0002 (2026-10-16). A default private key shipped in an open repository is public, so none is shipped. rustls does not build for the RP2040, so HTTPS comes with the Pico 2 W.  
+*Implemented by:* HTTPS server (Pico 2 W): heap, rustls glue, certificate lifecycle and flash record, HTTP parsing, settings page and web server
+
+**REQ-WEB-08** (ratified, high)  
+The HTTPS certificate and key shall be kept in their own flash sector and survive a reboot; a damaged or expired one shall be replaced by a new self-signed certificate; `cert` shall show its SHA-256 fingerprint and validity and `cert new` shall replace it; an uploaded certificate and key (web form, HTTPS only, same-origin only) shall be checked before use and the key never shown; while HTTPS runs, plain-HTTP page requests shall be redirected to it (setting `http_redirect`, default on) and nothing shall be changed over the plain port.  
+*Why:* A browser pins trust to the certificate, so it must not change at every boot; a private key sent over plain HTTP would defeat the point of HTTPS; a redirect must not become a header-injection or open-redirect hole.  
+*Implemented by:* HTTPS server (Pico 2 W): heap, rustls glue, certificate lifecycle and flash record, HTTP parsing, settings page and web server, Web page TLS certificate: generate, inspect, validate, Terminal commands and USB serial console
 
 **REQ-WEB-07** (ratified, high)  
 The device shall build a self-signed ECDSA P-256 server certificate that OpenSSL reads and verifies (valid for the given host names and the current time, for digital signatures and server authentication, not a CA, positive serial), and shall accept an uploaded P-256 certificate and key only if the key matches the certificate and the certificate is valid at the time; PEM and DER, PKCS#8 and SEC1 are read, and any other curve, RSA, or malformed input is refused without panicking.  

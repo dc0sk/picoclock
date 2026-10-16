@@ -10,10 +10,17 @@ description = "Pico-Clock-Green firmware for the Raspberry Pi Pico W / Pico 2 W 
 # --target thumbv8m.main-none-eabihf.
 default = ["rp2040"]
 rp2040 = ["embassy-rp/rp2040"]
-rp235x = ["embassy-rp/rp235xa"]
+rp235x = ["embassy-rp/rp235xa", "https"]
+# HTTPS for the web page (ADR-0002): rustls needs an allocator, so it is only built for the Pico 2 W (the RP2040 has no
+# atomic compare-and-swap, which rustls needs).
+https = ["dep:rustls", "dep:rustls-rustcrypto", "dep:embedded-alloc", "dep:getrandom"]
 
 [dependencies]
 picoclock-core = { path = "../core" }
+rustls = { version = "0.23", default-features = false, features = ["custom-provider"], optional = true }
+rustls-rustcrypto = { version = "0.0.2-alpha", default-features = false, features = ["alloc"], optional = true }
+embedded-alloc = { version = "0.7", optional = true }
+getrandom = { version = "0.2", features = ["custom"], optional = true }
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt"] }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967" }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt", "defmt-timestamp-uptime"] }

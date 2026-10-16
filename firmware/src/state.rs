@@ -38,6 +38,10 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     geo_end: 0,
     geo_provider: 0,
     sync_secure: false,
+    https_state: 0,
+    cert_fp: [0; 32],
+    cert_not_after: 0,
+    cert_uploaded: false,
     geo_addr: [0; 4],
     unsaved: false,
 }));
@@ -65,6 +69,29 @@ pub static SYNC_NOW: Signal<Cs, ()> = Signal::new();
 pub static GEO_NOW: Signal<Cs, ()> = Signal::new();
 pub static BEEP: Signal<Cs, Beep> = Signal::new();
 pub static ALARM_RINGING: AtomicBool = AtomicBool::new(false);
+
+/// The HTTPS key and certificate chain in use (Pico 2 W). Loaded from flash at boot, replaced by the HTTPS task or an upload.
+#[cfg(feature = "https")]
+static TLS_MATERIAL: Mutex<Tm, RefCell<Option<picoclock_core::tlsstore::Material>>> = Mutex::new(RefCell::new(None));
+/// Ask the storage task to write `TLS_MATERIAL` to its flash sector.
+#[cfg(feature = "https")]
+pub static TLS_SAVE: Signal<Cs, ()> = Signal::new();
+/// Ask the HTTPS task to make a new self-signed certificate (`cert new`).
+#[cfg(feature = "https")]
+pub static CERT_NEW: Signal<Cs, ()> = Signal::new();
+/// Tell the HTTPS task that `TLS_MATERIAL` changed (an upload) so it rebuilds its configuration.
+#[cfg(feature = "https")]
+pub static CERT_RELOAD: Signal<Cs, ()> = Signal::new();
+
+#[cfg(feature = "https")]
+pub fn set_tls_material(m: picoclock_core::tlsstore::Material) {
+    TLS_MATERIAL.lock(|t| *t.borrow_mut() = Some(m));
+}
+
+#[cfg(feature = "https")]
+pub fn tls_material() -> Option<picoclock_core::tlsstore::Material> {
+    TLS_MATERIAL.lock(|t| t.borrow().clone())
+}
 
 pub fn with_config<R>(f: impl FnOnce(&mut Config) -> R) -> R {
     CONFIG.lock(|c| f(c.borrow_mut().get_or_insert_with(Config::default)))

@@ -264,17 +264,26 @@ Other limits: saving pauses the CPU for tens of milliseconds (the display blinks
 the display for up to a second while the RTC is set on the second boundary; no countdown/stopwatch; the USB VID/PID
 is the pid.codes test pair `1209:0001`. The firmware image is about 440 KB of flash and 72 KB of static RAM.
 
+## HTTPS (Pico 2 W)
+
+The Pico 2 W build serves the web page over HTTPS on port 443 ([ADR-0002](docs/design/adr/0002-https-server-stack.md)):
+`rustls`, TLS 1.3 only. The Pico W cannot (rustls does not build for the RP2040) and keeps plain HTTP.
+
+- **Certificate.** Made on the device once the clock has a valid time: self-signed ECDSA P-256 for `picoclock-xx` and
+  `picoclock-xx.local`, valid ten years, kept in its own flash sector so it survives reboots. No key is shipped in the
+  repository, since a shipped key would be public. `status` and `cert` show its SHA-256 fingerprint and expiry, so you can
+  compare it with what the browser shows before trusting it; `cert new` replaces it.
+- **Your own certificate.** On the HTTPS page, paste a PEM chain (the server certificate first) and the matching P-256
+  private key. They are checked (curve, key matches, valid now) before use, and the key is never shown again. The form only
+  exists over HTTPS. RSA and other curves are refused.
+- **Port 80.** While HTTPS runs, plain-HTTP page requests get a redirect to it and nothing can be changed over the plain port
+  (`set http_redirect off` to serve the page on both; `set https off` to disable HTTPS).
+
 ## Roadmap
 
 Planned for future releases (requirements, not implemented):
 
-- **HTTPS** for the web page ([ADR-0002](docs/design/adr/0002-https-server-stack.md), decided): `rustls` on the **Pico 2 W
-  only**, because it does not build for the RP2040, so the Pico W keeps plain HTTP. The certificate is generated on the
-  device at first boot (self-signed, fingerprint in `status`) and can be replaced by an uploaded certificate and key; no
-  key is shipped in the repository, since a shipped key would be public. Done so far (on the host, no hardware needed): the
-  certificate code (`core/src/x509.rs`, checked against OpenSSL) and a feasibility test of `rustls` as a server with
-  `curl` and OpenSSL. The Pico 2 W build now runs on real hardware (see *Status*); next is the server itself. Estimated cost of a
-  handshake: under a second.
+- **HTTPS, remaining:** browser test, heap headroom over a long run, and the RP2350 TRNG (see *HTTPS* below for what works).
 - **NTS beyond what works today:** RSA certificate chains (Netnod, PTB, System76 servers), user-supplied roots, a TRNG
   for the Pico 2 W, and offering the exporter patch upstream.
 - **DCF77 receiver module** as an additional time source (a free GPIO and a module that fits the clock's case).
