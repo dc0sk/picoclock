@@ -240,3 +240,38 @@ failure is specific to ip-api.com on this network. The fallback to ip-api.com af
 exercised on the hardware. The timezone was set back to Europe/Berlin afterwards.
 
 Verifies: REQ-TZ-04
+
+### VR-26 · 2026-10-16 · hardware · Hourly chime works (user observation)
+
+The clock's owner reported that the hourly chime works on the current image. This is the user's word, not a measurement.
+It does not say which hour it was heard at, whether the local time (not UTC) was the one chimed, or that it stayed
+silent while an alarm rang. The key-beep setting was not singled out.
+
+Verifies: REQ-UI-06
+
+### VR-27 · 2026-10-16 · hardware · Web page in daily use (user observation)
+
+The clock's owner reported using the web page all the time and that it works. This is the user's word, not a measurement:
+it does not say which browser or device, which settings were changed, or whether a web password was set. It covers the
+page's look in a browser, which VR-09 (curl only) did not.
+
+Verifies: REQ-WEB-01
+
+### VR-28 · 2026-10-16 · hardware · Fallbacks: NTP servers, WiFi slots, location providers
+
+NTP server order, with the firmware log read over RTT: with `ntp_servers 192.0.2.1,pool.ntp.org` the first server
+failed twice (3 s each) and `pool.ntp.org` answered 3 s later and set the RTC; with only `192.0.2.1` there was no
+sync and the clock kept its time; with the default `gateway,pool.ntp.org` the gateway answered at once.
+
+WiFi slots (settings changed in RAM only, then restored): with slot 1 holding a nonexistent SSID and the real network
+in slot 3, the clock connected on slot 3 in 5 s. With slot 1 the real SSID but a wrong passphrase, while slot 1 was the
+active slot, it connected on slot 3 after 37 s: three authentication attempts of about 8 s each are made before the
+next slot is tried. A change to a slot that is not in use did not drop the connection.
+
+Location providers, using throwaway builds with broken provider entries (not the shipped code): with a first provider
+that does not resolve, the lookup moved on and finished `ok via ipwho.is` in 4 s. With all three entries broken the
+status showed `DNS lookup failed`, the cached rule stayed in place, and local time kept following it. Not tested: a
+provider that connects but returns a bad reply, and the real ip-api.com entry as a working fallback (it does not work
+from this clock on this network).
+
+Verifies: REQ-NTP-01, REQ-NET-01, REQ-NET-03, REQ-TZ-04

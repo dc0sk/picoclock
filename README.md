@@ -141,7 +141,7 @@ and both firmware builds; run it before committing.
   SNTP packets, config model and storage format, terminal commands, HTTP parsing and page, button/menu/alarm
   state machine, frame buffer and font.
   `cargo test -p picoclock-core --target <host triple>` (add `-- --ignored` for a live pool.ntp.org query).
-- `firmware/` Pico W application: display scan (own high-priority interrupt executor, so WiFi cannot make it flicker),
+- `firmware/` Pico W / Pico 2 W application: display scan (own high-priority interrupt executor, so WiFi cannot make it flicker),
   DS3231, buttons, buzzer, USB console, web server, WiFi/NTP/geolocation, flash storage.
 - `tools/gen_tzdb.py` regenerates `core/src/tzdb.rs` from the system tz database.
 
@@ -150,15 +150,34 @@ Flash layout: program image, then a reserved 4 KiB sector at the end of the 2 Mi
 because the networking APIs used here are newer than the crates.io releases. The CYW43 firmware blobs in
 `firmware/fw/` come from the Embassy repository under their own license.
 
+## Debugging
+
+`status` on the USB terminal shows more than the network: both temperatures, the light sensor's raw value, the display
+scan's timing (`scan:` worst lateness of the row timer and the number of waits more than 100 µs late; a growing count
+means something is holding interrupts off) and the stage of the last location lookup (`geo:`).
+
+Firmware logs (defmt) go to RTT, not to the USB terminal. With a debug probe:
+
+```sh
+cargo install defmt-print --locked
+openocd -f interface/cmsis-dap.cfg -f target/rp2040.cfg -c "adapter speed 5000" \
+  -c "init; reset halt; rtt setup 0x$(nm target/thumbv6m-none-eabi/release/picoclock | awk '/ _SEGGER_RTT$/{print $1}') 0x1000 \"SEGGER RTT\"; rtt server start 9090 0; resume; rtt start" &
+nc localhost 9090 | defmt-print -e target/thumbv6m-none-eabi/release/picoclock
+```
+
+Without a probe the clock can still be reflashed: `bootsel` on the terminal, then copy the `.uf2` file to the drive
+that appears.
+
 ## Status and limits
 
 The authoritative, generated status is the [traceability matrix](docs/traceability-matrix.md): which requirement is
 checked by which unit test or dated hardware run, and which have never been seen working. The summary below is prose.
 
 **Checked on a real clock** (Pico W, flashed through a Raspberry Pi Debug Probe): USB console and all its commands,
-RTC and its temperature, the RP2040 temperature, flash storage across a reboot, WiFi join, failover from a dead slot to
-slot 2, DHCP hostname (resolved by the router), NTP sync, the web page (settings form, zone list, 404, refusal of a
-cross-site POST), and the NTP server (replies, off switch, junk packets ignored).
+RTC and its temperature, the RP2040 temperature, flash storage across a reboot, WiFi join (with a timeout and retries
+after a lost event or a rejected first attempt), failover to another slot, DHCP hostname (resolved by the router), NTP
+sync, the daylight-saving option, the web page (settings form, zone list, 404, refusal of a cross-site POST, web
+password), and the NTP server (replies, off switch, junk packets ignored, offset 1 to 5 ms right after a sync).
 
 **Checked on the host:** the core crate's unit tests, mutation-checked by hand (bugs planted in DST, alarm, HTTP, CRC, SNTP client and server code were each caught); every one of the 486 zones parses and gives sane offsets; the SNTP exchange and the ip-api response format were checked against the real servers.
 
@@ -167,20 +186,26 @@ below the settings sector, and converts to an RP2350 UF2. It has **never run on 
 SPI speed, the settings sector, the temperature sensor and the high-priority display interrupt first.
 
 **Checked by the owner by eye and ear** (a user report, not a measurement): the display looks right, and the buttons,
-the buzzer, the alarm, the settings menu and the light sensor work. The hourly chime and the key-beep setting were not
+the buzzer, the alarm, the settings menu, the hourly chime and the light sensor work. The key-beep setting was not
 singled out, and the light-sensor thresholds were not measured.
 
 **`timezone=auto`:** works on the owner's network through `ipwho.is` (answer in about 4 s). `ip-api.com`, the first
 provider this firmware used, does not work from the clock on that network: it accepts the connection but never
 acknowledges the request, although a PC on the same network gets its reply. The cause is not found, so `ip-api.com`
-is only the fallback. The fallback path itself was not exercised on the hardware.
+is only the fallback. The move from a failing first provider to a working one was exercised with a deliberately broken
+entry (see *Fallbacks tested*).
 
 **Display flicker, fixed:** rows flickered 1 to 3 times a second because a settings lock switched interrupts off long
 enough to delay the display scan. Measured before and after (`status` shows the scan's lateness), and the owner confirms
 the flicker is gone. A settings save still pauses the scan for about 34 ms.
 
-**Not checked yet:** the web page's look in a browser. A known unknown: whether the count-up icon suits the sync
-indicator.
+**Fallbacks tested on the clock:** the second NTP server is used when the first fails; the next WiFi slot is used when
+a slot is wrong or absent (a wrong passphrase on the active slot costs about 37 s before the next slot is tried);
+the location lookup moves to the next provider and keeps its cached rule when all fail. The web page is in daily use by
+the owner.
+
+**Not checked yet:** a location provider that connects but sends a bad reply. A known unknown: whether the count-up
+icon suits the sync indicator.
 
 Other limits: saving pauses the CPU for tens of milliseconds (the display blinks once; measured 34 ms); the hourly NTP sync pauses
 the display for up to a second while the RTC is set on the second boundary; no countdown/stopwatch; the USB VID/PID

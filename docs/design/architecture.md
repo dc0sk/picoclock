@@ -46,7 +46,7 @@ Two crates in one Cargo workspace:
 
 The split is the main design decision of the code base. Logic that can be wrong in subtle ways (calendar and DST
 maths, packet formats, parsing of untrusted input, the config format, the button state machine) is in `core`, where
-78 tests run in milliseconds without hardware. `firmware` is kept thin: it moves bytes between hardware and `core`.
+its unit tests run in milliseconds without hardware. `firmware` is kept thin: it moves bytes between hardware and `core`.
 
 ### 2.1 `core` modules
 
@@ -293,7 +293,7 @@ crates.io releases.
 
 ## 11. Testing strategy
 
-- **Unit tests** in `core` (78 at the time of writing, `cargo test -p picoclock-core --target <host>`), each bound to
+- **Unit tests** in `core` (`cargo test -p picoclock-core --target <host>`; the count is in the traceability matrix), each bound to
   the requirement it verifies by a `// VERIFIES:` comment.
 - **Mutation checks**: planting a bug and confirming a test fails, done by hand for DST, alarm, HTTP, CRC and SNTP.
 - **Hardware runs** are recorded in the [verification log](../verification-log.md), with date and what was observed.
