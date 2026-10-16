@@ -16,15 +16,15 @@ last_updated: 2026-10-16
 
 | Measure                                                           | Count |
 |-------------------------------------------------------------------|-------|
-| Requirements                                                      | 52    |
-| Ratified                                                          | 47    |
+| Requirements                                                      | 53    |
+| Ratified                                                          | 48    |
 | Draft (roadmap)                                                   | 5     |
 | Retired                                                           | 0     |
-| Ratified with hardware evidence                                   | 32    |
+| Ratified with hardware evidence                                   | 34    |
 | Ratified with unit tests only (no hardware, host or build record) | 9     |
 | Ratified and UNVERIFIED (stated reason)                           | 2     |
-| Unit tests bound to requirements                                  | 80    |
-| Verification records                                              | 21    |
+| Unit tests bound to requirements                                  | 81    |
+| Verification records                                              | 24    |
 
 ## Forward: requirement to evidence
 
@@ -37,7 +37,7 @@ last_updated: 2026-10-16
 | REQ-TZ-01   | ratified | high   | TZ                 | 7          | VR-03, VR-10               | unit, host, hardware |
 | REQ-TZ-02   | ratified | high   | TZ, CLI            | 4          | -                          | unit                 |
 | REQ-TZ-03   | ratified | medium | TZ, CONFIG         | 5          | VR-02                      | unit, hardware       |
-| REQ-TZ-04   | ratified | medium | GEO, NET, CONFIG   | 4          | VR-13                      | unit, host           |
+| REQ-TZ-04   | ratified | medium | GEO, NET, CONFIG   | 5          | VR-13, VR-23               | unit, host, hardware |
 | REQ-TZ-05   | ratified | medium | TZ, CONFIG         | 2          | VR-18                      | unit, hardware       |
 | REQ-NTP-01  | ratified | high   | SNTP, NET, CONFIG  | 3          | VR-04, VR-13               | unit, host, hardware |
 | REQ-NTP-02  | ratified | high   | SNTP               | 1          | VR-10                      | unit, host           |
@@ -65,6 +65,7 @@ last_updated: 2026-10-16
 | REQ-WEB-05  | ratified | medium | HTTP               | 2          | -                          | unit                 |
 | REQ-WEB-06  | draft    | high   | -                  | 0          | -                          | -                    |
 | REQ-DSP-01  | ratified | high   | FRAME, DISPLAY     | 6          | VR-16                      | unit, hardware       |
+| REQ-DSP-02  | ratified | high   | DISPLAY, APP, CLI  | 1          | VR-22, VR-24               | unit, hardware       |
 | REQ-UI-01   | ratified | high   | UI, INPUT          | 2          | VR-17                      | unit, hardware       |
 | REQ-UI-02   | ratified | medium | UI                 | 2          | -                          | unit                 |
 | REQ-UI-03   | ratified | medium | UI, INPUT          | 1          | VR-17                      | unit, hardware       |
@@ -87,23 +88,22 @@ last_updated: 2026-10-16
 
 These have never been seen working on the clock (they may still have unit tests).
 
-| Requirement | Evidence    | Reason given                                                                                              |
-|-------------|-------------|-----------------------------------------------------------------------------------------------------------|
-| REQ-TIME-02 | unit        |                                                                                                           |
-| REQ-TIME-03 | unit        |                                                                                                           |
-| REQ-TZ-02   | unit        |                                                                                                           |
-| REQ-TZ-04   | unit, host  |                                                                                                           |
-| REQ-NTP-02  | unit, host  |                                                                                                           |
-| REQ-CFG-04  | unit        |                                                                                                           |
-| REQ-CLI-02  | unit        |                                                                                                           |
-| REQ-WEB-02  | unit, host  |                                                                                                           |
-| REQ-WEB-05  | unit        |                                                                                                           |
-| REQ-UI-02   | unit        |                                                                                                           |
-| REQ-UI-06   | unit        |                                                                                                           |
-| REQ-UI-07   | unit        |                                                                                                           |
-| REQ-HW-06   | UNVERIFIED  | The RP2350 image builds and converts to a UF2, but has never run on a Pico 2 W.                           |
-| REQ-NFR-01  | unit, build |                                                                                                           |
-| REQ-NFR-02  | UNVERIFIED  | Designed in (interrupt executor at higher priority) but flicker was not observed or measured on hardware. |
+| Requirement | Evidence    | Reason given                                                                                                                                                                                   |
+|-------------|-------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| REQ-TIME-02 | unit        |                                                                                                                                                                                                |
+| REQ-TIME-03 | unit        |                                                                                                                                                                                                |
+| REQ-TZ-02   | unit        |                                                                                                                                                                                                |
+| REQ-NTP-02  | unit, host  |                                                                                                                                                                                                |
+| REQ-CFG-04  | unit        |                                                                                                                                                                                                |
+| REQ-CLI-02  | unit        |                                                                                                                                                                                                |
+| REQ-WEB-02  | unit, host  |                                                                                                                                                                                                |
+| REQ-WEB-05  | unit        |                                                                                                                                                                                                |
+| REQ-UI-02   | unit        |                                                                                                                                                                                                |
+| REQ-UI-06   | unit        |                                                                                                                                                                                                |
+| REQ-UI-07   | unit        |                                                                                                                                                                                                |
+| REQ-HW-06   | UNVERIFIED  | The RP2350 image builds and converts to a UF2, but has never run on a Pico 2 W.                                                                                                                |
+| REQ-NFR-01  | unit, build |                                                                                                                                                                                                |
+| REQ-NFR-02  | UNVERIFIED  | This is the design property; its outcome (scan timing under load, and the owner seeing no flicker) is recorded under REQ-DSP-02 (VR-22, VR-24). Nothing tests the priority arrangement itself. |
 
 ## Backward: capability to code and requirements
 
@@ -115,15 +115,15 @@ These have never been seen working on the clock (they may still have unit tests)
 | CAP-GEO     | IP geolocation reply parser                            | core/src/geo.rs                                                                 | REQ-TZ-04                                                                                                                                                |
 | CAP-SNTP    | SNTP packets and client transport                      | core/src/sntp.rs, firmware/src/ntp.rs                                           | REQ-TIME-03, REQ-NTP-01, REQ-NTP-02, REQ-SRV-02, REQ-SRV-03                                                                                              |
 | CAP-CONFIG  | Configuration model and flash storage                  | core/src/config.rs, firmware/src/storage.rs                                     | REQ-TIME-02, REQ-TZ-03, REQ-TZ-04, REQ-TZ-05, REQ-NTP-01, REQ-SRV-01, REQ-NET-01, REQ-NET-02, REQ-CFG-01, REQ-CFG-02, REQ-CFG-03, REQ-CFG-04, REQ-NFR-01 |
-| CAP-CLI     | Terminal commands and USB serial console               | core/src/cli.rs, firmware/src/usb_cli.rs                                        | REQ-TZ-02, REQ-NTP-03, REQ-NET-02, REQ-CFG-01, REQ-CFG-03, REQ-CLI-01, REQ-CLI-02, REQ-HW-01, REQ-HW-02                                                  |
+| CAP-CLI     | Terminal commands and USB serial console               | core/src/cli.rs, firmware/src/usb_cli.rs                                        | REQ-TZ-02, REQ-NTP-03, REQ-NET-02, REQ-CFG-01, REQ-CFG-03, REQ-CLI-01, REQ-CLI-02, REQ-DSP-02, REQ-HW-01, REQ-HW-02                                      |
 | CAP-HTTP    | HTTP parsing, settings page and web server             | core/src/http.rs, firmware/src/web.rs                                           | REQ-CFG-01, REQ-CFG-03, REQ-WEB-01, REQ-WEB-02, REQ-WEB-03, REQ-WEB-04, REQ-WEB-05                                                                       |
 | CAP-UI      | Button, menu, alarm and view state machine             | core/src/ui.rs                                                                  | REQ-TIME-01, REQ-TIME-02, REQ-UI-01, REQ-UI-02, REQ-UI-03, REQ-UI-04, REQ-UI-05, REQ-UI-06, REQ-UI-07, REQ-HW-01                                         |
-| CAP-DISPLAY | LED matrix scan                                        | firmware/src/display.rs                                                         | REQ-DSP-01, REQ-HW-04, REQ-NFR-02                                                                                                                        |
+| CAP-DISPLAY | LED matrix scan                                        | firmware/src/display.rs                                                         | REQ-DSP-01, REQ-DSP-02, REQ-HW-04, REQ-NFR-02                                                                                                            |
 | CAP-INPUT   | Button polling                                         | firmware/src/buttons.rs                                                         | REQ-UI-01, REQ-UI-03, REQ-UI-04                                                                                                                          |
 | CAP-BUZZER  | Buzzer driver                                          | firmware/src/buzzer.rs                                                          | REQ-UI-05, REQ-UI-06, REQ-HW-03                                                                                                                          |
 | CAP-RTC     | DS3231 driver                                          | firmware/src/rtc.rs                                                             | REQ-TIME-01, REQ-TIME-04, REQ-HW-01                                                                                                                      |
 | CAP-NET     | WiFi, hourly sync, geolocation request and NTP server  | firmware/src/net.rs                                                             | REQ-TZ-04, REQ-NTP-01, REQ-NTP-03, REQ-SRV-01, REQ-SRV-02, REQ-SRV-03, REQ-SRV-04, REQ-NET-01, REQ-NET-02, REQ-NET-03, REQ-NET-06                        |
-| CAP-APP     | Composition: task wiring, shared state, chip selection | core/src/lib.rs, firmware/build.rs, firmware/src/main.rs, firmware/src/state.rs | REQ-TIME-01, REQ-TIME-04, REQ-SRV-04, REQ-HW-02, REQ-HW-04, REQ-HW-05, REQ-HW-06, REQ-NFR-01, REQ-NFR-02                                                 |
+| CAP-APP     | Composition: task wiring, shared state, chip selection | core/src/lib.rs, firmware/build.rs, firmware/src/main.rs, firmware/src/state.rs | REQ-TIME-01, REQ-TIME-04, REQ-SRV-04, REQ-DSP-02, REQ-HW-02, REQ-HW-04, REQ-HW-05, REQ-HW-06, REQ-NFR-01, REQ-NFR-02                                     |
 
 ## Unit tests by requirement
 
@@ -134,7 +134,7 @@ These have never been seen working on the clock (they may still have unit tests)
 - **REQ-TZ-01**: `tz::fixed_offsets`, `tz::eu_transitions_berlin`, `tz::us_transitions_new_york`, `tz::southern_hemisphere_sydney`, `tz::half_hour_dst_lord_howe`, `tz::default_dst_offset_and_julian_days`, `tz::negative_transition_time_greenland`
 - **REQ-TZ-02**: `cli::tz_listing_and_status`, `tz::lookup_is_case_insensitive_and_complete`, `tz::every_zone_has_sane_offsets`, `tz::prefix_listing`
 - **REQ-TZ-03**: `config::set_validates`, `config::timezone_modes`, `tz::fixed_offsets`, `tz::default_dst_offset_and_julian_days`, `tz::rejects_garbage`
-- **REQ-TZ-04**: `config::timezone_modes`, `geo::parses_real_shaped_reply`, `geo::parses_captured_ip_api_response`, `geo::rejects_everything_else`
+- **REQ-TZ-04**: `cli::status_shows_scan_timing_and_the_last_lookup`, `config::timezone_modes`, `geo::parses_real_shaped_reply`, `geo::parses_captured_ip_api_response`, `geo::rejects_everything_else`
 - **REQ-TZ-05**: `config::daylight_saving_is_an_option_default_on`, `tz::without_dst_uses_standard_time_all_year`
 - **REQ-NTP-01**: `config::defaults_match_the_spec`, `sntp::request_layout`, `sntp::parses_valid_reply`
 - **REQ-NTP-02**: `sntp::rejects_bad_replies`
@@ -156,6 +156,7 @@ These have never been seen working on the clock (they may still have unit tests)
 - **REQ-WEB-04**: `http::basic_auth`
 - **REQ-WEB-05**: `http::page_escapes_and_hides_secrets`, `http::page_with_all_slots_full_fits`
 - **REQ-DSP-01**: `frame::font_table_has_all_glyphs`, `frame::zero_at_column_zero_is_shifted_by_status_offset`, `frame::glyph_spanning_two_groups_keeps_neighbours`, `frame::time_render_leaves_led_row_alone`, `frame::icons_survive_time_render`, `frame::weekday_leds_are_exclusive`
+- **REQ-DSP-02**: `cli::status_shows_scan_timing_and_the_last_lookup`
 - **REQ-UI-01**: `ui::set_cycles_views_and_times_out_to_time`, `ui::date_view_shows_the_local_date_across_midnight`
 - **REQ-UI-02**: `ui::renders_time_in_24h_12h_and_unset`, `ui::temperature_view_handles_negative_fahrenheit_and_missing`
 - **REQ-UI-03**: `ui::brightness_buttons_step_and_clamp`
@@ -169,26 +170,29 @@ These have never been seen working on the clock (they may still have unit tests)
 
 ## Verification records
 
-| Record | Date       | Tier     | Title                                                                | Verifies                                                                                     |
-|--------|------------|----------|----------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| VR-01  | 2026-10-16 | hardware | First flash, boot and console                                        | REQ-HW-05, REQ-TIME-01, REQ-CLI-01                                                           |
-| VR-02  | 2026-10-16 | hardware | Console commands and temperature sensors                             | REQ-CLI-01, REQ-HW-01, REQ-HW-02, REQ-TZ-03                                                  |
-| VR-03  | 2026-10-16 | hardware | Settings survive a reboot                                            | REQ-CFG-02, REQ-CFG-01, REQ-TZ-01                                                            |
-| VR-04  | 2026-10-16 | hardware | WiFi join and NTP sync                                               | REQ-NTP-01, REQ-NTP-03, REQ-NET-01                                                           |
-| VR-05  | 2026-10-16 | hardware | NTP server accuracy                                                  | REQ-SRV-04, REQ-TIME-04                                                                      |
-| VR-06  | 2026-10-16 | hardware | NTP server on, off and abuse                                         | REQ-SRV-01, REQ-SRV-02, REQ-SRV-03                                                           |
-| VR-07  | 2026-10-16 | hardware | Eight slots, failover and config rejoin                              | REQ-NET-01, REQ-NET-03                                                                       |
-| VR-08  | 2026-10-16 | hardware | Network name                                                         | REQ-NET-02                                                                                   |
-| VR-09  | 2026-10-16 | hardware | Web page over HTTP                                                   | REQ-WEB-01, REQ-WEB-03                                                                       |
-| VR-10  | 2026-10-16 | host     | Mutation checks                                                      | REQ-TZ-01, REQ-UI-05, REQ-WEB-02, REQ-WEB-03, REQ-CFG-02, REQ-NTP-02, REQ-SRV-02, REQ-SRV-03 |
-| VR-11  | 2026-10-16 | hardware | Pico W regression after the build restructure                        | REQ-HW-05, REQ-NET-01                                                                        |
-| VR-12  | 2026-10-16 | build    | Image size and layout, both chips                                    | REQ-NFR-01                                                                                   |
-| VR-13  | 2026-10-16 | host     | Real-server format checks                                            | REQ-NTP-01, REQ-TZ-04                                                                        |
-| VR-14  | 2026-10-16 | hardware | NTP server accuracy after the boundary logic moved to the core crate | REQ-TIME-04, REQ-SRV-04                                                                      |
-| VR-15  | 2026-10-16 | hardware | Web password                                                         | REQ-WEB-04, REQ-CFG-03                                                                       |
-| VR-16  | 2026-10-16 | hardware | Display looks right (user observation)                               | REQ-DSP-01                                                                                   |
-| VR-17  | 2026-10-16 | hardware | Buttons and buzzer work (user observation)                           | REQ-UI-01, REQ-UI-03, REQ-HW-03                                                              |
-| VR-18  | 2026-10-16 | hardware | Daylight-saving option                                               | REQ-TZ-05                                                                                    |
-| VR-19  | 2026-10-16 | hardware | WiFi join robustness after the join timeout and retry change         | REQ-NET-01, REQ-NET-06                                                                       |
-| VR-20  | 2026-10-16 | hardware | Alarm and menu work (user observation)                               | REQ-UI-04, REQ-UI-05                                                                         |
-| VR-21  | 2026-10-16 | hardware | Light sensor and auto-brightness work (user observation)             | REQ-HW-04                                                                                    |
+| Record | Date       | Tier     | Title                                                                 | Verifies                                                                                     |
+|--------|------------|----------|-----------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| VR-01  | 2026-10-16 | hardware | First flash, boot and console                                         | REQ-HW-05, REQ-TIME-01, REQ-CLI-01                                                           |
+| VR-02  | 2026-10-16 | hardware | Console commands and temperature sensors                              | REQ-CLI-01, REQ-HW-01, REQ-HW-02, REQ-TZ-03                                                  |
+| VR-03  | 2026-10-16 | hardware | Settings survive a reboot                                             | REQ-CFG-02, REQ-CFG-01, REQ-TZ-01                                                            |
+| VR-04  | 2026-10-16 | hardware | WiFi join and NTP sync                                                | REQ-NTP-01, REQ-NTP-03, REQ-NET-01                                                           |
+| VR-05  | 2026-10-16 | hardware | NTP server accuracy                                                   | REQ-SRV-04, REQ-TIME-04                                                                      |
+| VR-06  | 2026-10-16 | hardware | NTP server on, off and abuse                                          | REQ-SRV-01, REQ-SRV-02, REQ-SRV-03                                                           |
+| VR-07  | 2026-10-16 | hardware | Eight slots, failover and config rejoin                               | REQ-NET-01, REQ-NET-03                                                                       |
+| VR-08  | 2026-10-16 | hardware | Network name                                                          | REQ-NET-02                                                                                   |
+| VR-09  | 2026-10-16 | hardware | Web page over HTTP                                                    | REQ-WEB-01, REQ-WEB-03                                                                       |
+| VR-10  | 2026-10-16 | host     | Mutation checks                                                       | REQ-TZ-01, REQ-UI-05, REQ-WEB-02, REQ-WEB-03, REQ-CFG-02, REQ-NTP-02, REQ-SRV-02, REQ-SRV-03 |
+| VR-11  | 2026-10-16 | hardware | Pico W regression after the build restructure                         | REQ-HW-05, REQ-NET-01                                                                        |
+| VR-12  | 2026-10-16 | build    | Image size and layout, both chips                                     | REQ-NFR-01                                                                                   |
+| VR-13  | 2026-10-16 | host     | Real-server format checks                                             | REQ-NTP-01, REQ-TZ-04                                                                        |
+| VR-14  | 2026-10-16 | hardware | NTP server accuracy after the boundary logic moved to the core crate  | REQ-TIME-04, REQ-SRV-04                                                                      |
+| VR-15  | 2026-10-16 | hardware | Web password                                                          | REQ-WEB-04, REQ-CFG-03                                                                       |
+| VR-16  | 2026-10-16 | hardware | Display looks right (user observation)                                | REQ-DSP-01                                                                                   |
+| VR-17  | 2026-10-16 | hardware | Buttons and buzzer work (user observation)                            | REQ-UI-01, REQ-UI-03, REQ-HW-03                                                              |
+| VR-18  | 2026-10-16 | hardware | Daylight-saving option                                                | REQ-TZ-05                                                                                    |
+| VR-19  | 2026-10-16 | hardware | WiFi join robustness after the join timeout and retry change          | REQ-NET-01, REQ-NET-06                                                                       |
+| VR-20  | 2026-10-16 | hardware | Alarm and menu work (user observation)                                | REQ-UI-04, REQ-UI-05                                                                         |
+| VR-21  | 2026-10-16 | hardware | Light sensor and auto-brightness work (user observation)              | REQ-HW-04                                                                                    |
+| VR-22  | 2026-10-16 | hardware | Display flicker found, measured and fixed                             | REQ-DSP-02                                                                                   |
+| VR-23  | 2026-10-16 | hardware | Timezone lookup: works against a LAN server, fails against ip-api.com | REQ-TZ-04                                                                                    |
+| VR-24  | 2026-10-16 | hardware | Flicker gone (user observation)                                       | REQ-DSP-02                                                                                   |

@@ -241,6 +241,11 @@ The firmware shall compose the 32x8 matrix, weekday LEDs and status icons into t
 *Why:* The panel's shift-register layout has quirks (column offsets, group boundaries) inherited from the vendor demo.  
 *Implemented by:* Frame buffer and font, LED matrix scan
 
+**REQ-DSP-02** (ratified, high)  
+During normal operation (WiFi connected, web page and NTP in use) the display scan's row timer shall fire more than 100 microseconds late less than once per minute on average, and the terminal `status` shall report the measured lateness.  
+*Why:* A late row timer lengthens that row's on-time, which shows as a flickering line, worst at low brightness. Found on the hardware: the settings lock disabled interrupts for hundreds of microseconds about twice a second.  
+*Implemented by:* LED matrix scan, Composition: task wiring, shared state, chip selection, Terminal commands and USB serial console
+
 
 ### 4.10 Interaction
 
@@ -335,4 +340,4 @@ The firmware image and the settings sector shall fit the flash of the target boa
 The display scan shall run at a priority above all networking tasks.  
 *Why:* WiFi activity must not make the display flicker.  
 *Implemented by:* Composition: task wiring, shared state, chip selection, LED matrix scan  
-*Unverified:* Designed in (interrupt executor at higher priority) but flicker was not observed or measured on hardware.
+*Unverified:* This is the design property; its outcome (scan timing under load, and the owner seeing no flicker) is recorded under REQ-DSP-02 (VR-22, VR-24). Nothing tests the priority arrangement itself.

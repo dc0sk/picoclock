@@ -8,7 +8,8 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_rp::gpio::Output;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_time::Timer;
+use embassy_time::{Instant, Timer};
+use portable_atomic::AtomicU32;
 use picoclock_core::frame::Frame;
 
 pub static FRAME: Mutex<CriticalSectionRawMutex, RefCell<Frame>> = Mutex::new(RefCell::new(Frame::new()));
@@ -16,6 +17,23 @@ pub static FRAME: Mutex<CriticalSectionRawMutex, RefCell<Frame>> = Mutex::new(Re
 pub static FIXED_DUTY: AtomicU8 = AtomicU8::new(0);
 /// Duty chosen from the photosensor, 1..=100 %.
 pub static AUTO_DUTY: AtomicU8 = AtomicU8::new(100);
+
+/// Scan timing diagnostics, shown by the terminal's `status`: how late the row timer fired (microseconds, worst case
+/// since boot) and how many waits were more than [`LATE_THRESHOLD_US`] late. A late wake-up means an interrupt or a
+/// critical section delayed the scan, which shows as a brighter or dimmer row.
+pub static LATE_MAX_US: AtomicU32 = AtomicU32::new(0);
+pub static LATE_COUNT: AtomicU32 = AtomicU32::new(0);
+const LATE_THRESHOLD_US: u32 = 100;
+
+async fn wait_us(us: u64) {
+    let t = Instant::now();
+    Timer::after_micros(us).await;
+    let late = t.elapsed().as_micros().saturating_sub(us).min(u32::MAX as u64) as u32;
+    if late > LATE_THRESHOLD_US {
+        LATE_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+    LATE_MAX_US.fetch_max(late, Ordering::Relaxed);
+}
 
 pub fn update(f: impl FnOnce(&mut Frame)) {
     FRAME.lock(|fb| f(&mut fb.borrow_mut()));
@@ -63,11 +81,11 @@ pub async fn scan_task(mut m: Matrix) -> ! {
         let on_us = duty.clamp(1, 100) as u64 * 10;
         m.oe.set_low();
         if on_us < 1000 {
-            Timer::after_micros(on_us).await;
+            wait_us(on_us).await;
             m.oe.set_high();
-            Timer::after_micros(1000 - on_us).await;
+            wait_us(1000 - on_us).await;
         } else {
-            Timer::after_micros(1000).await;
+            wait_us(1000).await;
         }
         row = (row + 1) & 7;
     }

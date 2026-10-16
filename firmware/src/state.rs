@@ -6,15 +6,20 @@ use core::cell::RefCell;
 use core::sync::atomic::AtomicBool;
 
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex as Cs;
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex as Cs, ThreadModeRawMutex as Tm};
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use picoclock_core::cli::Status;
 use picoclock_core::config::Config;
 use picoclock_core::ui::{Beep, Button, Press};
 
-static CONFIG: Mutex<Cs, RefCell<Option<Config>>> = Mutex::new(RefCell::new(None));
-static RUNTIME: Mutex<Cs, RefCell<Status>> = Mutex::new(RefCell::new(Status {
+// The configuration and runtime status are only touched by tasks on the thread-mode executor, which never run
+// concurrently with each other (the closures below do not await). A critical-section mutex would switch interrupts
+// off for the whole closure; cloning the 8-slot configuration or rendering a frame under it took hundreds of
+// microseconds and made the display scan run late (visible as a flickering row). `ThreadModeRawMutex` panics if it is
+// ever locked from an interrupt, so a wrong use cannot go unnoticed.
+static CONFIG: Mutex<Tm, RefCell<Option<Config>>> = Mutex::new(RefCell::new(None));
+static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     utc_unix: None,
     last_sync_unix: None,
     wifi_up: false,
@@ -25,6 +30,13 @@ static RUNTIME: Mutex<Cs, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     temp_c10: None,
     chip_temp_c10: None,
     light_raw: 0,
+    scan_late_max_us: 0,
+    scan_late_count: 0,
+    uptime_s: 0,
+    geo_stage: 0,
+    geo_bytes: 0,
+    geo_end: 0,
+    geo_addr: [0; 4],
     unsaved: false,
 }));
 
@@ -69,7 +81,11 @@ pub fn with_runtime<R>(f: impl FnOnce(&mut Status) -> R) -> R {
 }
 
 pub fn status() -> Status {
-    with_runtime(|r| *r)
+    let mut st = with_runtime(|r| *r);
+    st.scan_late_max_us = crate::display::LATE_MAX_US.load(core::sync::atomic::Ordering::Relaxed);
+    st.scan_late_count = crate::display::LATE_COUNT.load(core::sync::atomic::Ordering::Relaxed);
+    st.uptime_s = (embassy_time::Instant::now().as_millis() / 1000) as u32;
+    st
 }
 
 /// Call after any edit of the configuration. `save_now` skips the quiet-period debounce.

@@ -421,6 +421,15 @@ rationale = "The panel's shift-register layout has quirks (column offsets, group
 cap = ["CAP-FRAME", "CAP-DISPLAY"]
 
 [[req]]
+id = "REQ-DSP-02"
+area = "Display"
+status = "ratified"
+criticality = "high"
+statement = "During normal operation (WiFi connected, web page and NTP in use) the display scan's row timer shall fire more than 100 microseconds late less than once per minute on average, and the terminal `status` shall report the measured lateness."
+rationale = "A late row timer lengthens that row's on-time, which shows as a flickering line, worst at low brightness. Found on the hardware: the settings lock disabled interrupts for hundreds of microseconds about twice a second."
+cap = ["CAP-DISPLAY", "CAP-APP", "CAP-CLI"]
+
+[[req]]
 id = "REQ-UI-01"
 area = "Interaction"
 status = "ratified"
@@ -577,4 +586,4 @@ criticality = "high"
 statement = "The display scan shall run at a priority above all networking tasks."
 rationale = "WiFi activity must not make the display flicker."
 cap = ["CAP-APP", "CAP-DISPLAY"]
-unverified = "Designed in (interrupt executor at higher priority) but flicker was not observed or measured on hardware."
+unverified = "This is the design property; its outcome (scan timing under load, and the owner seeing no flicker) is recorded under REQ-DSP-02 (VR-22, VR-24). Nothing tests the priority arrangement itself."

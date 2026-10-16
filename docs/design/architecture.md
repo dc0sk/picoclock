@@ -108,8 +108,8 @@ short: shift four bytes, latch, set the row address, open the output enable for 
 
 | Item                          | Kind                          | Writers / readers                                              |
 |-------------------------------|-------------------------------|----------------------------------------------------------------|
-| `CONFIG`                      | critical-section mutex        | terminal, web, UI menu write; everything reads (snapshot)      |
-| `RUNTIME` (`Status`)          | critical-section mutex, `Copy`| tasks write their own fields; terminal and web read            |
+| `CONFIG`                      | thread-mode mutex             | terminal, web, UI menu write; everything reads (snapshot)      |
+| `RUNTIME` (`Status`)          | thread-mode mutex, `Copy`     | tasks write their own fields; terminal and web read            |
 | `FRAME`                       | critical-section mutex        | `ui_task` writes; `scan_task` reads                            |
 | `NTP_TIME`                    | signal                        | `wifi_task` -> `ui_task`: (seconds, ms, instant of reply)      |
 | `ANCHOR`                      | mutex                         | `ui_task` writes when it sets the RTC; NTP server reads        |
@@ -117,7 +117,12 @@ short: shift four bytes, latch, set the row address, open the output enable for 
 | `BUTTONS`                     | channel (8)                   | `button_task` -> `ui_task`                                     |
 | `FIXED_DUTY`, `AUTO_DUTY`, `ALARM_RINGING` | atomics          | single writer each                                             |
 
-No task holds a lock across an `await`. Readers take a snapshot (`config_snapshot()`, `status()`), which is why
+No task holds a lock across an `await`. `CONFIG` and `RUNTIME` use a thread-mode mutex, not a critical-section
+mutex: only thread-mode tasks touch them, so no interrupt masking is needed, and masking was measurably harmful.
+With a critical-section mutex, cloning the 8-slot configuration or rendering a frame inside the lock switched
+interrupts off for hundreds of microseconds, the display scan's timer fired late and a row flickered (found on the
+hardware, see VR-22). The rule: **nothing that runs for more than a few microseconds may hold a critical section**; the
+only deliberate exception is the flash erase during a save. The scan's lateness is reported by `status`. Readers take a snapshot (`config_snapshot()`, `status()`), which is why
 `Status` is `Copy` and why it holds only small values.
 
 ## 4. Time

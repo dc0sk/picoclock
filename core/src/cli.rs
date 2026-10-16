@@ -26,6 +26,17 @@ pub struct Status {
     /// RP2040 die temperature, tenths of a degree Celsius (reads warmer than the room, see README).
     pub chip_temp_c10: Option<i16>,
     pub light_raw: u16,
+    /// Display scan timing since boot: worst lateness of the row timer (us), waits later than 100 us, uptime (s).
+    pub scan_late_max_us: u32,
+    pub scan_late_count: u32,
+    pub uptime_s: u32,
+    /// Last timezone-lookup outcome: 0 never tried, 1 DNS failed, 2 connect failed, 3 request failed, 4 no usable reply, 5 ok.
+    pub geo_stage: u8,
+    /// Bytes received in the last lookup reply.
+    pub geo_bytes: u16,
+    /// How the last lookup read ended: 0 timeout, 1 peer closed, 2 read error. And the address it resolved.
+    pub geo_end: u8,
+    pub geo_addr: [u8; 4],
     /// Config differs from what is saved in flash.
     pub unsaved: bool,
 }
@@ -205,7 +216,22 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                     let _ = write!(out, "\n{}: {}{}.{} C", label, if t < 0 { "-" } else { "" }, (t / 10).abs(), (t % 10).abs());
                 }
             }
-            let _ = write!(out, "\nlight   : {} (raw ADC)\n", st.light_raw);
+            let _ = write!(out, "\nlight   : {} (raw ADC)", st.light_raw);
+            let geo = match st.geo_stage {
+                0 => "never tried",
+                1 => "DNS lookup failed",
+                2 => "connect failed",
+                3 => "request failed",
+                4 => "no usable reply",
+                _ => "ok",
+            };
+            let end = match st.geo_end {
+                0 => "read timed out",
+                1 => "peer closed the connection",
+                _ => "read error",
+            };
+            let _ = write!(out, "\ngeo     : {geo} ({} bytes, {end}, server {}.{}.{}.{})", st.geo_bytes, st.geo_addr[0], st.geo_addr[1], st.geo_addr[2], st.geo_addr[3]);
+            let _ = write!(out, "\nscan    : worst late {} us, {} waits > 100 us in {} s\n", st.scan_late_max_us, st.scan_late_count, st.uptime_s);
             if st.unsaved {
                 let _ = out.write_str("unsaved changes: type 'save'\n");
             }
@@ -369,6 +395,22 @@ mod tests {
         let (_, out) = run(&mut c, "help");
         for k in KEYS {
             assert!(out.contains(k.name), "{}", k.name);
+        }
+    }
+
+    // VERIFIES: REQ-DSP-02 REQ-TZ-04
+    #[test]
+    fn status_shows_scan_timing_and_the_last_lookup() {
+        let st = Status { scan_late_max_us: 588, scan_late_count: 37, uptime_s: 23, ..Default::default() };
+        let mut out = String::new();
+        execute("status", &mut Config::default(), &st, &mut out);
+        assert!(out.contains("scan    : worst late 588 us, 37 waits > 100 us in 23 s"), "{out}");
+        assert!(out.contains("geo     : never tried"), "{out}");
+        for (stage, text) in [(1, "DNS lookup failed"), (2, "connect failed"), (3, "request failed"), (4, "no usable reply"), (5, "ok")] {
+            let st = Status { geo_stage: stage, geo_bytes: 157, geo_end: 2, geo_addr: [208, 95, 112, 1], ..Default::default() };
+            let mut out = String::new();
+            execute("status", &mut Config::default(), &st, &mut out);
+            assert!(out.contains(&format!("geo     : {text} (157 bytes, read error, server 208.95.112.1)")), "{out}");
         }
     }
 }

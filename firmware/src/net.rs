@@ -8,7 +8,7 @@ use embassy_net::Stack;
 use embassy_net::dns::DnsQueryType;
 use embassy_net::iface::Iface;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::wire::SocketAddr;
+use embassy_net::wire::{IpAddr, SocketAddr};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use embedded_io_async::Write as _;
 use picoclock_core::config::Config;
@@ -165,21 +165,46 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
 
 /// One plain-HTTP request to the geolocation service; returns the zone name and its POSIX rule.
 async fn geolocate(stack: Stack<'static>) -> Option<(heapless::String<48>, &'static str)> {
-    let addr = stack.dns_query(geo::HOST, DnsQueryType::A).await.ok()?.first().copied()?;
+    fn stage(n: u8, bytes: usize) {
+        state::with_runtime(|r| {
+            r.geo_stage = n;
+            r.geo_bytes = bytes as u16;
+        });
+    }
+    let Some(addr) = stack.dns_query(geo::HOST, DnsQueryType::A).await.ok().and_then(|a| a.first().copied()) else {
+        stage(1, 0);
+        return None;
+    };
+    let IpAddr::V4(a) = addr;
+    state::with_runtime(|r| r.geo_addr = a.octets());
     let mut rx = [0u8; 768];
     let mut tx = [0u8; 192];
     let mut sock = TcpSocket::new(stack, &mut rx, &mut tx).ok()?;
     sock.set_timeout(Some(Duration::from_secs(8)));
-    sock.connect(SocketAddr::new(addr, geo::PORT)).await.ok()?;
-    sock.write_all(geo::REQUEST).await.ok()?;
+    if sock.connect(SocketAddr::new(addr, geo::PORT)).await.is_err() {
+        stage(2, 0);
+        return None;
+    }
+    if sock.write_all(geo::REQUEST).await.is_err() {
+        stage(3, 0);
+        return None;
+    }
 
     // The server keeps the connection open, so stop as soon as a complete reply has arrived.
+    state::with_runtime(|r| r.geo_end = 0);
     let mut buf = [0u8; 768];
     let mut len = 0;
     let found = with_timeout(Duration::from_secs(8), async {
         while len < buf.len() {
             match sock.read(&mut buf[len..]).await {
-                Ok(0) | Err(_) => break,
+                Ok(0) => {
+                    state::with_runtime(|r| r.geo_end = 1);
+                    break;
+                }
+                Err(_) => {
+                    state::with_runtime(|r| r.geo_end = 2);
+                    break;
+                }
                 Ok(n) => len += n,
             }
             if let Some((name, rule)) = geo::parse_response(&buf[..len]) {
@@ -192,6 +217,11 @@ async fn geolocate(stack: Stack<'static>) -> Option<(heapless::String<48>, &'sta
     .ok()
     .flatten();
     sock.abort();
+    stage(if found.is_some() { 5 } else { 4 }, len);
+    // Whatever arrived, for the log (printable ASCII only).
+    if found.is_none() && len > 0 {
+        warn!("geo: reply was {=[u8]:a}", &buf[..len.min(120)]);
+    }
     if found.is_none() {
         warn!("geo: no usable reply");
     }

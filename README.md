@@ -168,10 +168,20 @@ SPI speed, the settings sector, the temperature sensor and the high-priority dis
 the buzzer, the alarm, the settings menu and the light sensor work. The hourly chime and the key-beep setting were not
 singled out, and the light-sensor thresholds were not measured.
 
-**Not checked yet:** `timezone=auto` on the clock and the web page's look in a browser. A known unknown: whether the
-count-up icon suits the sync indicator.
+**Known problem: `timezone=auto` does not work on the owner's network.** The owner reported it working, but it could
+not be reproduced: the clock connects to ip-api.com and sends the request, but the data is never acknowledged, so
+there is no reply. The same request from a PC works, and a stand-in server on the LAN works with the clock, so the
+parsing, caching and TCP code are fine; the cause on the path to ip-api.com is not found. `status` shows the stage of
+the last lookup (`geo:` line). Until then use `timezone` with a zone name or rule.
 
-Other limits: saving pauses the CPU for tens of milliseconds (the display blinks once); the hourly NTP sync pauses
+**Display flicker, fixed:** rows flickered 1 to 3 times a second because a settings lock switched interrupts off long
+enough to delay the display scan. Measured before and after (`status` shows the scan's lateness), and the owner confirms
+the flicker is gone. A settings save still pauses the scan for about 34 ms.
+
+**Not checked yet:** the web page's look in a browser. A known unknown: whether the count-up icon suits the sync
+indicator.
+
+Other limits: saving pauses the CPU for tens of milliseconds (the display blinks once; measured 34 ms); the hourly NTP sync pauses
 the display for up to a second while the RTC is set on the second boundary; no countdown/stopwatch; the USB VID/PID
 is the pid.codes test pair `1209:0001`. The firmware image is about 440 KB of flash and 72 KB of static RAM.
 

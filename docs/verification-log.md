@@ -194,3 +194,38 @@ confirm that a high ADC reading means dark, as copied from the vendor demo. No r
 recorded, so the thresholds (full brightness up to a raw 1500, 15 % at 3500) are not checked beyond "works".
 
 Verifies: REQ-HW-04
+
+### VR-22 · 2026-10-16 · hardware · Display flicker found, measured and fixed
+
+The clock's owner reported LED lines flickering at 1 to 3 Hz, every 1 to 3 seconds. A diagnostic added to `status`
+(worst lateness of the row timer and the count of waits more than 100 µs late) showed 256 late waits in 156 s, worst
+588 µs, with and without WiFi. At the 15 % duty that auto brightness gave in this room, a 150 µs row on-time that fires
+500 µs late is about four times brighter for that row. Cause: the configuration and runtime status sat behind a
+critical-section mutex, which switches interrupts off; cloning the 8-slot configuration (twice a second in the network
+task) and rendering a frame (four times a second in the UI task) did so for hundreds of microseconds. After moving both
+to a thread-mode mutex (they are only used by thread-mode tasks): 1 late wait in 161 s, worst 140 µs. Under load
+(30 page loads, three syncs, ten zone listings) still 1 late wait. A settings save still stalls the scan for about
+34 ms (flash erase; known). The owner has not yet confirmed by eye that the flicker is gone.
+
+Verifies: REQ-DSP-02
+
+### VR-23 · 2026-10-16 · hardware · Timezone lookup: works against a LAN server, fails against ip-api.com
+
+The owner reported `timezone=auto` works. It could not be reproduced here: in six attempts (RAM-only `auto`, `geo`, up
+to 50 s) the real service gave no result. `status` now reports the stage: DNS resolves to the right address
+(208.95.112.1), the connection opens and the request is sent, but the data is never acknowledged and the read ends
+after the 8 s socket timeout with an error and 0 bytes. The same request sent from the Pi returns the reply in
+0.06 s. Pointing a test build at a small HTTP server on the Pi (port 8000) made the lookup succeed on the clock: the
+request arrived as expected, the reply was parsed, and the Berlin POSIX rule was cached. So the parsing, caching and
+TCP code work; what fails is the path to ip-api.com. Not found: why packets to that server are lost (not tried: a
+second external server, a packet capture on the router).
+
+Verifies: REQ-TZ-04
+
+### VR-24 · 2026-10-16 · hardware · Flicker gone (user observation)
+
+After the thread-mode mutex change the clock's owner looked at the display and reported that the flicker is gone. This is
+the user's word, not a measurement, and it does not say for how long it was watched or at which brightness. It agrees with
+the timing numbers in VR-22.
+
+Verifies: REQ-DSP-02
