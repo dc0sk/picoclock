@@ -1,0 +1,5 @@
+target/
+*.uf2
+
+# Local credentials and machine-specific settings
+local/

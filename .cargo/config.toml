@@ -1,0 +1,9 @@
+[build]
+target = "thumbv6m-none-eabi"
+
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# Flash with a debug probe: `cargo run --release`. Without one, use `elf2uf2-rs` (see README).
+runner = "probe-rs run --chip RP2040"
+
+[env]
+DEFMT_LOG = "info"

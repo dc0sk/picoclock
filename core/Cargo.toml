@@ -1,0 +1,9 @@
+[package]
+name = "picoclock-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Hardware-independent logic for the Pico-Clock-Green firmware: time/DST math, SNTP packets, framebuffer."
+
+[dependencies]
+heapless = { version = "0.9", default-features = false }
