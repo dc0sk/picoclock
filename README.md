@@ -129,6 +129,11 @@ The result is cached (`geo_rule`) and refreshed daily; run `geo` to look up now.
 
 ## How it is organised
 
+Documentation is in [`docs/`](docs/README.md): [architecture and design](docs/design/architecture.md), the
+[software requirements specification](docs/srs.md), the [traceability matrix](docs/traceability-matrix.md) and the
+[verification log](docs/verification-log.md). `tools/gate.sh` runs the unit tests, the traceability and document checks
+and both firmware builds; run it before committing.
+
 - `core/` hardware-independent, unit-tested on the host: calendar and POSIX-TZ maths, the generated zone table,
   SNTP packets, config model and storage format, terminal commands, HTTP parsing and page, button/menu/alarm
   state machine, frame buffer and font.
@@ -144,14 +149,15 @@ because the networking APIs used here are newer than the crates.io releases. The
 
 ## Status and limits
 
+The authoritative, generated status is the [traceability matrix](docs/traceability-matrix.md): which requirement is
+checked by which unit test or dated hardware run, and which have never been seen working. The summary below is prose.
+
 **Checked on a real clock** (Pico W, flashed through a Raspberry Pi Debug Probe): USB console and all its commands,
 RTC and its temperature, the RP2040 temperature, flash storage across a reboot, WiFi join, failover from a dead slot to
 slot 2, DHCP hostname (resolved by the router), NTP sync, the web page (settings form, zone list, 404, refusal of a
 cross-site POST), and the NTP server (replies, off switch, junk packets ignored).
 
-**Checked on the host:** 76 unit tests, mutation-checked (deliberately introduced bugs in DST, alarm, HTTP, CRC, SNTP
-client and SNTP server code were each caught); every one of the 486 zones parses and gives sane offsets; the SNTP
-exchange and the ip-api response format were checked against the real servers.
+**Checked on the host:** the core crate's unit tests, mutation-checked by hand (bugs planted in DST, alarm, HTTP, CRC, SNTP client and server code were each caught); every one of the 486 zones parses and gives sane offsets; the SNTP exchange and the ip-api response format were checked against the real servers.
 
 **Pico 2 W:** the RP2350 build compiles without warnings; the image has the boot block in the first 4 KiB, ends
 below the settings sector, and converts to an RP2350 UF2. It has **never run on a Pico 2 W**: expect to check WiFi

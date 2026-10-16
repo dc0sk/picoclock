@@ -270,6 +270,7 @@ mod tests {
         Tz::from_name_or_rule(name).unwrap().offset_at(t)
     }
 
+    // VERIFIES: REQ-TZ-01 REQ-TZ-03
     #[test]
     fn fixed_offsets() {
         assert_eq!(Tz::parse("UTC0").unwrap().offset_at(0), 0);
@@ -279,6 +280,7 @@ mod tests {
         assert_eq!(off("utc", 0), 0);
     }
 
+    // VERIFIES: REQ-TZ-01
     #[test]
     fn eu_transitions_berlin() {
         let z = "Europe/Berlin";
@@ -290,6 +292,7 @@ mod tests {
         assert_eq!(off(z, utc(2024, 1, 1, 12, 0)), 3600);
     }
 
+    // VERIFIES: REQ-TZ-01
     #[test]
     fn us_transitions_new_york() {
         let z = "America/New_York";
@@ -299,6 +302,7 @@ mod tests {
         assert_eq!(off(z, utc(2024, 11, 3, 6, 0)), -5 * 3600);
     }
 
+    // VERIFIES: REQ-TZ-01
     #[test]
     fn southern_hemisphere_sydney() {
         let z = "Australia/Sydney";
@@ -310,12 +314,14 @@ mod tests {
         assert_eq!(off(z, utc(2024, 4, 6, 16, 0)), 10 * 3600);
     }
 
+    // VERIFIES: REQ-TZ-01
     #[test]
     fn half_hour_dst_lord_howe() {
         assert_eq!(off("Australia/Lord_Howe", utc(2024, 1, 15, 0, 0)), 11 * 3600);
         assert_eq!(off("Australia/Lord_Howe", utc(2024, 7, 15, 0, 0)), 10 * 3600 + 1800);
     }
 
+    // VERIFIES: REQ-TZ-01 REQ-TZ-03
     #[test]
     fn default_dst_offset_and_julian_days() {
         // DST offset defaults to std + 1 h.
@@ -330,6 +336,7 @@ mod tests {
         assert_eq!(z.offset_at(utc(2024, 2, 28, 12, 0)), -3 * 3600);
     }
 
+    // VERIFIES: REQ-TZ-01
     #[test]
     fn negative_transition_time_greenland() {
         // tzdata uses a negative time for America/Nuuk: DST starts 01:00 UTC... verify it parses and flips once.
@@ -339,6 +346,7 @@ mod tests {
         assert_eq!(b - a, 3600);
     }
 
+    // VERIFIES: REQ-TZ-03
     #[test]
     fn rejects_garbage() {
         for bad in ["", "X", "CET", "CET-1CEST", "CET-1CEST,M13.1.0,M10.5.0", "CET-1CEST,M3.5.0", "CET-99999", "CET-1CEST,M3.5.0,M10.5.0,x", "<ab>1"] {
@@ -347,6 +355,7 @@ mod tests {
         assert!(Tz::from_name_or_rule("Mars/Olympus_Mons").is_err());
     }
 
+    // VERIFIES: REQ-TZ-02
     #[test]
     fn lookup_is_case_insensitive_and_complete() {
         assert_eq!(lookup("europe/berlin"), Some("CET-1CEST,M3.5.0,M10.5.0/3"));
@@ -359,6 +368,7 @@ mod tests {
         assert!(zone_count() > 400);
     }
 
+    // VERIFIES: REQ-TZ-02
     #[test]
     fn every_zone_has_sane_offsets() {
         for (name, _) in crate::tzdb::ZONES.iter() {
@@ -370,6 +380,7 @@ mod tests {
         }
     }
 
+    // VERIFIES: REQ-TZ-02
     #[test]
     fn prefix_listing() {
         assert!(zones_with_prefix("europe/b").any(|z| z == "Europe/Berlin"));

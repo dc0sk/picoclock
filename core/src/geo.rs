@@ -50,6 +50,7 @@ mod tests {
         format!("HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{body}")
     }
 
+    // VERIFIES: REQ-TZ-04
     #[test]
     fn parses_real_shaped_reply() {
         let r = http(r#"{"status":"success","timezone":"Europe/Berlin"}"#);
@@ -58,6 +59,7 @@ mod tests {
         assert_eq!(parse_response(r.as_bytes()).map(|x| x.1), Some("JST-9"));
     }
 
+    // VERIFIES: REQ-TZ-04
     #[test]
     fn parses_captured_ip_api_response() {
         // Captured from ip-api.com on 2026-10-15; note it answers HTTP/1.1 keep-alive even to an HTTP/1.0 request.
@@ -65,6 +67,7 @@ mod tests {
         assert_eq!(parse_response(r.as_bytes()).map(|x| x.0), Some("Europe/Berlin"));
     }
 
+    // VERIFIES: REQ-TZ-04
     #[test]
     fn rejects_everything_else() {
         let ok = r#"{"status":"success","timezone":"Europe/Berlin"}"#;

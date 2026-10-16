@@ -47,7 +47,7 @@ use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
 use panic_probe as _;
 use picoclock_core::config::Brightness;
 use picoclock_core::frame::Frame;
-use picoclock_core::time::{datetime_to_unix, unix_to_datetime};
+use picoclock_core::time::{datetime_to_unix, next_second_boundary, unix_to_datetime};
 use picoclock_core::ui::{Env, Out, Ui};
 use static_cell::StaticCell;
 
@@ -106,15 +106,14 @@ async fn ui_task(mut rtc: Rtc) -> ! {
         if let Some((secs, ms, stamp)) = state::NTP_TIME.try_take() {
             // Set the RTC exactly on the next UTC second boundary: the DS3231 restarts its second at the write, so
             // writing mid-second would leave its seconds up to 1 s behind real time.
-            let total_ms = ms as u64 + stamp.elapsed().as_millis();
-            let now = secs as i64 + (total_ms / 1000) as i64;
-            Timer::after_millis(1000 - total_ms % 1000).await;
+            let (target, wait_ms) = next_second_boundary(secs, ms, stamp.elapsed().as_millis());
+            Timer::after_millis(wait_ms).await;
             let at = Instant::now();
-            match rtc.set(&unix_to_datetime(now + 1)).await {
+            match rtc.set(&unix_to_datetime(target)).await {
                 Ok(()) => {
-                    info!("rtc: set from NTP, unix {}", now + 1);
-                    state::set_anchor(now + 1, at);
-                    state::with_runtime(|r| r.last_sync_unix = Some(now + 1));
+                    info!("rtc: set from NTP, unix {}", target);
+                    state::set_anchor(target, at);
+                    state::with_runtime(|r| r.last_sync_unix = Some(target));
                 }
                 Err(_) => warn!("rtc: write failed"),
             }

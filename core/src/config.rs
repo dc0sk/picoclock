@@ -377,6 +377,7 @@ mod tests {
         s
     }
 
+    // VERIFIES: REQ-CFG-04 REQ-NTP-01 REQ-TIME-02
     #[test]
     fn defaults_match_the_spec() {
         let c = Config::default();
@@ -386,6 +387,7 @@ mod tests {
         assert_eq!(c.effective_tz(), Tz::UTC);
     }
 
+    // VERIFIES: REQ-CFG-01 REQ-TZ-03
     #[test]
     fn set_validates() {
         let mut c = Config::default();
@@ -405,6 +407,7 @@ mod tests {
         assert_eq!(val(&c, "ntp_servers"), "gateway,pool.ntp.org");
     }
 
+    // VERIFIES: REQ-TZ-03 REQ-TZ-04 REQ-TIME-02
     #[test]
     fn timezone_modes() {
         let mut c = Config::default();
@@ -420,6 +423,7 @@ mod tests {
         assert_eq!(c.set("geo_rule", "garbage"), Err(ConfigError::InvalidValue));
     }
 
+    // VERIFIES: REQ-CFG-03
     #[test]
     fn secrets_are_redacted_in_display() {
         let mut c = Config::default();
@@ -433,6 +437,7 @@ mod tests {
         assert_eq!(val(&c, "wifi_password"), "hunter2hunter2");
     }
 
+    // VERIFIES: REQ-CFG-02
     #[test]
     fn roundtrip_every_key() {
         let mut c = Config::default();
@@ -449,6 +454,7 @@ mod tests {
         assert_eq!(Config::from_bytes(&buf[..n]), Some(c));
     }
 
+    // VERIFIES: REQ-CFG-02
     #[test]
     fn rejects_corrupt_or_blank_storage() {
         assert_eq!(Config::from_bytes(&[0xFF; 4096]), None);
@@ -467,6 +473,7 @@ mod tests {
         assert_eq!(Config::from_bytes(&bad[..n]), None);
     }
 
+    // VERIFIES: REQ-CFG-02
     #[test]
     fn tolerates_unknown_keys_and_bad_values_in_storage() {
         let body = b"future_key=1\nhour12=perhaps\nbrightness=77\nnoequals\n";
@@ -480,6 +487,7 @@ mod tests {
         assert!(!c.hour12);
     }
 
+    // VERIFIES: REQ-CFG-02 REQ-NFR-01
     #[test]
     fn serialisation_fits_one_sector_with_worst_case_values() {
         let mut c = Config::default();
@@ -492,12 +500,14 @@ mod tests {
         assert!(c.to_bytes(&mut buf).unwrap() < 1024);
     }
 
+    // VERIFIES: REQ-NET-02
     #[test]
     fn hostname_ends_in_last_mac_block() {
         assert_eq!(hostname([0x28, 0xcd, 0xc1, 0x12, 0x34, 0xab]).as_str(), "picoclock-ab");
         assert_eq!(hostname([0, 0, 0, 0, 0, 0x05]).as_str(), "picoclock-05");
     }
 
+    // VERIFIES: REQ-SRV-01 REQ-CFG-04
     #[test]
     fn ntp_server_defaults_off() {
         let mut c = Config::default();
@@ -509,6 +519,7 @@ mod tests {
         assert!(Config::from_bytes(&buf[..n]).unwrap().ntp_serve);
     }
 
+    // VERIFIES: REQ-NET-01 REQ-CFG-03
     #[test]
     fn eight_wifi_slots_are_independent_and_bounded() {
         let mut c = Config::default();
@@ -529,6 +540,7 @@ mod tests {
         }
     }
 
+    // VERIFIES: REQ-NET-01 REQ-CFG-02 REQ-NFR-01
     #[test]
     fn all_slots_full_survive_a_flash_round_trip() {
         let mut c = Config::default();

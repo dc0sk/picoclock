@@ -18,6 +18,13 @@ impl DateTime {
 }
 
 /// Days since 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's algorithm).
+/// The RTC must be written exactly on a UTC second boundary. Time was `secs` + `ms` when the NTP reply arrived and
+/// `elapsed_ms` have passed since; returns the second to write (the next whole one) and how long to wait until it begins.
+pub fn next_second_boundary(secs: u64, ms: u16, elapsed_ms: u64) -> (i64, u64) {
+    let total = ms as u64 + elapsed_ms;
+    (secs as i64 + (total / 1000) as i64 + 1, 1000 - total % 1000)
+}
+
 pub fn days_from_civil(y: i64, m: u8, d: u8) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
@@ -84,6 +91,7 @@ mod tests {
         DateTime { year: y, month: mo, day: d, hour: h, minute: mi, second: s }
     }
 
+    // VERIFIES: REQ-TIME-03
     #[test]
     fn unix_roundtrip_and_known_values() {
         assert_eq!(unix_to_datetime(0), dt(1970, 1, 1, 0, 0, 0));
@@ -94,10 +102,30 @@ mod tests {
         }
     }
 
+    // VERIFIES: REQ-TIME-03
     #[test]
     fn weekdays() {
         assert_eq!(dt(1970, 1, 1, 0, 0, 0).weekday(), 4); // Thursday
         assert_eq!(dt(2023, 11, 14, 0, 0, 0).weekday(), 2); // Tuesday
         assert_eq!(dt(2024, 3, 31, 0, 0, 0).weekday(), 7); // Sunday
+    }
+
+    // VERIFIES: REQ-TIME-04
+    #[test]
+    fn next_boundary_is_always_the_next_whole_second() {
+        assert_eq!(next_second_boundary(100, 0, 0), (101, 1000));
+        assert_eq!(next_second_boundary(100, 250, 0), (101, 750));
+        assert_eq!(next_second_boundary(100, 999, 1), (102, 1000), "exactly on a boundary waits a full second");
+        assert_eq!(next_second_boundary(100, 900, 350), (102, 750), "processing delay can cross a second");
+        for secs in [0u64, 1_720_000_000] {
+            for ms in 0..1000u16 {
+                for elapsed in [0u64, 1, 37, 250, 999, 1000, 2500] {
+                    let (target, wait) = next_second_boundary(secs, ms, elapsed);
+                    assert!((1..=1000).contains(&wait));
+                    // the wait ends exactly on `target` seconds
+                    assert_eq!((target as u64 - secs) * 1000, ms as u64 + elapsed + wait);
+                }
+            }
+        }
     }
 }

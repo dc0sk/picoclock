@@ -404,6 +404,7 @@ mod tests {
         f
     }
 
+    // VERIFIES: REQ-UI-01
     #[test]
     fn set_cycles_views_and_times_out_to_time() {
         let (mut ui, mut cfg) = (Ui::new(), Config::default());
@@ -422,6 +423,25 @@ mod tests {
         assert_eq!(ui.view(), Some(View::Time), "temp -> time");
     }
 
+    // VERIFIES: REQ-UI-01 REQ-TIME-01
+    #[test]
+    fn date_view_shows_the_local_date_across_midnight() {
+        let (mut ui, mut cfg) = (Ui::new(), Config::default());
+        press(&mut ui, &mut cfg, Button::Set, Press::Short, 0);
+        assert_eq!(ui.view(), Some(View::Date));
+        // 20:00 UTC on 31 Dec 2026 is 06:00 on 1 Jan 2027 at UTC+10: the date view must show the local day.
+        let mut local = env(Some(DateTime { year: 2026, month: 12, day: 31, hour: 20, minute: 0, second: 0 }), 0);
+        local.offset_secs = 10 * 3600;
+        let same_day_in_utc = env(Some(DateTime { year: 2027, month: 1, day: 1, hour: 6, minute: 0, second: 0 }), 0);
+        let utc_view = env(Some(DateTime { year: 2026, month: 12, day: 31, hour: 20, minute: 0, second: 0 }), 0);
+        let (a, b, c) = (rendered(&ui, &cfg, &local), rendered(&ui, &cfg, &same_day_in_utc), rendered(&ui, &cfg, &utc_view));
+        assert_eq!(a.0, b.0, "UTC+10 shows 01.01");
+        assert_ne!(a.0, c.0, "and not the UTC date 31.12");
+        let none = rendered(&ui, &cfg, &env(None, 0));
+        assert_ne!(none.0, a.0, "an unset clock shows dashes, not a date");
+    }
+
+    // VERIFIES: REQ-UI-03
     #[test]
     fn brightness_buttons_step_and_clamp() {
         let (mut ui, mut cfg) = (Ui::new(), Config::default());
@@ -443,6 +463,7 @@ mod tests {
         assert_eq!(ui.view(), Some(View::Time), "toast ends");
     }
 
+    // VERIFIES: REQ-UI-04
     #[test]
     fn menu_edits_alarm_and_leaves() {
         let (mut ui, mut cfg) = (Ui::new(), Config::default());
@@ -466,6 +487,7 @@ mod tests {
         assert!(!ui.in_menu());
     }
 
+    // VERIFIES: REQ-UI-04
     #[test]
     fn menu_walks_every_item_then_exits_and_wraps_values() {
         let (mut ui, mut cfg) = (Ui::new(), Config::default());
@@ -484,6 +506,7 @@ mod tests {
         assert_eq!(cfg.alarm_minutes, 0);
     }
 
+    // VERIFIES: REQ-UI-04
     #[test]
     fn menu_times_out_and_repeat_is_ignored_outside_it() {
         let (mut ui, mut cfg) = (Ui::new(), Config::default());
@@ -501,6 +524,7 @@ mod tests {
         assert_eq!(cfg, before);
     }
 
+    // VERIFIES: REQ-UI-06
     #[test]
     fn key_beep_follows_config() {
         let (mut ui, mut cfg) = (Ui::new(), Config::default());
@@ -509,6 +533,7 @@ mod tests {
         assert_eq!(press(&mut ui, &mut cfg, Button::Set, Press::Short, 2).beep, None);
     }
 
+    // VERIFIES: REQ-UI-05
     #[test]
     fn alarm_fires_once_per_minute_and_any_button_stops_it() {
         let (mut ui, mut cfg) = (Ui::new(), Config::default());
@@ -529,6 +554,7 @@ mod tests {
         assert_eq!(ui.tick(&cfg, &env(Some(next), 86_400_000)).beep, Some(Beep::Alarm));
     }
 
+    // VERIFIES: REQ-UI-05
     #[test]
     fn alarm_stops_by_itself_and_respects_disabled_and_unset_clock() {
         let (mut ui, mut cfg) = (Ui::new(), Config::default());
@@ -543,6 +569,7 @@ mod tests {
         assert!(!ui.alarm_ringing());
     }
 
+    // VERIFIES: REQ-UI-05 REQ-TIME-01
     #[test]
     fn alarm_uses_local_time() {
         let (mut ui, mut cfg) = (Ui::new(), Config::default());
@@ -553,6 +580,7 @@ mod tests {
         assert_eq!(ui.tick(&cfg, &e).beep, Some(Beep::Alarm));
     }
 
+    // VERIFIES: REQ-UI-06 REQ-UI-05
     #[test]
     fn hourly_chime_once_and_not_over_alarm() {
         let (mut ui, mut cfg) = (Ui::new(), Config::default());
@@ -566,6 +594,7 @@ mod tests {
         assert_eq!(ui.tick(&cfg, &env(Some(dt(11, 0, 0)), 7_200_000)).beep, Some(Beep::Alarm), "alarm wins");
     }
 
+    // VERIFIES: REQ-UI-02
     #[test]
     fn renders_time_in_24h_12h_and_unset() {
         let (ui, mut cfg) = (Ui::new(), Config::default());
@@ -588,6 +617,7 @@ mod tests {
         assert_eq!(px(&got, 4), px(&dashes, 4));
     }
 
+    // VERIFIES: REQ-UI-07
     #[test]
     fn colon_blinks_only_when_synced() {
         let (ui, cfg) = (Ui::new(), Config::default());
@@ -598,6 +628,7 @@ mod tests {
         assert_eq!(px(&rendered(&ui, &cfg, &e), 3), px(&on, 3), "steady colon until the first sync");
     }
 
+    // VERIFIES: REQ-TIME-01 REQ-TIME-02
     #[test]
     fn utc_offset_shifts_the_display_only() {
         let (ui, cfg) = (Ui::new(), Config::default());
@@ -610,6 +641,7 @@ mod tests {
         assert_eq!(px(&rendered(&ui, &cfg, &e), 3), px(&want, 3));
     }
 
+    // VERIFIES: REQ-UI-02 REQ-HW-01
     #[test]
     fn temperature_view_handles_negative_fahrenheit_and_missing() {
         let (mut ui, mut cfg) = (Ui::new(), Config::default());
@@ -638,6 +670,7 @@ mod tests {
         assert_eq!(px(&rendered(&ui, &cfg, &e), 4), px(&dashes, 4));
     }
 
+    // VERIFIES: REQ-UI-07
     #[test]
     fn status_icons_reflect_config() {
         let (ui, mut cfg) = (Ui::new(), Config::default());

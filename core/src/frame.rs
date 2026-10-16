@@ -179,11 +179,13 @@ impl Frame {
 mod tests {
     use super::*;
 
+    // VERIFIES: REQ-DSP-01
     #[test]
     fn font_table_has_all_glyphs() {
         assert_eq!(ZIKU.len(), 30 * GLYPH_ROWS);
     }
 
+    // VERIFIES: REQ-DSP-01
     #[test]
     fn zero_at_column_zero_is_shifted_by_status_offset() {
         let mut f = Frame::new();
@@ -193,6 +195,7 @@ mod tests {
         assert_eq!(f.0[7], 0x06 << COLUMN_OFFSET);
     }
 
+    // VERIFIES: REQ-DSP-01
     #[test]
     fn glyph_spanning_two_groups_keeps_neighbours() {
         let mut f = Frame::new();
@@ -205,6 +208,7 @@ mod tests {
         assert_eq!(f.0[9], 0xFF & (0xFF << 1) | (0x04 >> 1));
     }
 
+    // VERIFIES: REQ-DSP-01
     #[test]
     fn time_render_leaves_led_row_alone() {
         let mut f = Frame::new();
@@ -214,6 +218,7 @@ mod tests {
         assert_ne!(f.row_bytes(1), [0; 4]);
     }
 
+    // VERIFIES: REQ-DSP-01
     #[test]
     fn icons_survive_time_render() {
         let mut f = Frame::new();
@@ -222,6 +227,7 @@ mod tests {
         assert_eq!(f.0[1] & 0x03, 0x03);
     }
 
+    // VERIFIES: REQ-DSP-01
     #[test]
     fn weekday_leds_are_exclusive() {
         let mut f = Frame::new();

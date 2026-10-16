@@ -294,6 +294,7 @@ mod tests {
         parse_request(s.as_bytes())
     }
 
+    // VERIFIES: REQ-WEB-02
     #[test]
     fn parses_get_and_post() {
         let Parse::Complete(r) = req("GET / HTTP/1.1\r\nHost: 10.0.0.5\r\nAuthorization: Basic abc\r\n\r\n") else { panic!() };
@@ -302,12 +303,14 @@ mod tests {
         assert_eq!(r.body, b"hour12=");
     }
 
+    // VERIFIES: REQ-WEB-02
     #[test]
     fn incomplete_until_body_arrives() {
         assert_eq!(req("GET / HTTP/1.1\r\nHost: x\r\n"), Parse::Incomplete);
         assert_eq!(req("POST /save HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc"), Parse::Incomplete);
     }
 
+    // VERIFIES: REQ-WEB-02
     #[test]
     fn rejects_malformed_and_hostile_requests() {
         for bad in [
@@ -327,6 +330,7 @@ mod tests {
         assert_eq!(parse_request(b"GET / HTTP/1.1\xff\r\n\r\n"), Parse::Bad);
     }
 
+    // VERIFIES: REQ-WEB-02
     #[test]
     fn enforces_size_limits() {
         assert_eq!(req("POST / HTTP/1.1\r\nContent-Length: 999999\r\n\r\n"), Parse::TooLarge);
@@ -343,6 +347,7 @@ mod tests {
         assert_eq!(req(&many), Parse::TooLarge);
     }
 
+    // VERIFIES: REQ-WEB-03
     #[test]
     fn csrf_origin_check() {
         let mk = |o, h| Request { method: Method::Post, path: "/", body: b"", authorization: None, host: h, origin: o };
@@ -353,6 +358,7 @@ mod tests {
         assert!(!same_origin(&mk(Some("http://1.2.3.4"), None)));
     }
 
+    // VERIFIES: REQ-WEB-04
     #[test]
     fn basic_auth() {
         let mut c = Config::default();
@@ -370,6 +376,7 @@ mod tests {
         assert!(!authorized(&c, Some(&format!("Basic {}", "QUFB".repeat(200)))));
     }
 
+    // VERIFIES: REQ-CFG-01 REQ-CFG-03 REQ-WEB-01
     #[test]
     fn form_apply() {
         let mut c = Config::default();
@@ -397,6 +404,7 @@ mod tests {
         assert_eq!(apply_form(&[0xFF, 0xFE], &mut c, &mut errs), 0);
     }
 
+    // VERIFIES: REQ-WEB-05 REQ-CFG-03
     #[test]
     fn page_escapes_and_hides_secrets() {
         let mut c = Config::default();
@@ -414,6 +422,7 @@ mod tests {
         assert!(page.len() < 11000, "page is {} bytes", page.len());
     }
 
+    // VERIFIES: REQ-WEB-01 REQ-WEB-05
     #[test]
     fn page_with_all_slots_full_fits() {
         let mut c = Config::default();
@@ -427,6 +436,7 @@ mod tests {
         assert!(!page.contains(&"p".repeat(63)));
     }
 
+    // VERIFIES: REQ-WEB-02 REQ-WEB-01
     #[test]
     fn page_overflow_is_an_error_not_a_panic() {
         let mut tiny = heapless::String::<100>::new();

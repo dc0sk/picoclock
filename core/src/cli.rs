@@ -246,6 +246,7 @@ mod tests {
         (a, out)
     }
 
+    // VERIFIES: REQ-CFG-01 REQ-CFG-03 REQ-CLI-01
     #[test]
     fn set_get_show() {
         let mut c = Config::default();
@@ -260,6 +261,7 @@ mod tests {
         assert_eq!(out, "(set)\n");
     }
 
+    // VERIFIES: REQ-CFG-01
     #[test]
     fn errors_do_not_change_config() {
         let mut c = Config::default();
@@ -276,6 +278,7 @@ mod tests {
         assert_eq!(run(&mut c, "").0, Action::None);
     }
 
+    // VERIFIES: REQ-CLI-01
     #[test]
     fn set_without_value_clears_text_settings() {
         let mut c = Config::default();
@@ -284,6 +287,7 @@ mod tests {
         assert!(c.web_password.is_empty());
     }
 
+    // VERIFIES: REQ-CLI-01 REQ-NTP-03
     #[test]
     fn actions() {
         let mut c = Config::default();
@@ -300,6 +304,7 @@ mod tests {
         assert!(!c.hour12);
     }
 
+    // VERIFIES: REQ-TIME-01 REQ-TIME-02 REQ-CLI-01
     #[test]
     fn time_shows_utc_and_local() {
         let mut c = Config::default();
@@ -316,6 +321,7 @@ mod tests {
         assert!(out.contains("not set"));
     }
 
+    // VERIFIES: REQ-TZ-02 REQ-NET-02 REQ-CLI-01
     #[test]
     fn tz_listing_and_status() {
         let mut c = Config::default();
@@ -328,6 +334,7 @@ mod tests {
         assert!(out.contains("192.168.1.50") && out.contains("connected") && out.contains("-2.5 C") && out.contains("unsaved"), "{out}");
     }
 
+    // VERIFIES: REQ-HW-01 REQ-HW-02 REQ-NET-02
     #[test]
     fn negative_sub_degree_temperature() {
         let mut c = Config::default();
@@ -345,6 +352,7 @@ mod tests {
         assert!(out.starts_with("wifi    : connected (slot 2)\nname    : picoclock-ab\n"), "{out}");
     }
 
+    // VERIFIES: REQ-CLI-02
     #[test]
     fn tz_listing_is_capped() {
         let mut c = Config::default();
@@ -354,6 +362,7 @@ mod tests {
         assert!(out.len() < 1500, "must fit the firmware's output buffer, got {}", out.len());
     }
 
+    // VERIFIES: REQ-CLI-01
     #[test]
     fn help_lists_every_key() {
         let mut c = Config::default();

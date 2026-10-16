@@ -97,6 +97,7 @@ mod tests {
         p
     }
 
+    // VERIFIES: REQ-NTP-01
     #[test]
     fn request_layout() {
         let r = build_request([1, 2, 3, 4, 5, 6, 7, 8]);
@@ -104,6 +105,7 @@ mod tests {
         assert_eq!(&r[40..], &[1, 2, 3, 4, 5, 6, 7, 8]);
     }
 
+    // VERIFIES: REQ-NTP-01
     #[test]
     fn parses_valid_reply() {
         let n = [9; 8];
@@ -112,6 +114,7 @@ mod tests {
         assert_eq!(parse_response(&r, n), Ok((1_700_000_000, 500)));
     }
 
+    // VERIFIES: REQ-TIME-03
     #[test]
     fn era_one_rollover() {
         let n = [1; 8];
@@ -121,6 +124,7 @@ mod tests {
         assert_eq!(parse_response(&r, n), Ok((unix, 0)));
     }
 
+    // VERIFIES: REQ-NTP-02
     #[test]
     fn rejects_bad_replies() {
         let n = [7; 8];
@@ -159,6 +163,7 @@ mod tests {
         assert!(secs.abs_diff(now) < 5, "server {secs} vs local {now}");
     }
 
+    // VERIFIES: REQ-SRV-02
     #[test]
     fn server_reply_is_accepted_by_our_own_client_and_echoes_the_nonce() {
         let nonce = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -171,6 +176,7 @@ mod tests {
         assert_eq!(parse_response(&r, [9; 8]), Err(SntpError::OriginMismatch));
     }
 
+    // VERIFIES: REQ-SRV-03
     #[test]
     fn unsynchronised_server_is_rejected_by_clients() {
         let req = build_request([7; 8]);
@@ -179,6 +185,7 @@ mod tests {
         assert_eq!(parse_response(&r, [7; 8]), Err(SntpError::Unsynchronised));
     }
 
+    // VERIFIES: REQ-SRV-03 REQ-SRV-02
     #[test]
     fn server_ignores_everything_that_is_not_a_client_request() {
         let mut req = build_request([0; 8]);
@@ -195,6 +202,7 @@ mod tests {
         assert_eq!(build_server_reply(&req, 1, 0, None, true).unwrap()[0] & 0x38, 3 << 3);
     }
 
+    // VERIFIES: REQ-SRV-03
     #[test]
     fn server_reply_is_never_larger_than_the_request() {
         let mut big = [0u8; 200];
