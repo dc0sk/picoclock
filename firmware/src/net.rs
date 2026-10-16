@@ -163,21 +163,35 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
     }
 }
 
-/// One plain-HTTP request to the geolocation service; returns the zone name and its POSIX rule.
+/// Asks the providers in order (see `geo::PROVIDERS`); returns the zone name and its POSIX rule from the first one
+/// that answers with a zone in the built-in table.
 async fn geolocate(stack: Stack<'static>) -> Option<(heapless::String<48>, &'static str)> {
+    for (n, provider) in geo::PROVIDERS.iter().enumerate() {
+        state::with_runtime(|r| r.geo_provider = n as u8);
+        if let Some(found) = geolocate_with(stack, provider).await {
+            return Some(found);
+        }
+        warn!("geo: {} gave no usable answer", provider.host);
+    }
+    None
+}
+
+/// One plain-HTTP request to one provider.
+async fn geolocate_with(stack: Stack<'static>, provider: &geo::Provider) -> Option<(heapless::String<48>, &'static str)> {
     fn stage(n: u8, bytes: usize) {
         state::with_runtime(|r| {
             r.geo_stage = n;
             r.geo_bytes = bytes as u16;
         });
     }
-    let Some(addr) = stack.dns_query(geo::HOST, DnsQueryType::A).await.ok().and_then(|a| a.first().copied()) else {
+    state::with_runtime(|r| r.geo_end = 0);
+    let Some(addr) = stack.dns_query(provider.host, DnsQueryType::A).await.ok().and_then(|a| a.first().copied()) else {
         stage(1, 0);
         return None;
     };
     let IpAddr::V4(a) = addr;
     state::with_runtime(|r| r.geo_addr = a.octets());
-    let mut rx = [0u8; 768];
+    let mut rx = [0u8; 1024];
     let mut tx = [0u8; 192];
     let mut sock = TcpSocket::new(stack, &mut rx, &mut tx).ok()?;
     sock.set_timeout(Some(Duration::from_secs(8)));
@@ -185,14 +199,13 @@ async fn geolocate(stack: Stack<'static>) -> Option<(heapless::String<48>, &'sta
         stage(2, 0);
         return None;
     }
-    if sock.write_all(geo::REQUEST).await.is_err() {
+    if sock.write_all(provider.request).await.is_err() {
         stage(3, 0);
         return None;
     }
 
-    // The server keeps the connection open, so stop as soon as a complete reply has arrived.
-    state::with_runtime(|r| r.geo_end = 0);
-    let mut buf = [0u8; 768];
+    // Some servers keep the connection open, so stop as soon as a complete reply has arrived.
+    let mut buf = [0u8; 1024];
     let mut len = 0;
     let found = with_timeout(Duration::from_secs(8), async {
         while len < buf.len() {
@@ -207,7 +220,7 @@ async fn geolocate(stack: Stack<'static>) -> Option<(heapless::String<48>, &'sta
                 }
                 Ok(n) => len += n,
             }
-            if let Some((name, rule)) = geo::parse_response(&buf[..len]) {
+            if let Some((name, rule)) = geo::parse_response(&buf[..len], provider.format) {
                 return heapless::String::try_from(name).ok().map(|n| (n, rule));
             }
         }
@@ -218,12 +231,8 @@ async fn geolocate(stack: Stack<'static>) -> Option<(heapless::String<48>, &'sta
     .flatten();
     sock.abort();
     stage(if found.is_some() { 5 } else { 4 }, len);
-    // Whatever arrived, for the log (printable ASCII only).
     if found.is_none() && len > 0 {
         warn!("geo: reply was {=[u8]:a}", &buf[..len.min(120)]);
-    }
-    if found.is_none() {
-        warn!("geo: no usable reply");
     }
     found
 }

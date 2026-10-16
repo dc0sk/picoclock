@@ -229,3 +229,14 @@ the user's word, not a measurement, and it does not say for how long it was watc
 the timing numbers in VR-22.
 
 Verifies: REQ-DSP-02
+
+### VR-25 · 2026-10-16 · hardware · Timezone lookup works through ipwho.is
+
+After adding a provider list (`ipwho.is` first, `ip-api.com` as fallback; both parsers have unit tests with captured
+replies): with `timezone auto` and `geo`, the clock cached `CET-1CEST,M3.5.0,M10.5.0/3` within 4 s, `status` showed
+`geo : ok via ipwho.is (391 bytes ...)`, and `time` showed local time `UTC+02:00`. A comparison build pointed at
+`example.com` had shown that outbound TCP data from the clock works in general (407 bytes received), so the earlier
+failure is specific to ip-api.com on this network. The fallback to ip-api.com after a failure of ipwho.is was not
+exercised on the hardware. The timezone was set back to Europe/Berlin afterwards.
+
+Verifies: REQ-TZ-04

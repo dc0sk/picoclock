@@ -36,6 +36,8 @@ pub struct Status {
     pub geo_bytes: u16,
     /// How the last lookup read ended: 0 timeout, 1 peer closed, 2 read error. And the address it resolved.
     pub geo_end: u8,
+    /// Index into `geo::PROVIDERS` of the provider the last lookup used.
+    pub geo_provider: u8,
     pub geo_addr: [u8; 4],
     /// Config differs from what is saved in flash.
     pub unsaved: bool,
@@ -230,7 +232,8 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                 1 => "peer closed the connection",
                 _ => "read error",
             };
-            let _ = write!(out, "\ngeo     : {geo} ({} bytes, {end}, server {}.{}.{}.{})", st.geo_bytes, st.geo_addr[0], st.geo_addr[1], st.geo_addr[2], st.geo_addr[3]);
+            let host = crate::geo::PROVIDERS.get(st.geo_provider as usize).map_or("?", |p| p.host);
+            let _ = write!(out, "\ngeo     : {geo} via {host} ({} bytes, {end}, server {}.{}.{}.{})", st.geo_bytes, st.geo_addr[0], st.geo_addr[1], st.geo_addr[2], st.geo_addr[3]);
             let _ = write!(out, "\nscan    : worst late {} us, {} waits > 100 us in {} s\n", st.scan_late_max_us, st.scan_late_count, st.uptime_s);
             if st.unsaved {
                 let _ = out.write_str("unsaved changes: type 'save'\n");
@@ -410,7 +413,7 @@ mod tests {
             let st = Status { geo_stage: stage, geo_bytes: 157, geo_end: 2, geo_addr: [208, 95, 112, 1], ..Default::default() };
             let mut out = String::new();
             execute("status", &mut Config::default(), &st, &mut out);
-            assert!(out.contains(&format!("geo     : {text} (157 bytes, read error, server 208.95.112.1)")), "{out}");
+            assert!(out.contains(&format!("geo     : {text} via ipwho.is (157 bytes, read error, server 208.95.112.1)")), "{out}");
         }
     }
 }

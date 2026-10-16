@@ -23,8 +23,8 @@ last_updated: 2026-10-16
 | Ratified with hardware evidence                                   | 34    |
 | Ratified with unit tests only (no hardware, host or build record) | 9     |
 | Ratified and UNVERIFIED (stated reason)                           | 2     |
-| Unit tests bound to requirements                                  | 81    |
-| Verification records                                              | 24    |
+| Unit tests bound to requirements                                  | 83    |
+| Verification records                                              | 25    |
 
 ## Forward: requirement to evidence
 
@@ -37,7 +37,7 @@ last_updated: 2026-10-16
 | REQ-TZ-01   | ratified | high   | TZ                 | 7          | VR-03, VR-10               | unit, host, hardware |
 | REQ-TZ-02   | ratified | high   | TZ, CLI            | 4          | -                          | unit                 |
 | REQ-TZ-03   | ratified | medium | TZ, CONFIG         | 5          | VR-02                      | unit, hardware       |
-| REQ-TZ-04   | ratified | medium | GEO, NET, CONFIG   | 5          | VR-13, VR-23               | unit, host, hardware |
+| REQ-TZ-04   | ratified | medium | GEO, NET, CONFIG   | 7          | VR-13, VR-23, VR-25        | unit, host, hardware |
 | REQ-TZ-05   | ratified | medium | TZ, CONFIG         | 2          | VR-18                      | unit, hardware       |
 | REQ-NTP-01  | ratified | high   | SNTP, NET, CONFIG  | 3          | VR-04, VR-13               | unit, host, hardware |
 | REQ-NTP-02  | ratified | high   | SNTP               | 1          | VR-10                      | unit, host           |
@@ -134,7 +134,7 @@ These have never been seen working on the clock (they may still have unit tests)
 - **REQ-TZ-01**: `tz::fixed_offsets`, `tz::eu_transitions_berlin`, `tz::us_transitions_new_york`, `tz::southern_hemisphere_sydney`, `tz::half_hour_dst_lord_howe`, `tz::default_dst_offset_and_julian_days`, `tz::negative_transition_time_greenland`
 - **REQ-TZ-02**: `cli::tz_listing_and_status`, `tz::lookup_is_case_insensitive_and_complete`, `tz::every_zone_has_sane_offsets`, `tz::prefix_listing`
 - **REQ-TZ-03**: `config::set_validates`, `config::timezone_modes`, `tz::fixed_offsets`, `tz::default_dst_offset_and_julian_days`, `tz::rejects_garbage`
-- **REQ-TZ-04**: `cli::status_shows_scan_timing_and_the_last_lookup`, `config::timezone_modes`, `geo::parses_real_shaped_reply`, `geo::parses_captured_ip_api_response`, `geo::rejects_everything_else`
+- **REQ-TZ-04**: `cli::status_shows_scan_timing_and_the_last_lookup`, `config::timezone_modes`, `geo::parses_real_shaped_reply`, `geo::parses_captured_ip_api_response`, `geo::rejects_everything_else`, `geo::parses_captured_ipwho_response_and_rejects_the_rest`, `geo::provider_requests_are_well_formed`
 - **REQ-TZ-05**: `config::daylight_saving_is_an_option_default_on`, `tz::without_dst_uses_standard_time_all_year`
 - **REQ-NTP-01**: `config::defaults_match_the_spec`, `sntp::request_layout`, `sntp::parses_valid_reply`
 - **REQ-NTP-02**: `sntp::rejects_bad_replies`
@@ -196,3 +196,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-22  | 2026-10-16 | hardware | Display flicker found, measured and fixed                             | REQ-DSP-02                                                                                   |
 | VR-23  | 2026-10-16 | hardware | Timezone lookup: works against a LAN server, fails against ip-api.com | REQ-TZ-04                                                                                    |
 | VR-24  | 2026-10-16 | hardware | Flicker gone (user observation)                                       | REQ-DSP-02                                                                                   |
+| VR-25  | 2026-10-16 | hardware | Timezone lookup works through ipwho.is                                | REQ-TZ-04                                                                                    |

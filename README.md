@@ -123,10 +123,12 @@ solid before. The display shows `--:--` until the RTC holds a valid time.
 
 ## Timezone lookup by IP (`timezone=auto`)
 
-There is no suitable `no_std` crate, so the firmware makes one request to `http://ip-api.com/json` (free for
-non-commercial use, HTTPS is paid). That is **opt-in**: it tells ip-api.com your public IP and it is unauthenticated,
-so a hostile network could answer with a wrong zone. The reply is only used if it names a zone in the built-in table.
-The result is cached (`geo_rule`) and refreshed daily; run `geo` to look up now.
+There is no suitable `no_std` crate, so the firmware makes one plain-HTTP request to a free service: `ipwho.is`,
+and `ip-api.com` if that gives no usable answer (HTTPS is paid or needs a TLS client). That is **opt-in**: it tells the
+service your public IP and it is unauthenticated, so a hostile network could answer with a wrong zone. The reply is only
+used if it names a zone in the built-in table. The result is cached (`geo_rule`) and refreshed daily; run `geo` to look
+up now. The `geo:` line of `status` shows the provider and stage of the last lookup. Two providers are used because a
+service can be unreachable from a given network (see *Status*).
 
 ## How it is organised
 
@@ -168,11 +170,10 @@ SPI speed, the settings sector, the temperature sensor and the high-priority dis
 the buzzer, the alarm, the settings menu and the light sensor work. The hourly chime and the key-beep setting were not
 singled out, and the light-sensor thresholds were not measured.
 
-**Known problem: `timezone=auto` does not work on the owner's network.** The owner reported it working, but it could
-not be reproduced: the clock connects to ip-api.com and sends the request, but the data is never acknowledged, so
-there is no reply. The same request from a PC works, and a stand-in server on the LAN works with the clock, so the
-parsing, caching and TCP code are fine; the cause on the path to ip-api.com is not found. `status` shows the stage of
-the last lookup (`geo:` line). Until then use `timezone` with a zone name or rule.
+**`timezone=auto`:** works on the owner's network through `ipwho.is` (answer in about 4 s). `ip-api.com`, the first
+provider this firmware used, does not work from the clock on that network: it accepts the connection but never
+acknowledges the request, although a PC on the same network gets its reply. The cause is not found, so `ip-api.com`
+is only the fallback. The fallback path itself was not exercised on the hardware.
 
 **Display flicker, fixed:** rows flickered 1 to 3 times a second because a settings lock switched interrupts off long
 enough to delay the display scan. Measured before and after (`status` shows the scan's lateness), and the owner confirms

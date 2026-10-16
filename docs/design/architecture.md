@@ -21,7 +21,7 @@ implemented and verified is not claimed here: that lives in the generated
   | NTP gateway |        |  |  RP2040/RP2350   |  GP6/GP7  | + temperature sensor  |   |
   +-------------+        |  |  + CYW43439      |           +-----------------------+   |
   pool.ntp.org           |  |                  |  GPIO     +-----------------------+   |
-  ip-api.com (opt-in)    |  |                  |---------->| 32x8 LED matrix       |   |
+  ipwho.is, ip-api.com   |  |                  |---------->| 32x8 LED matrix       |   |
                          |  |                  |  74HC595  | (row scan, 8 rows)    |   |
   phone / PC browser --->|  |                  |           +-----------------------+   |
         HTTP :80         |  |                  |<-- 3 buttons (SET, UP, DOWN)          |
@@ -56,7 +56,7 @@ maths, packet formats, parsing of untrusted input, the config format, the button
 | `tz`     | POSIX TZ rule parser, `Tz::offset_at(utc)`, IANA name lookup, prefix listing                         |
 | `tzdb`   | Generated table of 486 IANA names to POSIX rules (`tools/gen_tzdb.py`)                               |
 | `sntp`   | SNTP client request and reply parsing; SNTP server reply construction                                |
-| `geo`    | Parser for the ip-api.com reply                                                                      |
+| `geo`    | Provider list and parsers for the IP geolocation replies                                             |
 | `config` | `Config` (all settings), `KEYS` table, validation in `set`, text serialisation with CRC32, hostname  |
 | `cli`    | `execute(line, config, status, out) -> Action`: every terminal command                               |
 | `http`   | Bounded request parser, Basic auth, same-origin check, form decoding, page rendering                 |
@@ -162,10 +162,14 @@ Limitation by design: a POSIX rule describes the current rule only, not historic
 
 ### 4.2 Location by IP
 
-No `no_std` crate exists, so `net.rs` makes one plain-HTTP request to ip-api.com, only when `timezone=auto`. The
-reply is untrusted: it is parsed by `core::geo` and used only if the zone name is in the built-in table. The result is
-cached (`geo_rule`) and refreshed daily. Plain HTTP is a deliberate trade-off (HTTPS is a paid feature of that
-service); it is opt-in for that reason.
+No `no_std` crate exists, so `net.rs` makes plain-HTTP requests to free services, only when `timezone=auto`. The
+providers are a list in `core::geo` (`PROVIDERS`: host, request bytes, reply format), tried in order; the first reply
+that names a zone in the built-in table wins. There is more than one because a service can be unreachable from a given
+network: on the first clock ip-api.com accepted the TCP connection but never acknowledged the request (cause not
+found), while ipwho.is answered in seconds. Each provider's reply is untrusted: it is parsed by `core::geo` in that
+provider's own format and used only if the zone name is in the built-in table. The result is cached (`geo_rule`) and
+refreshed daily. Plain HTTP is a deliberate trade-off (HTTPS needs a paid plan or a TLS client); it is opt-in for that
+reason. Adding a provider is one entry plus, if its reply is laid out differently, one parser arm.
 
 ## 5. Configuration
 

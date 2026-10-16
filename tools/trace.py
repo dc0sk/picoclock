@@ -218,7 +218,7 @@ new ID. Evidence for each requirement is in the [traceability matrix](traceabili
 - Hardware: Pico W (RP2040) or Pico 2 W (RP2350) with CYW43439 radio; DS3231 on I2C1 (0x68); 32x8 LED matrix on
   shift registers; three buttons; buzzer; ambient light sensor on ADC; USB device port.
 - Network: WiFi station with DHCP; SNTP client (UDP 123), optional SNTP server (UDP 123), HTTP on port 80, one
-  plain-HTTP request to ip-api.com when the timezone is `auto`.
+  plain-HTTP request to an IP geolocation service when the timezone is `auto`.
 - Language and platform: Rust, `no_std`, Embassy; logic that does not touch hardware lives in a host-testable crate.
 - The web interface is plain HTTP. Anything on the LAN can read what crosses it.
 

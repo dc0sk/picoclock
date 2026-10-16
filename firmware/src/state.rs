@@ -36,6 +36,7 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     geo_stage: 0,
     geo_bytes: 0,
     geo_end: 0,
+    geo_provider: 0,
     geo_addr: [0; 4],
     unsaved: false,
 }));
