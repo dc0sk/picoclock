@@ -8,3 +8,37 @@ lto = "fat"
 codegen-units = 1
 debug = 2
 panic = "abort"
+
+# The crypto crates are built for speed, the rest of the firmware for size. A TLS handshake does several ECDSA
+# verifications (P-384 for most NTS servers' chains); built for size they take so long that servers give up on the
+# connection (measured: Cloudflare reset the connection after 4.6 s).
+[profile.release.package.p256]
+opt-level = 3
+[profile.release.package.p384]
+opt-level = 3
+[profile.release.package.primeorder]
+opt-level = 3
+[profile.release.package.elliptic-curve]
+opt-level = 3
+[profile.release.package.crypto-bigint]
+opt-level = 3
+[profile.release.package.ecdsa]
+opt-level = 3
+[profile.release.package.sha2]
+opt-level = 3
+[profile.release.package.hmac]
+opt-level = 3
+[profile.release.package.aes]
+opt-level = 3
+[profile.release.package.aes-gcm]
+opt-level = 3
+[profile.release.package.ghash]
+opt-level = 3
+[profile.release.package.polyval]
+opt-level = 3
+[profile.release.package.embassy-crypto-rustcrypto]
+opt-level = 3
+[profile.release.package.embedded-tls]
+opt-level = 3
+[profile.release.package.rustls-webpki]
+opt-level = 3

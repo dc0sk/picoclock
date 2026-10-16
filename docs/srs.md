@@ -108,8 +108,51 @@ The clock shall resynchronise hourly and on the `sync` command.
 *Why:* Keeps the RTC and the software clock close to real time.  
 *Implemented by:* WiFi, hourly sync, geolocation request and NTP server, Terminal commands and USB serial console
 
+**REQ-HW-08** (ratified, medium)  
+The clock shall support secure NTP (NTS, RFC 8915) for its upstream servers.  
+*Why:* Requested. Feasibility and design are in ADR-0001; the specific obligations are REQ-NTS-01 to REQ-NTS-07.  
+*Implemented by:* NTS client: key exchange, authenticated packets, sessions, SNTP packets and client transport, WiFi, hourly sync, geolocation request and NTP server
 
-### 4.4 NTP server
+
+### 4.4 NTS
+
+**REQ-NTS-01** (ratified, high)  
+A server entry `nts:<host>` in `ntp_servers` shall be contacted with NTS-KE over TLS 1.3 (ALPN ntske/1), and each NTP exchange with it shall then be authenticated with AES-SIV-CMAC-256 using the negotiated keys and a fresh cookie.  
+*Why:* RFC 8915: authenticated time that a network attacker cannot forge.  
+*Implemented by:* NTS client: key exchange, authenticated packets, sessions, SNTP packets and client transport, WiFi, hourly sync, geolocation request and NTP server, Configuration model and flash storage
+
+**REQ-NTS-02** (ratified, high)  
+The NTS client shall never set the clock from a response that is unauthenticated, forged, corrupted, not an answer to its own request or replayed, and shall repeat the key exchange after an NTS NAK.  
+*Why:* An authenticated protocol is only as good as its refusals.  
+*Implemented by:* NTS client: key exchange, authenticated packets, sessions
+
+**REQ-NTS-03** (ratified, high)  
+The NTS key exchange shall not start while the clock has no valid time, and the order of `ntp_servers` shall be the only fallback policy: a failed `nts:` entry is followed by the next entry, and a list made only of `nts:` entries never falls back to plain NTP.  
+*Why:* Certificate dates cannot be checked without a time (the TLS library would skip the check silently), and a silent downgrade to unauthenticated time defeats the purpose.  
+*Implemented by:* NTS client: key exchange, authenticated packets, sessions, SNTP packets and client transport, Configuration model and flash storage
+
+**REQ-NTS-04** (ratified, medium)  
+The terminal's `status` shall say whether the last sync was authenticated.  
+*Why:* The user must be able to see that the time they rely on is the authenticated kind.  
+*Implemented by:* Terminal commands and USB serial console
+
+**REQ-NTS-05** (ratified, medium)  
+The client shall hold up to eight cookies, spend one per request, take replacement cookies from each authenticated response, and repeat the key exchange only when it has no cookie left or after a NAK.  
+*Why:* The key exchange costs several seconds of CPU on the clock; hourly syncs must not repeat it.  
+*Implemented by:* NTS client: key exchange, authenticated packets, sessions
+
+**REQ-NTS-06** (ratified, high)  
+The TLS exporter used to derive the NTS keys shall produce exactly what OpenSSL produces for the same handshake.  
+*Why:* The exporter is a patch to a vendored TLS library; a wrong derivation makes every server reject our requests, a subtly wrong one could weaken the keys.  
+*Implemented by:* NTS client: key exchange, authenticated packets, sessions
+
+**REQ-NTS-07** (ratified, high)  
+The server certificate chain, the host name, the validity dates and the CertificateVerify signature shall all be verified against a built-in root before any result of the key exchange (cookies, keys) is used, even though the checks run after the key exchange.  
+*Why:* On the RP2040 the checks take about 5 s and NTS-KE servers drop a client that is silent for more than about 2 s in the middle of the handshake, so they are deferred. That is safe only because NTS-KE sends no secret and nothing is used before the checks pass.  
+*Implemented by:* NTS client: key exchange, authenticated packets, sessions
+
+
+### 4.5 NTP server
 
 **REQ-SRV-01** (ratified, medium)  
 The clock shall offer an NTP server on UDP 123 that is off by default and can be switched on and off at run time.  
@@ -132,7 +175,7 @@ Right after a sync the server's time shall be within 100 ms of an NTP-synchronis
 *Implemented by:* WiFi, hourly sync, geolocation request and NTP server, Composition: task wiring, shared state, chip selection
 
 
-### 4.5 Network
+### 4.6 Network
 
 **REQ-NET-01** (ratified, high)  
 The clock shall store up to eight WiFi networks and join the first one in slot order that is reachable.  
@@ -165,7 +208,7 @@ The clock shall accept NTP servers from DHCP option 42 and shall be reachable as
 *Implemented by:* none yet
 
 
-### 4.6 Configuration
+### 4.7 Configuration
 
 **REQ-CFG-01** (ratified, high)  
 The USB terminal, the web page and flash storage shall share one validated key/value model, and an invalid value shall leave the setting unchanged.  
@@ -187,8 +230,13 @@ The defaults shall be: NTP servers `gateway,pool.ntp.org`, timezone `utc`, NTP s
 *Why:* Requested defaults.  
 *Implemented by:* Configuration model and flash storage
 
+**REQ-CFG-05** (ratified, medium)  
+Settings changed on the USB terminal shall take effect at once and be written to flash only by `save`; the web page and the buttons save for the user.  
+*Why:* What the terminal and the README say; found on the hardware that a debounced save also wrote terminal edits, so trying a value was not reversible by a reboot.  
+*Implemented by:* Terminal commands and USB serial console, Configuration model and flash storage
 
-### 4.7 Terminal
+
+### 4.8 Terminal
 
 **REQ-CLI-01** (ratified, medium)  
 The clock shall provide a terminal over USB serial with commands to show, get, set, save and reset settings, show status and time, list zones, sync, look up the zone, reboot and enter flashing mode.  
@@ -201,7 +249,7 @@ Zone listings shall be capped so one command cannot flood the console.
 *Implemented by:* Terminal commands and USB serial console
 
 
-### 4.8 Web
+### 4.9 Web
 
 **REQ-WEB-01** (ratified, medium)  
 The clock shall serve a web page on port 80 that shows status and edits every setting, and the page shall fit the response buffer with all fields at maximum length.  
@@ -234,7 +282,7 @@ The web page shall be available over HTTPS with a certificate the user can uploa
 *Implemented by:* none yet
 
 
-### 4.9 Display
+### 4.10 Display
 
 **REQ-DSP-01** (ratified, high)  
 The firmware shall compose the 32x8 matrix, weekday LEDs and status icons into the panel's row format so that glyphs, shifts and icons do not disturb each other.  
@@ -247,7 +295,7 @@ During normal operation (WiFi connected, web page and NTP in use) the display sc
 *Implemented by:* LED matrix scan, Composition: task wiring, shared state, chip selection, Terminal commands and USB serial console
 
 
-### 4.10 Interaction
+### 4.11 Interaction
 
 **REQ-UI-01** (ratified, high)  
 The SET button shall cycle the time, date and temperature views and return to the time view after a timeout.  
@@ -285,7 +333,7 @@ The colon shall blink only while the time is NTP-synchronised, and the status ic
 *Implemented by:* Button, menu, alarm and view state machine
 
 
-### 4.11 Hardware
+### 4.12 Hardware
 
 **REQ-HW-01** (ratified, medium)  
 The clock shall read the DS3231 temperature sensor and show it on the display, the terminal and the web page.  
@@ -323,13 +371,8 @@ The clock shall accept a DCF77 receiver module and a u-blox GPS module as additi
 *Why:* Roadmap. Needs free GPIOs that reach the clock's case.  
 *Implemented by:* none yet
 
-**REQ-HW-08** (draft, medium)  
-The clock shall support secure NTP (NTS, RFC 8915) for its upstream servers.  
-*Why:* Roadmap. Needs TLS 1.3, certificate validation, AES-SIV and a cookie store; shares its TLS work with HTTPS.  
-*Implemented by:* none yet
 
-
-### 4.12 Non-functional
+### 4.13 Non-functional
 
 **REQ-NFR-01** (ratified, medium)  
 The firmware image and the settings sector shall fit the flash of the target board without overlapping, and the static RAM shall fit the chip.  

@@ -8,8 +8,10 @@
 
 mod buttons;
 mod buzzer;
+mod crypto;
 mod display;
 mod net;
+mod nts;
 mod ntp;
 mod rtc;
 mod state;

@@ -7,3 +7,19 @@ description = "Hardware-independent logic for the Pico-Clock-Green firmware: tim
 
 [dependencies]
 heapless = { version = "0.9", default-features = false }
+# TLS 1.3 client for NTS-KE. Vendored from embassy-rs/embedded-tls main with a small patch (the RFC 8446 section 7.5
+# exporter), see vendor/embedded-tls/PATCHES.md. The primitives come from embassy-crypto drivers that the final binary
+# links (the firmware picks them; the host tests use the RustCrypto driver crate).
+embedded-tls = { path = "../vendor/embedded-tls", default-features = false, features = ["webpki", "p256", "p384"] }
+embassy-crypto = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967" }
+embedded-io-async = "0.7"
+aes-siv = { version = "0.7", default-features = false }
+rand_core = { version = "0.6", default-features = false }
+
+[dev-dependencies]
+embedded-tls = { path = "../vendor/embedded-tls", features = ["std", "tokio", "webpki", "p256", "p384"] }
+embassy-crypto-rustcrypto = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["all"] }
+embassy-crypto-rand = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967" }
+embedded-io-adapters = { version = "0.7", features = ["tokio-1"] }
+tokio = { version = "1", features = ["rt", "net", "macros", "time", "io-util", "process"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "arithmetic"] }

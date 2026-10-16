@@ -57,6 +57,8 @@ its unit tests run in milliseconds without hardware. `firmware` is kept thin: it
 | `tzdb`   | Generated table of 486 IANA names to POSIX rules (`tools/gen_tzdb.py`)                               |
 | `sntp`   | SNTP client request and reply parsing; SNTP server reply construction                                |
 | `geo`    | Provider list and parsers for the IP geolocation replies                                             |
+| `nts`    | NTS (RFC 8915): NTS-KE messages, NTP extension fields, AES-SIV packets, cookie store                 |
+| `nts_ke` | NTS-KE client over any async socket: TLS 1.3, exporter, deferred certificate checks, built-in roots  |
 | `config` | `Config` (all settings), `KEYS` table, validation in `set`, text serialisation with CRC32, hostname  |
 | `cli`    | `execute(line, config, status, out) -> Action`: every terminal command                               |
 | `http`   | Bounded request parser, Basic auth, same-origin check, form decoding, page rendering                 |
@@ -75,7 +77,9 @@ its unit tests run in milliseconds without hardware. `firmware` is kept thin: it
 | `buzzer`    | Beep patterns; the alarm pattern repeats until stopped                                            |
 | `storage`   | Load and save the config record in the last flash sector                                          |
 | `net`       | WiFi join and slot handling, hourly sync, geolocation request, NTP server task                    |
-| `ntp`       | SNTP client transport: resolve, send, receive, half-round-trip correction                         |
+| `ntp`       | NTP transport: resolve, send, receive, half-round-trip correction; routes `nts:` entries to `nts`   |
+| `nts`       | NTS transport: sockets and buffers for NTS-KE, authenticated UDP exchange, sessions in RAM          |
+| `crypto`    | Links the `embassy-crypto` drivers (RustCrypto primitives) and supplies the RNG driver              |
 | `usb_cli`   | USB CDC-ACM device, line editing, prompt; commands run in `core::cli`                            |
 | `web`       | TCP listener on port 80, one connection at a time, request deadline                               |
 
@@ -194,6 +198,42 @@ One model serves three front ends, so there is exactly one place that validates 
   slot 1. The device joins the first reachable slot in order and leaves only when the credentials of the slot in use
   change, so editing another slot does not disconnect it.
 
+## 5a. NTS (secure NTP)
+
+```
+ ntp_servers = "gateway, nts:time.cloudflare.com, pool.ntp.org"      (tried in order; the list is the fallback policy)
+                                   |
+        no session or no cookie? --+--> NTS-KE (TCP 4460, TLS 1.3, ALPN ntske/1)
+                                          1. handshake; the certificate chain, the CertificateVerify signature and the
+                                             transcript hash are only RECORDED (DeferredVerifier)        ~0.7 s
+                                          2. send the fixed 16-byte request, read the cookies            ~0.1 s
+                                          3. export C2S and S2C keys (RFC 8446 s7.5, context = next proto, AEAD, direction)
+                                          4. close the connection
+                                          5. now verify: chain -> built-in root, host name, dates, signature   ~4-6 s
+                                             (fails => cookies and keys are discarded, nothing was used)
+                                   |
+        UDP: NTP header + unique id + cookie (+ placeholders) + AES-SIV authenticator
+             reply must carry our id, an authenticator that verifies under the S2C key, and our origin timestamp;
+             its encrypted fields hold replacement cookies; an NTS NAK means "start over with a new key exchange"
+```
+
+The timings in the sketch are estimates from the primitives measured on the clock, except the total key exchange (5.0 s for Cloudflare, 6.9 s for nts.time.nl, measured).
+
+Design points:
+
+- **Why the checks come last.** A chain of P-384 signatures takes about five seconds on the RP2040, and NTS-KE servers drop a
+  client that is silent for more than about two seconds during the handshake (measured, ADR-0001). The handshake itself is
+  fast, and for NTS-KE the order does not change what is trusted: the client sends no secret, and the session is returned
+  only after the real checks pass. The same trick would be wrong for a protocol with a login.
+- **What is trusted.** Two built-in roots (ISRG Root X2, SSL.com ECC), ECDSA chains only, the host name from the list entry,
+  and the RTC for the dates. Without a valid RTC time the key exchange is refused up front, because the TLS library would
+  skip the date check otherwise.
+- **State.** One session per `nts:` host (two at most): two keys, up to eight cookies of at most 256 bytes, the server
+  name and port. RAM only. A cookie is spent per request and replaced from the encrypted fields of the reply.
+- **Cost.** The public-key operations do not yield, so the cooperative executor is busy for the 5 to 7 s of a key exchange;
+  the interrupt-driven display scan is not. It happens once per boot.
+- **Randomness.** The `embassy-crypto` RNG driver is `RoscRng` (ring oscillator); the RP2040 has nothing better.
+
 ## 6. Networking
 
 - **Join.** `wifi_task` derives the hostname `picoclock-<last MAC octet>` before DHCP runs, then tries the stored
@@ -227,7 +267,8 @@ The device is a LAN appliance and the design says so plainly.
 | Output encoding              | All values written into the page are HTML-escaped.                                              |
 | Hostile requests             | Hard limits on size, headers, path; deadline per request; no allocation.                        |
 | NTP server abuse             | Off by default; reply never larger than the request; non-requests are dropped; sequential.     |
-| NTP client spoofing          | Nonce origin check; unsynchronised and stratum-0 replies are refused. Not authenticated (NTS is on the roadmap). |
+| NTP client spoofing          | Plain NTP: nonce origin check; unsynchronised and stratum-0 replies refused; not authenticated. With `nts:`: AES-SIV authenticator, unique identifier, origin timestamp; NAK and forged replies refused. |
+| NTS-KE server identity       | Certificate chain to a built-in root, host name, RTC dates and the CertificateVerify signature, all checked before the result is used (after the exchange, see 5a). |
 | Geolocation                  | Opt-in; reply must name a known zone; sends the public IP in clear to a third party.           |
 | Flash storage                | CRC; read-back verification after every write.                                                  |
 | Credentials in the repo      | None. `local/` is git-ignored; `tools/provision.py` pushes them over USB.                       |
@@ -286,10 +327,8 @@ crates.io releases.
   A source abstraction would let several producers publish (seconds, sub-second, quality) and let `ui_task` pick the
   best; a GPS with a PPS pulse could replace the anchor's free-running phase and allow a lower stratum. Needs free
   GPIOs that reach the clock's case.
-- **HTTPS and NTS.** Both need TLS 1.3 and certificate handling. The feasibility spike (ADR-0001, ADR-0002) showed that
-  they do not share a library after all: NTS needs a TLS *client* (`embedded-tls` plus an exporter patch works on both
-  chips) and HTTPS needs a TLS *server* (nothing vetted builds for the RP2040). Open questions: a `no_std` TLS server, RAM and flash budget, certificate storage and upload,
-  and a per-device generated certificate instead of a shipped default key.
+- **HTTPS.** Needs a TLS *server*; nothing vetted builds for the RP2040 (ADR-0002, owner to choose).
+- **NTS beyond today:** RSA chains, user roots, TRNG on the RP2350.
 - **DHCP option 42, mDNS, strongest-network selection** touch only `net.rs`.
 
 ## 11. Testing strategy

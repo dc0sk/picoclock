@@ -38,6 +38,11 @@ name = "SNTP packets and client transport"
 code = ["core/src/sntp.rs", "firmware/src/ntp.rs"]
 
 [[cap]]
+id = "CAP-NTS"
+name = "NTS client: key exchange, authenticated packets, sessions"
+code = ["core/src/nts.rs", "core/src/nts_ke.rs", "firmware/src/nts.rs"]
+
+[[cap]]
 id = "CAP-CONFIG"
 name = "Configuration model and flash storage"
 code = ["core/src/config.rs", "firmware/src/storage.rs"]
@@ -85,7 +90,7 @@ code = ["firmware/src/net.rs"]
 [[cap]]
 id = "CAP-APP"
 name = "Composition: task wiring, shared state, chip selection"
-code = ["core/src/lib.rs", "firmware/src/main.rs", "firmware/src/state.rs", "firmware/build.rs"]
+code = ["core/src/lib.rs", "firmware/src/main.rs", "firmware/src/state.rs", "firmware/src/crypto.rs", "firmware/build.rs"]
 
 # ---------------------------------------------------------------------------------------------------- time
 
@@ -200,6 +205,69 @@ criticality = "medium"
 statement = "The clock shall resynchronise hourly and on the `sync` command."
 rationale = "Keeps the RTC and the software clock close to real time."
 cap = ["CAP-NET", "CAP-CLI"]
+
+[[req]]
+id = "REQ-NTS-01"
+area = "NTS"
+status = "ratified"
+criticality = "high"
+statement = "A server entry `nts:<host>` in `ntp_servers` shall be contacted with NTS-KE over TLS 1.3 (ALPN ntske/1), and each NTP exchange with it shall then be authenticated with AES-SIV-CMAC-256 using the negotiated keys and a fresh cookie."
+rationale = "RFC 8915: authenticated time that a network attacker cannot forge."
+cap = ["CAP-NTS", "CAP-SNTP", "CAP-NET", "CAP-CONFIG"]
+
+[[req]]
+id = "REQ-NTS-02"
+area = "NTS"
+status = "ratified"
+criticality = "high"
+statement = "The NTS client shall never set the clock from a response that is unauthenticated, forged, corrupted, not an answer to its own request or replayed, and shall repeat the key exchange after an NTS NAK."
+rationale = "An authenticated protocol is only as good as its refusals."
+cap = ["CAP-NTS"]
+
+[[req]]
+id = "REQ-NTS-03"
+area = "NTS"
+status = "ratified"
+criticality = "high"
+statement = "The NTS key exchange shall not start while the clock has no valid time, and the order of `ntp_servers` shall be the only fallback policy: a failed `nts:` entry is followed by the next entry, and a list made only of `nts:` entries never falls back to plain NTP."
+rationale = "Certificate dates cannot be checked without a time (the TLS library would skip the check silently), and a silent downgrade to unauthenticated time defeats the purpose."
+cap = ["CAP-NTS", "CAP-SNTP", "CAP-CONFIG"]
+
+[[req]]
+id = "REQ-NTS-04"
+area = "NTS"
+status = "ratified"
+criticality = "medium"
+statement = "The terminal's `status` shall say whether the last sync was authenticated."
+rationale = "The user must be able to see that the time they rely on is the authenticated kind."
+cap = ["CAP-CLI"]
+
+[[req]]
+id = "REQ-NTS-05"
+area = "NTS"
+status = "ratified"
+criticality = "medium"
+statement = "The client shall hold up to eight cookies, spend one per request, take replacement cookies from each authenticated response, and repeat the key exchange only when it has no cookie left or after a NAK."
+rationale = "The key exchange costs several seconds of CPU on the clock; hourly syncs must not repeat it."
+cap = ["CAP-NTS"]
+
+[[req]]
+id = "REQ-NTS-06"
+area = "NTS"
+status = "ratified"
+criticality = "high"
+statement = "The TLS exporter used to derive the NTS keys shall produce exactly what OpenSSL produces for the same handshake."
+rationale = "The exporter is a patch to a vendored TLS library; a wrong derivation makes every server reject our requests, a subtly wrong one could weaken the keys."
+cap = ["CAP-NTS"]
+
+[[req]]
+id = "REQ-NTS-07"
+area = "NTS"
+status = "ratified"
+criticality = "high"
+statement = "The server certificate chain, the host name, the validity dates and the CertificateVerify signature shall all be verified against a built-in root before any result of the key exchange (cookies, keys) is used, even though the checks run after the key exchange."
+rationale = "On the RP2040 the checks take about 5 s and NTS-KE servers drop a client that is silent for more than about 2 s in the middle of the handshake, so they are deferred. That is safe only because NTS-KE sends no secret and nothing is used before the checks pass."
+cap = ["CAP-NTS"]
 
 # ---------------------------------------------------------------------------------------------------- NTP server
 
@@ -332,6 +400,15 @@ criticality = "medium"
 statement = "The defaults shall be: NTP servers `gateway,pool.ntp.org`, timezone `utc`, NTP server off, web page on."
 rationale = "Requested defaults."
 cap = ["CAP-CONFIG"]
+
+[[req]]
+id = "REQ-CFG-05"
+area = "Configuration"
+status = "ratified"
+criticality = "medium"
+statement = "Settings changed on the USB terminal shall take effect at once and be written to flash only by `save`; the web page and the buttons save for the user."
+rationale = "What the terminal and the README say; found on the hardware that a debounced save also wrote terminal edits, so trying a value was not reversible by a reboot."
+cap = ["CAP-CLI", "CAP-CONFIG"]
 
 # ---------------------------------------------------------------------------------------------------- terminal
 
@@ -560,12 +637,12 @@ cap = []
 
 [[req]]
 id = "REQ-HW-08"
-area = "Hardware"
-status = "draft"
+area = "NTP client"
+status = "ratified"
 criticality = "medium"
 statement = "The clock shall support secure NTP (NTS, RFC 8915) for its upstream servers."
-rationale = "Roadmap. Needs TLS 1.3, certificate validation, AES-SIV and a cookie store; shares its TLS work with HTTPS."
-cap = []
+rationale = "Requested. Feasibility and design are in ADR-0001; the specific obligations are REQ-NTS-01 to REQ-NTS-07."
+cap = ["CAP-NTS", "CAP-SNTP", "CAP-NET"]
 
 # ---------------------------------------------------------------------------------------------------- non-functional
 

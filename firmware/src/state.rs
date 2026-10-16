@@ -37,6 +37,7 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     geo_bytes: 0,
     geo_end: 0,
     geo_provider: 0,
+    sync_secure: false,
     geo_addr: [0; 4],
     unsaved: false,
 }));
@@ -89,7 +90,26 @@ pub fn status() -> Status {
     st
 }
 
-/// Call after any edit of the configuration. `save_now` skips the quiet-period debounce.
+/// A terminal edit: takes effect at once (tasks re-read the configuration) and is marked unsaved, but is **not** written
+/// to flash; that happens only on `save` (as the terminal says). The web page and the buttons save for you, see
+/// [`mark_changed`].
+pub fn mark_edited() {
+    with_runtime(|r| r.unsaved = true);
+    CONFIG_CHANGED.signal(());
+}
+
+/// A change to the cached location rule: written to flash (so it need not be fetched again after a reboot) unless there
+/// are unsaved terminal edits, which a background event must not write behind the user's back.
+pub fn mark_cache_changed() {
+    if with_runtime(|r| r.unsaved) {
+        CONFIG_CHANGED.signal(());
+    } else {
+        mark_changed(false);
+    }
+}
+
+/// Call after an edit that is saved for the user (web page, buttons). `save_now` skips the quiet-period debounce. It
+/// writes the whole configuration, including any unsaved terminal edits.
 pub fn mark_changed(save_now: bool) {
     with_runtime(|r| r.unsaved = true);
     SAVE_REQUEST.signal(save_now);

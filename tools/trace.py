@@ -20,7 +20,7 @@ SRS = "docs/srs.md"
 MATRIX = "docs/traceability-matrix.md"
 PROJECT = "picoclock"
 SOURCE_GLOBS = ["core/src/**/*.rs", "firmware/src/**/*.rs", "firmware/build.rs"]
-TEST_GLOBS = ["core/src/**/*.rs", "firmware/src/**/*.rs"]
+TEST_GLOBS = ["core/src/**/*.rs", "core/tests/**/*.rs", "firmware/src/**/*.rs"]
 MIN_EVIDENCE = {"high": 2, "medium": 1, "low": 1}
 STATUSES = {"draft", "ratified", "retired"}
 TIER_ORDER = ["unit", "host", "build", "hardware"]
@@ -38,9 +38,10 @@ def files_matching(globs):
 
 
 def module_of(path):
-    """core/src/cli.rs -> cli ; core/src/lib.rs -> '' (tests in lib are crate-level)."""
+    """core/src/cli.rs -> cli ; core/src/lib.rs -> '' (tests in lib are crate-level) ; core/tests/x.rs -> '' (an
+    integration test binary: cargo prints the bare test name)."""
     stem = os.path.splitext(os.path.basename(path))[0]
-    return "" if stem == "lib" else stem
+    return "" if stem == "lib" or path.startswith("core/tests/") else stem
 
 
 def load():
@@ -56,9 +57,9 @@ def load():
             if not m:
                 continue
             j = i + 1
-            while j < len(lines) and not re.match(r"\s*fn \w+", lines[j]):
+            while j < len(lines) and not re.match(r"\s*(?:async\s+)?fn \w+", lines[j]):
                 j += 1
-            name = re.match(r"\s*fn (\w+)", lines[j]).group(1) if j < len(lines) else "?"
+            name = re.match(r"\s*(?:async\s+)?fn (\w+)", lines[j]).group(1) if j < len(lines) else "?"
             for rid in m.group(1).split():
                 bindings.setdefault(rid, []).append((path, name))
     records = []
@@ -145,7 +146,7 @@ def check(model, tests_output=None):
         for rid, items in model["bindings"].items():
             for path, name in items:
                 mod = module_of(path)
-                full = f"{mod}::tests::{name}" if mod else f"tests::{name}"
+                full = name if path.startswith("core/tests/") else (f"{mod}::tests::{name}" if mod else f"tests::{name}")
                 if path.startswith("firmware/"):
                     bad.append(("CITED-BUT-DIDNT-RUN", f"{rid}: {path}::{name} is firmware code; host test output cannot show it ran"))
                 elif full not in ok:

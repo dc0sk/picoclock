@@ -296,3 +296,80 @@ in `spin` (no atomic `compare_exchange`), and `rustls` itself uses `alloc::sync:
 about 30 files. Compile only; nothing was run.
 
 Verifies: REQ-WEB-06
+
+### VR-31 · 2026-10-16 · host · NTS against real servers
+
+`cargo test -p picoclock-core --test nts_live -- --ignored` (internet access needed, so it is not part of the gate):
+a complete NTS-KE (TLS 1.3, certificate chain with P-384 intermediates, exporter) and three authenticated NTP
+exchanges each with `time.cloudflare.com` and `nts.time.nl`. Both servers returned 8 cookies, answered every request
+with a valid authenticator, the time was within a second of this machine's clock, and the cookie store was back at 8
+after every exchange. `ptbtime1.ptb.de` (RSA certificate) was refused with a TLS error, as intended.
+The test is able to fail: with the client-to-server key derived with the server-to-client context the server answered
+every request with an NTS NAK (84 bytes, recognised as a NAK); with a wrong exporter label for the server-to-client key
+the replies failed authentication; with four bytes missing from the associated data of a request the server NAKed it.
+
+Verifies: REQ-NTS-01, REQ-NTS-02, REQ-NTS-05, REQ-NTS-06
+
+### VR-32 · 2026-10-16 · host · TLS exporter against OpenSSL, and the deferred certificate checks
+
+`core/tests/tls_exporter_openssl.rs` (part of the gate, needs the `openssl` binary): the client and `openssl s_server
+-keymatexport` derived the same 32 bytes from one handshake, the output changes with label and context, and four
+deliberate breaks of the derivation (label, hash of the context, the "exp master" label, the HKDF label) were each
+caught. The deferred certificate verifier was tested against a three-level chain (root, intermediate, server): the right
+root is accepted; another CA's root, a wrong host name, an expired and a not-yet-valid certificate, a chain without its
+intermediate, and a corrupted certificate are refused; driven by hand with the server's real key, a genuine
+`CertificateVerify` signature is accepted while a signature over another transcript, a corrupted one, one by another key,
+an empty and a truncated one are refused. Mutations of the verifier were tried: skipping the chain check, skipping the signature check, remembering the wrong
+transcript, and replaying or storing only the first chain entry were all caught (the last two only after the test chain
+got an intermediate, because a one-certificate chain cannot show them). Tolerating a missing chain or a missing signature
+is not caught by any test, because the later checks fail anyway; there is no observable difference. The test first failed intermittently
+because `openssl s_server` quits when its stdin is closed; the harness now keeps a pipe open.
+
+Verifies: REQ-NTS-06, REQ-NTS-07
+
+### VR-33 · 2026-10-16 · host · How long NTS-KE servers wait for the client
+
+Experiment (`core/tests/nts_slow_client.rs`, ignored by default): the certificate check was slowed by sleeping in
+the clock callback. With the checks done during the handshake, `time.cloudflare.com` and `nts.time.nl` completed up to
+a total stall of 1.5 s and dropped the connection at 2 s, `ntp3.fau.de` completed with stalls of 2.5 s and dropped the connection at 3.5 s;
+`nts.teambelgium.net`, `time.txryan.com` and `ntppool1.time.nl` dropped it when the stall totalled 3 s (shorter stalls were
+not tried). The clock needs about 5 s (VR-34),
+so a normal handshake cannot work against most servers. With the checks deferred until after the key exchange, all four
+servers tested completed with a 5 s check. An earlier run of this experiment was wrong (the first clock call fell before
+the handshake and delayed an idle connection) and was repeated with that call excluded.
+
+Verifies: REQ-NTS-07
+
+### VR-34 · 2026-10-16 · hardware · NTS on the clock
+
+With the certificate checks done inside the handshake, the key exchange with Cloudflare failed twice with a connection
+reset after 4.7 s (and again with the crypto crates built for speed: 4.72 s and 4.76 s, so CPU optimisation did not help).
+With the checks deferred: `nts:time.cloudflare.com` key exchange 4977 ms and 5042 ms (two runs), 8 cookies, an
+authenticated reply, `status` showing `synced : 5 s ago (NTS, authenticated)`; a second sync reused the cookies without a
+new key exchange (8 left again). `nts:nts.time.nl` took 6.8 to 6.9 s. `nts:ptbtime1.ptb.de` (RSA) failed after about
+0.4 s with both roots; alone in the list no new sync happened and the sync age kept growing; followed by
+`pool.ntp.org` the clock synced by plain NTP and `status` said `(plain NTP)`. During a key exchange the other tasks wait
+(the display stays lit; the clock, console and web page pause for 5 to 7 s), which happens once per boot. Entries with
+invalid hosts (`nts:192.168.1.1`) are refused by `set`.
+
+Verifies: REQ-HW-08, REQ-NTS-01, REQ-NTS-03, REQ-NTS-04, REQ-NTS-05
+
+### VR-35 · 2026-10-16 · hardware · Terminal edits are not saved until `save`; correction of earlier entries
+
+While testing NTS, `ntp_servers` was found stored in flash with a value that had only been `set` on the terminal: the
+terminal answered "not saved yet; 'save' to keep" but a debounced save fired three seconds after every edit (a call to
+`mark_changed(false)`). After the fix: `set` then an 8 s wait and a reboot restored the stored value; `set` then `save`
+and a reboot kept the new value; `status` mentions unsaved changes in between.
+**Correction:** VR-07, VR-15 and VR-28 describe settings changed "in RAM only". Because of this fault those changes were in
+fact saved about three seconds after each edit. Every test restored the values by hand and later `show` listings
+confirmed the final state, so no result changes, but the description was wrong.
+
+Verifies: REQ-CFG-05
+
+### VR-36 · 2026-10-16 · build · Size of the NTS build
+
+Pico W: 658,372 bytes of code, 115,980 bytes of static RAM (before NTS: about 451 KB and 74 KB; the TLS client with
+P-256/P-384 verification, AES-GCM, SHA-2 and the deferred-verification buffers). Pico 2 W: 656,012 bytes and 116,380
+bytes. Both build; the NTS code has not run on a Pico 2 W.
+
+Verifies: REQ-NFR-01

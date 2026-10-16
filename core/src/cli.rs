@@ -38,6 +38,8 @@ pub struct Status {
     pub geo_end: u8,
     /// Index into `geo::PROVIDERS` of the provider the last lookup used.
     pub geo_provider: u8,
+    /// The last sync was authenticated (NTS).
+    pub sync_secure: bool,
     pub geo_addr: [u8; 4],
     /// Config differs from what is saved in flash.
     pub unsaved: bool,
@@ -207,7 +209,7 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             let _ = out.write_str("\nsynced  : ");
             match (st.last_sync_unix, st.utc_unix) {
                 (Some(s), Some(now)) => {
-                    let _ = write!(out, "{} s ago", (now - s).max(0));
+                    let _ = write!(out, "{} s ago ({})", (now - s).max(0), if st.sync_secure { "NTS, authenticated" } else { "plain NTP" });
                 }
                 _ => {
                     let _ = out.write_str("never");
@@ -415,5 +417,19 @@ mod tests {
             execute("status", &mut Config::default(), &st, &mut out);
             assert!(out.contains(&format!("geo     : {text} via ipwho.is (157 bytes, read error, server 208.95.112.1)")), "{out}");
         }
+    }
+
+    // VERIFIES: REQ-NTS-04
+    #[test]
+    fn status_says_whether_the_last_sync_was_authenticated() {
+        let base = Status { utc_unix: Some(1_000), last_sync_unix: Some(990), ..Default::default() };
+        let line = |st: &Status| {
+            let mut out = String::new();
+            execute("status", &mut Config::default(), st, &mut out);
+            out.lines().find(|l| l.starts_with("synced")).unwrap().to_string()
+        };
+        assert_eq!(line(&base), "synced  : 10 s ago (plain NTP)");
+        assert_eq!(line(&Status { sync_secure: true, ..base }), "synced  : 10 s ago (NTS, authenticated)");
+        assert_eq!(line(&Status::default()), "synced  : never");
     }
 }

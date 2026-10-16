@@ -14,6 +14,8 @@ A plain Pico or Pico 2 has no WiFi. The Pico W is tested on hardware; the Pico 2
   (`CET-1CEST,M3.5.0,M10.5.0/3`), or `auto` to look it up from your public IP.
 - **NTP client:** servers tried in order, default `gateway,pool.ntp.org` (`gateway` = your DHCP router). Hourly
   resync; the RTC is set exactly on a UTC second boundary, so the displayed seconds match real time.
+- **Secure NTP (NTS, RFC 8915):** an `nts:<host>` entry in `ntp_servers` (for example `nts:time.cloudflare.com`)
+  authenticates the time with TLS 1.3 and AES-SIV; see *Secure NTP* below.
 - **NTP server (optional):** `ntp_serve on` lets other devices on the LAN use the clock as a time source. Off by default.
 - **WiFi:** up to 8 stored networks, tried in slot order. The device name on the network is
   `picoclock-<last MAC octet>`.
@@ -76,7 +78,7 @@ Changes apply immediately but are only written to flash by `save` (the web page 
 | setting | meaning | default |
 |---|---|---|
 | `wifi1_ssid`, `wifi1_password` ... `wifi8_ssid`, `wifi8_password` | up to 8 networks, tried in slot order (empty SSID = unused slot; empty password = open network, else 8-63 characters). `wifi_ssid` / `wifi_password` are aliases for slot 1 | empty |
-| `ntp_servers` | comma-separated, tried in order; `gateway` = DHCP router | `gateway,pool.ntp.org` |
+| `ntp_servers` | comma-separated, tried in order; `gateway` = DHCP router; `nts:<host>` = authenticated NTP (NTS) | `gateway,pool.ntp.org` |
 | `timezone` | `utc`, `auto`, IANA name or POSIX rule | `utc` |
 | `dst` | `on`: apply daylight saving time; `off`: the zone's standard time all year (no effect for `utc`) | on |
 | `hour12`, `fahrenheit` | display options | off |
@@ -85,6 +87,37 @@ Changes apply immediately but are only written to flash by `save` (the web page 
 | `alarm_enabled`, `alarm_time` | daily alarm at `HH:MM` local time | off, 07:00 |
 | `web_enabled`, `web_password` | web page; if a password is set, user is `admin` | on, none |
 | `ntp_serve` | `on`: answer NTP requests from the LAN on UDP 123 (see below) | off |
+
+## Secure NTP (NTS)
+
+Put `nts:` in front of a server name and the clock authenticates that server's time (RFC 8915):
+
+```
+picoclock> set ntp_servers nts:time.cloudflare.com,pool.ntp.org
+picoclock> save
+```
+
+The clock first runs NTS-KE: a TLS 1.3 connection (port 4460) in which it checks the server's certificate chain and
+host name against a built-in root and the RTC's date, and receives *cookies* and the keys. Every NTP request after that
+carries a cookie and an AES-SIV authenticator, and a reply is accepted only if its authenticator verifies and it answers
+that very request. `status` says `synced : 5 s ago (NTS, authenticated)` or `(plain NTP)`.
+
+What you need to know:
+
+- **Fallback is the list.** If an `nts:` entry fails, the next entry is tried, whatever kind it is. A list made only of
+  `nts:` entries never falls back to plain NTP. The default list stays `gateway,pool.ntp.org`.
+- **It needs a good RTC time** to check certificate dates; without one the key exchange is not attempted and the next
+  entry is used. (A clock that has never been set gets its first time from a plain entry.)
+- **Which servers work:** those whose certificate chain is ECDSA and ends at ISRG Root X2 or the SSL.com ECC root:
+  `time.cloudflare.com`, `nts.time.nl`, `ntppool1.time.nl`, `nts.teambelgium.net`, `ntp3.fau.de`, `time.txryan.com`, and any
+  server with a Let's Encrypt ECDSA certificate. Servers with RSA certificates (Netnod, PTB, System76) are not supported.
+- **The key exchange takes 5 to 7 seconds** on the RP2040, during which the console, the web page and the buttons wait
+  (the display stays lit). It happens once after boot; later hourly syncs reuse the cookies and are as fast as plain NTP.
+- **The certificate is checked after the key exchange, not during the handshake.** The clock's CPU needs about five
+  seconds for the checks, and NTS servers drop a client that is silent for more than about two seconds in the middle of the
+  handshake. Nothing the server sent is used before the checks pass, and NTS-KE sends no secret, so this is safe for this
+  protocol; the reasoning and the measurements are in [ADR-0001](docs/design/adr/0001-tls-client-for-nts.md).
+- The RP2040 has no hardware random number generator; the keys and identifiers use the ring-oscillator source.
 
 ## Network name and NTP server
 
@@ -143,6 +176,9 @@ and both firmware builds; run it before committing.
   `cargo test -p picoclock-core --target <host triple>` (add `-- --ignored` for a live pool.ntp.org query).
 - `firmware/` Pico W / Pico 2 W application: display scan (own high-priority interrupt executor, so WiFi cannot make it flicker),
   DS3231, buttons, buzzer, USB console, web server, WiFi/NTP/geolocation, flash storage.
+- `vendor/embedded-tls/` the TLS 1.3 client used for NTS-KE, a snapshot of the upstream repository with a small patch
+  (the TLS exporter); see `vendor/embedded-tls/PATCHES.md`. `core/roots/` holds the two trusted root certificates.
+- `spikes/` throwaway experiments that answered design questions with measurements (see its README).
 - `tools/gen_tzdb.py` regenerates `core/src/tzdb.rs` from the system tz database.
 
 Flash layout: program image, then a reserved 4 KiB sector at the end of the 2 MiB flash for settings
@@ -178,6 +214,12 @@ RTC and its temperature, the RP2040 temperature, flash storage across a reboot, 
 after a lost event or a rejected first attempt), failover to another slot, DHCP hostname (resolved by the router), NTP
 sync, the daylight-saving option, the web page (settings form, zone list, 404, refusal of a cross-site POST, web
 password), and the NTP server (replies, off switch, junk packets ignored, offset 1 to 5 ms right after a sync).
+
+**NTS:** works on the clock against `time.cloudflare.com` and `nts.time.nl` (key exchange 5.0 s and 6.9 s, then reused
+cookies); the whole client is also tested against those servers from a PC (`cargo test -p picoclock-core --test nts_live --
+--ignored`, needs internet), the TLS exporter against OpenSSL, and the certificate checks against a three-level chain made
+with OpenSSL (these run in `tools/gate.sh`, which needs the `openssl` binary). Not covered: RSA servers (refused), the Pico 2 W
+(builds only), and a server that sends a malformed key exchange message beyond what the unit tests construct.
 
 **Checked on the host:** the core crate's unit tests, mutation-checked by hand (bugs planted in DST, alarm, HTTP, CRC, SNTP client and server code were each caught); every one of the 486 zones parses and gives sane offsets; the SNTP exchange and the ip-api response format were checked against the real servers.
 
@@ -221,15 +263,8 @@ Planned for future releases (requirements, not implemented):
   no mature `no_std` TLS *server* crate. Feasibility is measured (see ADR-0002): a handshake would cost about 0.65 s
   on the RP2040, but the vetted option (`rustls`) does not build for the RP2040 and the alternatives are a fork or a
   hand-written TLS server, so **the owner has to choose** ([ADR-0002](docs/design/adr/0002-https-server-stack.md)).
-- **Secure NTP (NTS, RFC 8915)** for the NTP client. This needs a TLS 1.3 client for the key-exchange step (TCP 4460),
-  server certificate validation, and AES-SIV authenticated NTP packets with a cookie store. Design notes: the
-  default `pool.ntp.org` does not offer NTS and a typical router does not either, so NTS needs its own server list
-  (for example `time.cloudflare.com`) and a per-server `nts` option; certificate checks need a roughly correct clock,
-  which the battery-backed RTC provides but a first boot with a dead battery does not (the plain NTP fallback and
-  its trade-off must be an explicit setting); and the root-certificate store costs flash. The TLS pieces are shared
-  with the HTTPS item above, so the two should be designed together. Decision record and measurements:
-  [ADR-0001](docs/design/adr/0001-tls-client-for-nts.md) (`embedded-tls` plus a key exporter, AES-SIV for the packets;
-  a key exchange would take about 2.3 s once per boot, estimated from measured primitives).
+- **NTS beyond what works today:** RSA certificate chains (Netnod, PTB, System76 servers), user-supplied roots, a TRNG
+  for the Pico 2 W, and offering the exporter patch upstream.
 - **DCF77 receiver module** as an additional time source (a free GPIO and a module that fits the clock's case).
 - **GPS module (u-blox)** as a time source over UART (NMEA/UBX, optionally the PPS pulse for sub-millisecond
   accuracy), which would also let the NTP server claim a low stratum.

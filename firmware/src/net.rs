@@ -14,6 +14,7 @@ use embedded_io_async::Write as _;
 use picoclock_core::config::Config;
 use picoclock_core::geo;
 
+use crate::nts::Nts;
 use crate::{ntp, state};
 
 const RESYNC: Duration = Duration::from_secs(3600);
@@ -47,6 +48,7 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
     let mac = control.address().await;
     let _ = stack.set_hostname(&picoclock_core::config::hostname(mac));
     state::with_runtime(|r| r.mac_last = Some(mac[5]));
+    let mut nts = Nts::new();
     loop {
         let cfg = state::config_snapshot();
         if cfg.wifi.iter().all(|n| n.ssid.is_empty()) {
@@ -96,7 +98,7 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
         }
         info!("wifi: up on slot {}", slot + 1);
         control.gpio_set(0, true).await; // onboard LED = connected
-        online(stack, &iface, slot, &creds(&cfg, slot)).await;
+        online(stack, &iface, slot, &creds(&cfg, slot), &mut nts).await;
         warn!("wifi: leaving network");
         state::with_runtime(|r| {
             r.wifi_up = false;
@@ -110,7 +112,7 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
 }
 
 /// Runs while connected; returns when the link drops or the credentials change.
-async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, joined_with: &Creds) {
+async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, joined_with: &Creds, nts: &mut Nts) {
     let mut next_sync = Instant::now();
     let mut next_geo = Instant::now();
     loop {
@@ -134,8 +136,9 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
         }
         if Instant::now() >= next_sync {
             next_sync = Instant::now()
-                + match ntp::query(stack, iface, &cfg.ntp_servers).await {
-                    Some((secs, ms)) => {
+                + match ntp::query(stack, iface, &cfg.ntp_servers, nts).await {
+                    Some((secs, ms, secure)) => {
+                        state::with_runtime(|r| r.sync_secure = secure);
                         state::NTP_TIME.signal((secs, ms, Instant::now()));
                         RESYNC
                     }
@@ -152,7 +155,7 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
                             state::with_config(|c| {
                                 let _ = c.set("geo_rule", rule);
                             });
-                            state::mark_changed(false);
+                            state::mark_cache_changed();
                             GEO_REFRESH
                         }
                         None => GEO_RETRY,

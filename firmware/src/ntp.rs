@@ -1,4 +1,5 @@
-//! SNTP transport: resolves the configured servers and queries them in order until one answers.
+//! NTP transport: resolves the configured servers and queries them in order until one answers. An entry `nts:<host>`
+//! is queried with NTS (`crate::nts`); every other entry with plain SNTP.
 
 use defmt::{info, warn};
 use embassy_net::Stack;
@@ -9,13 +10,24 @@ use embassy_net::wire::{IpAddr, ListenSocketAddr, SocketAddr};
 use embassy_time::{Duration, Instant, with_timeout};
 use picoclock_core::sntp;
 
+use crate::nts::Nts;
+
 const NTP_PORT: u16 = 123;
 const ATTEMPTS_PER_SERVER: u8 = 2;
 const REPLY_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Queries each configured server in order; returns UTC as (unix seconds, ms) corrected for half the round-trip.
-pub async fn query(stack: Stack<'static>, iface: &Iface<'static>, servers: &str) -> Option<(u64, u16)> {
+/// Queries each configured server in order; returns UTC as (unix seconds, ms) corrected for half the round-trip, and
+/// whether the answer was authenticated (NTS). The order of the list is the only fallback policy: an `nts:` entry that
+/// fails is followed by the next entry, whatever kind it is, and a list of `nts:` entries alone never falls back to
+/// plain NTP.
+pub async fn query(stack: Stack<'static>, iface: &Iface<'static>, servers: &str, nts: &mut Nts) -> Option<(u64, u16, bool)> {
     for name in servers.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(host) = picoclock_core::config::nts_host(name) {
+            if let Some((secs, ms)) = nts.query(stack, host).await {
+                return Some((secs, ms, true));
+            }
+            continue;
+        }
         let Some(addr) = resolve(stack, iface, name).await else {
             warn!("ntp: cannot resolve {}", name);
             continue;
@@ -24,7 +36,7 @@ pub async fn query(stack: Stack<'static>, iface: &Iface<'static>, servers: &str)
             match exchange(stack, addr).await {
                 Ok(t) => {
                     info!("ntp: {} ({}) answered, unix {}", name, addr, t.0);
-                    return Some(t);
+                    return Some((t.0, t.1, false));
                 }
                 Err(()) => warn!("ntp: no valid reply from {} ({})", name, addr),
             }

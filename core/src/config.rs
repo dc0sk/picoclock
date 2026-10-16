@@ -101,7 +101,7 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { name: "wifi7_password", help: "slot 7 passphrase (empty = open network)", secret: true },
     KeyInfo { name: "wifi8_ssid", help: "slot 8 network name (empty = unused)", secret: false },
     KeyInfo { name: "wifi8_password", help: "slot 8 passphrase (empty = open network)", secret: true },
-    KeyInfo { name: "ntp_servers", help: "comma-separated; 'gateway' = DHCP router (default gateway,pool.ntp.org)", secret: false },
+    KeyInfo { name: "ntp_servers", help: "comma-separated, tried in order; 'gateway' = DHCP router; 'nts:host' = authenticated NTS (default gateway,pool.ntp.org)", secret: false },
     KeyInfo { name: "timezone", help: "utc | auto | IANA name (Europe/Berlin) | POSIX rule (CET-1CEST,M3.5.0,M10.5.0/3)", secret: false },
     KeyInfo { name: "dst", help: "on|off: apply daylight saving time (default on); off = standard time all year", secret: false },
     KeyInfo { name: "geo_rule", help: "POSIX rule from the last 'auto' lookup (read-only cache)", secret: false },
@@ -144,6 +144,23 @@ fn wifi_key(key: &str) -> Option<(usize, bool)> {
     }
 }
 
+/// The host of an `nts:<host>` entry of `ntp_servers` (prefix in any case, host trimmed); `None` for a plain entry.
+pub fn nts_host(entry: &str) -> Option<&str> {
+    let e = entry.trim();
+    (e.len() >= 4 && e.is_char_boundary(4) && e[..4].eq_ignore_ascii_case("nts:")).then(|| e[4..].trim())
+}
+
+/// A DNS name usable as an NTS server: certificates are checked against the name, so an IP address will not do.
+/// Letters, digits, dots and hyphens, labels not starting or ending with a hyphen, at least two labels, at most 64 bytes
+/// (the size `nts::Session` keeps), and not made of digits and dots only.
+pub fn valid_nts_host(h: &str) -> bool {
+    !h.is_empty()
+        && h.len() <= 64
+        && h.contains('.')
+        && !h.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+        && h.split('.').all(|l| !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-') && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+}
+
 fn parse_bool(v: &str) -> Result<bool, ConfigError> {
     match v {
         "on" | "true" | "1" | "yes" => Ok(true),
@@ -184,7 +201,7 @@ impl Config {
             }
             "ntp_servers" => {
                 let s: String<96> = text(value)?;
-                if s.split(',').any(|h| h.trim().is_empty()) {
+                if s.split(',').map(str::trim).any(|h| h.is_empty() || nts_host(h).is_some_and(|host| !valid_nts_host(host))) {
                     return Err(ConfigError::InvalidValue);
                 }
                 self.ntp_servers = s
@@ -586,5 +603,30 @@ mod tests {
         let mut buf = [0u8; 2048];
         let n = c.to_bytes(&mut buf).unwrap();
         assert!(!Config::from_bytes(&buf[..n]).unwrap().dst, "persists");
+    }
+
+    // VERIFIES: REQ-NTS-01 REQ-NTS-03
+    #[test]
+    fn nts_servers_are_validated_and_plain_ones_still_work() {
+        let mut c = Config::default();
+        for ok in ["nts:time.cloudflare.com", "gateway,nts:nts.time.nl,pool.ntp.org", "nts: time.cloudflare.com ,pool.ntp.org", "NTS:x.y", "Nts:Time.Example.Org"] {
+            assert_eq!(c.set("ntp_servers", ok), Ok(()), "{ok}");
+        }
+        // the prefix is recognised in any case, so a typed "NTS:" is NTS and never a plain host name by accident
+        assert_eq!(nts_host("NTS:x.y"), Some("x.y"));
+        assert_eq!(nts_host(" nts: x.y "), Some("x.y"));
+        assert_eq!(nts_host("ntp.example.org"), None);
+        assert_eq!(nts_host("nt"), None);
+        assert_eq!(nts_host("gateway"), None);
+        assert_eq!(nts_host("ñts:x.y"), None, "multi-byte characters must not panic the prefix check");
+        for bad in ["nts:", "nts:localhost", "nts:192.168.1.1", "nts:1.2.3.4", "nts:-bad.example.com", "nts:bad-.example.com", "nts:a..b", "nts:.a.b", "nts:a.b.", "nts:exa mple.com", "nts:a_b.example.com", "nts:ex@mple.com", "gateway,,pool.ntp.org", "nts:a.b,"] {
+            assert_eq!(c.set("ntp_servers", bad), Err(ConfigError::InvalidValue), "{bad:?}");
+        }
+        assert_eq!(c.set("ntp_servers", &format!("nts:{}.example.com", "a".repeat(60))), Err(ConfigError::InvalidValue), "over 64 bytes");
+        c.set("ntp_servers", "nts:time.cloudflare.com,pool.ntp.org").unwrap();
+        assert_eq!(val(&c, "ntp_servers"), "nts:time.cloudflare.com,pool.ntp.org");
+        let mut buf = [0u8; 2048];
+        let n = c.to_bytes(&mut buf).unwrap();
+        assert_eq!(val(&Config::from_bytes(&buf[..n]).unwrap(), "ntp_servers"), "nts:time.cloudflare.com,pool.ntp.org", "survives storage");
     }
 }

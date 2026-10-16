@@ -53,12 +53,12 @@ async fn run_line(class: &mut Class, line: &str) -> Result<(), Disconnected> {
     send(class, &crlf).await?;
     match action {
         Action::None => {}
-        Action::Changed => state::mark_changed(false),
+        Action::Changed => state::mark_edited(),
         Action::Save => {
             state::SAVE_REQUEST.signal(true);
             send(class, "saving...\r\n").await?;
         }
-        Action::Defaults => state::mark_changed(false),
+        Action::Defaults => state::mark_edited(),
         Action::SyncNow => {
             state::SYNC_NOW.signal(());
             send(class, "NTP sync requested\r\n").await?;
