@@ -90,6 +90,15 @@ impl Tz {
         if in_dst { d.offset } else { self.std_offset }
     }
 
+    /// The same zone with daylight saving switched off: its standard time all year. For a zone whose rule has a
+    /// negative DST (Ireland: IST is "standard", GMT the "DST" half) the lower offset is the standard time.
+    pub fn without_dst(&self) -> Tz {
+        match self.dst {
+            None => *self,
+            Some(d) => Tz { std_offset: self.std_offset.min(d.offset), dst: None },
+        }
+    }
+
     pub fn has_dst(&self) -> bool {
         self.dst.is_some()
     }
@@ -385,5 +394,29 @@ mod tests {
     fn prefix_listing() {
         assert!(zones_with_prefix("europe/b").any(|z| z == "Europe/Berlin"));
         assert!(zones_with_prefix("europe/b").all(|z| z.starts_with("Europe/B")));
+    }
+
+    // VERIFIES: REQ-TZ-05
+    #[test]
+    fn without_dst_uses_standard_time_all_year() {
+        let july = 1_720_000_000; // 2024-07-03
+        let january = 1_705_000_000; // 2024-01-11
+        let berlin = Tz::from_name_or_rule("Europe/Berlin").unwrap();
+        assert_eq!((berlin.offset_at(july), berlin.offset_at(january)), (7200, 3600));
+        let flat = berlin.without_dst();
+        assert_eq!((flat.offset_at(july), flat.offset_at(january)), (3600, 3600));
+        assert!(!flat.has_dst());
+        // southern hemisphere: DST is in January
+        let sydney = Tz::from_name_or_rule("Australia/Sydney").unwrap().without_dst();
+        assert_eq!((sydney.offset_at(january), sydney.offset_at(july)), (10 * 3600, 10 * 3600));
+        // negative DST (Ireland's rule has GMT as the "DST" half): the lower offset is the standard time
+        let dublin = Tz::parse("IST-1GMT0,M10.5.0,M3.5.0/1").unwrap();
+        assert_eq!((dublin.offset_at(july), dublin.offset_at(january)), (3600, 0));
+        let flat = dublin.without_dst();
+        assert_eq!((flat.offset_at(july), flat.offset_at(january)), (0, 0));
+        // zones without DST and UTC are unchanged
+        assert_eq!(Tz::UTC.without_dst(), Tz::UTC);
+        let tokyo = Tz::from_name_or_rule("Asia/Tokyo").unwrap();
+        assert_eq!(tokyo.without_dst(), tokyo);
     }
 }

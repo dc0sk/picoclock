@@ -85,6 +85,11 @@ When the timezone is `auto`, the clock shall look the zone up from its public IP
 *Why:* Requested location lookup; plain HTTP is the only free option, so the reply is untrusted input.  
 *Implemented by:* IP geolocation reply parser, WiFi, hourly sync, geolocation request and NTP server, Configuration model and flash storage
 
+**REQ-TZ-05** (ratified, medium)  
+Daylight saving time shall be a setting that is on by default; when it is off, the clock shall use the zone's standard time all year.  
+*Why:* Requested; some users keep standard time year-round, and the option must work for every zone, including those whose rule has a negative daylight-saving offset.  
+*Implemented by:* Timezone rules and zone table, Configuration model and flash storage
+
 
 ### 4.3 NTP client
 

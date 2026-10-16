@@ -39,6 +39,8 @@ pub struct Config {
     pub timezone: Text,
     /// POSIX rule resolved by the last successful `auto` lookup (empty until then).
     pub geo_rule: Text,
+    /// Apply daylight saving time. Off = the zone's standard time all year.
+    pub dst: bool,
     pub hour12: bool,
     pub fahrenheit: bool,
     pub brightness: Brightness,
@@ -61,6 +63,7 @@ impl Default for Config {
             ntp_servers: String::try_from("gateway,pool.ntp.org").unwrap(),
             timezone: String::try_from("utc").unwrap(),
             geo_rule: Text::new(),
+            dst: true,
             hour12: false,
             fahrenheit: false,
             brightness: Brightness::Auto,
@@ -100,6 +103,7 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { name: "wifi8_password", help: "slot 8 passphrase (empty = open network)", secret: true },
     KeyInfo { name: "ntp_servers", help: "comma-separated; 'gateway' = DHCP router (default gateway,pool.ntp.org)", secret: false },
     KeyInfo { name: "timezone", help: "utc | auto | IANA name (Europe/Berlin) | POSIX rule (CET-1CEST,M3.5.0,M10.5.0/3)", secret: false },
+    KeyInfo { name: "dst", help: "on|off: apply daylight saving time (default on); off = standard time all year", secret: false },
     KeyInfo { name: "geo_rule", help: "POSIX rule from the last 'auto' lookup (read-only cache)", secret: false },
     KeyInfo { name: "hour12", help: "on|off: 12-hour display", secret: false },
     KeyInfo { name: "fahrenheit", help: "on|off: temperature in Fahrenheit", secret: false },
@@ -200,6 +204,7 @@ impl Config {
                 }
                 self.geo_rule = text(value)?
             }
+            "dst" => self.dst = parse_bool(value)?,
             "hour12" => self.hour12 = parse_bool(value)?,
             "fahrenheit" => self.fahrenheit = parse_bool(value)?,
             "brightness" => {
@@ -244,6 +249,7 @@ impl Config {
             "ntp_servers" => out.write_str(&self.ntp_servers),
             "timezone" => out.write_str(&self.timezone),
             "geo_rule" => out.write_str(&self.geo_rule),
+            "dst" => out.write_str(on_off(self.dst)),
             "hour12" => out.write_str(on_off(self.hour12)),
             "fahrenheit" => out.write_str(on_off(self.fahrenheit)),
             "brightness" => match self.brightness {
@@ -277,13 +283,14 @@ impl Config {
     /// The effective timezone: `utc`, the cached `auto` result, or the configured zone. Falls back to UTC.
     pub fn effective_tz(&self) -> Tz {
         let t = self.timezone.as_str();
-        if t.eq_ignore_ascii_case("utc") {
+        let tz = if t.eq_ignore_ascii_case("utc") {
             Tz::UTC
         } else if t.eq_ignore_ascii_case("auto") {
             Tz::parse(&self.geo_rule).unwrap_or(Tz::UTC)
         } else {
             Tz::from_name_or_rule(t).unwrap_or(Tz::UTC)
-        }
+        };
+        if self.dst { tz } else { tz.without_dst() }
     }
 
     pub fn wants_geolocation(&self) -> bool {
@@ -555,5 +562,29 @@ mod tests {
         let n = c.to_bytes(&mut buf).expect("worst case must fit the flash record");
         assert!(n <= 2048);
         assert_eq!(Config::from_bytes(&buf), Some(c));
+    }
+
+    // VERIFIES: REQ-TZ-05
+    #[test]
+    fn daylight_saving_is_an_option_default_on() {
+        let july = 1_720_000_000;
+        let mut c = Config::default();
+        assert_eq!(val(&c, "dst"), "on");
+        c.set("timezone", "Europe/Berlin").unwrap();
+        assert_eq!(c.effective_tz().offset_at(july), 7200);
+        c.set("dst", "off").unwrap();
+        assert_eq!(val(&c, "dst"), "off");
+        assert_eq!(c.effective_tz().offset_at(july), 3600, "standard time all year");
+        c.set("timezone", "CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
+        assert_eq!(c.effective_tz().offset_at(july), 3600, "POSIX rules too");
+        c.set("timezone", "auto").unwrap();
+        c.set("geo_rule", "EST5EDT,M3.2.0,M11.1.0").unwrap();
+        assert_eq!(c.effective_tz().offset_at(july), -5 * 3600, "and the looked-up zone");
+        c.set("timezone", "utc").unwrap();
+        assert_eq!(c.effective_tz().offset_at(july), 0);
+        assert!(c.set("dst", "maybe").is_err());
+        let mut buf = [0u8; 2048];
+        let n = c.to_bytes(&mut buf).unwrap();
+        assert!(!Config::from_bytes(&buf[..n]).unwrap().dst, "persists");
     }
 }

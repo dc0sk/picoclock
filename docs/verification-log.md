@@ -156,3 +156,12 @@ hourly chime and the key beep setting were not specifically reported. It does se
 type the code drives (high = sound), which had been an open question.
 
 Verifies: REQ-UI-01, REQ-UI-03, REQ-HW-03
+
+### VR-18 · 2026-10-16 · hardware · Daylight-saving option
+
+Berlin in October: `dst on` gave `UTC+02:00`, `dst off` gave `UTC+01:00`. For `Europe/Dublin` (negative-DST rule)
+`dst off` gave UTC (GMT, its standard time) and `dst on` gave UTC+1. `set dst maybe` was refused. Through the web page,
+the settings form showed the `dst` field, and `POST dst=off` changed the time to UTC+01:00 and `dst=on` restored it;
+both were saved to flash. The display and the hour-by-hour behaviour over a real DST change were not observed.
+
+Verifies: REQ-TZ-05

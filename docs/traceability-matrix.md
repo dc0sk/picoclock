@@ -16,15 +16,15 @@ last_updated: 2026-10-16
 
 | Measure                                                           | Count |
 |-------------------------------------------------------------------|-------|
-| Requirements                                                      | 50    |
-| Ratified                                                          | 45    |
+| Requirements                                                      | 51    |
+| Ratified                                                          | 46    |
 | Draft (roadmap)                                                   | 5     |
 | Retired                                                           | 0     |
-| Ratified with hardware evidence                                   | 27    |
+| Ratified with hardware evidence                                   | 28    |
 | Ratified with unit tests only (no hardware, host or build record) | 10    |
 | Ratified and UNVERIFIED (stated reason)                           | 3     |
-| Unit tests bound to requirements                                  | 78    |
-| Verification records                                              | 17    |
+| Unit tests bound to requirements                                  | 80    |
+| Verification records                                              | 18    |
 
 ## Forward: requirement to evidence
 
@@ -38,6 +38,7 @@ last_updated: 2026-10-16
 | REQ-TZ-02   | ratified | high   | TZ, CLI            | 4          | -                   | unit                 |
 | REQ-TZ-03   | ratified | medium | TZ, CONFIG         | 5          | VR-02               | unit, hardware       |
 | REQ-TZ-04   | ratified | medium | GEO, NET, CONFIG   | 4          | VR-13               | unit, host           |
+| REQ-TZ-05   | ratified | medium | TZ, CONFIG         | 2          | VR-18               | unit, hardware       |
 | REQ-NTP-01  | ratified | high   | SNTP, NET, CONFIG  | 3          | VR-04, VR-13        | unit, host, hardware |
 | REQ-NTP-02  | ratified | high   | SNTP               | 1          | VR-10               | unit, host           |
 | REQ-NTP-03  | ratified | medium | NET, CLI           | 1          | VR-04               | unit, hardware       |
@@ -108,23 +109,23 @@ These have never been seen working on the clock (they may still have unit tests)
 
 ## Backward: capability to code and requirements
 
-| Capability  | Name                                                   | Code                                                                            | Requirements                                                                                                                                  |
-|-------------|--------------------------------------------------------|---------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| CAP-FRAME   | Frame buffer and font                                  | core/src/font.rs, core/src/frame.rs                                             | REQ-DSP-01                                                                                                                                    |
-| CAP-TIME    | Calendar maths                                         | core/src/time.rs                                                                | REQ-TIME-01, REQ-TIME-03                                                                                                                      |
-| CAP-TZ      | Timezone rules and zone table                          | core/src/tz.rs, core/src/tzdb.rs                                                | REQ-TZ-01, REQ-TZ-02, REQ-TZ-03                                                                                                               |
-| CAP-GEO     | IP geolocation reply parser                            | core/src/geo.rs                                                                 | REQ-TZ-04                                                                                                                                     |
-| CAP-SNTP    | SNTP packets and client transport                      | core/src/sntp.rs, firmware/src/ntp.rs                                           | REQ-TIME-03, REQ-NTP-01, REQ-NTP-02, REQ-SRV-02, REQ-SRV-03                                                                                   |
-| CAP-CONFIG  | Configuration model and flash storage                  | core/src/config.rs, firmware/src/storage.rs                                     | REQ-TIME-02, REQ-TZ-03, REQ-TZ-04, REQ-NTP-01, REQ-SRV-01, REQ-NET-01, REQ-NET-02, REQ-CFG-01, REQ-CFG-02, REQ-CFG-03, REQ-CFG-04, REQ-NFR-01 |
-| CAP-CLI     | Terminal commands and USB serial console               | core/src/cli.rs, firmware/src/usb_cli.rs                                        | REQ-TZ-02, REQ-NTP-03, REQ-NET-02, REQ-CFG-01, REQ-CFG-03, REQ-CLI-01, REQ-CLI-02, REQ-HW-01, REQ-HW-02                                       |
-| CAP-HTTP    | HTTP parsing, settings page and web server             | core/src/http.rs, firmware/src/web.rs                                           | REQ-CFG-01, REQ-CFG-03, REQ-WEB-01, REQ-WEB-02, REQ-WEB-03, REQ-WEB-04, REQ-WEB-05                                                            |
-| CAP-UI      | Button, menu, alarm and view state machine             | core/src/ui.rs                                                                  | REQ-TIME-01, REQ-TIME-02, REQ-UI-01, REQ-UI-02, REQ-UI-03, REQ-UI-04, REQ-UI-05, REQ-UI-06, REQ-UI-07, REQ-HW-01                              |
-| CAP-DISPLAY | LED matrix scan                                        | firmware/src/display.rs                                                         | REQ-DSP-01, REQ-HW-04, REQ-NFR-02                                                                                                             |
-| CAP-INPUT   | Button polling                                         | firmware/src/buttons.rs                                                         | REQ-UI-01, REQ-UI-03, REQ-UI-04                                                                                                               |
-| CAP-BUZZER  | Buzzer driver                                          | firmware/src/buzzer.rs                                                          | REQ-UI-05, REQ-UI-06, REQ-HW-03                                                                                                               |
-| CAP-RTC     | DS3231 driver                                          | firmware/src/rtc.rs                                                             | REQ-TIME-01, REQ-TIME-04, REQ-HW-01                                                                                                           |
-| CAP-NET     | WiFi, hourly sync, geolocation request and NTP server  | firmware/src/net.rs                                                             | REQ-TZ-04, REQ-NTP-01, REQ-NTP-03, REQ-SRV-01, REQ-SRV-02, REQ-SRV-03, REQ-SRV-04, REQ-NET-01, REQ-NET-02, REQ-NET-03                         |
-| CAP-APP     | Composition: task wiring, shared state, chip selection | core/src/lib.rs, firmware/build.rs, firmware/src/main.rs, firmware/src/state.rs | REQ-TIME-01, REQ-TIME-04, REQ-SRV-04, REQ-HW-02, REQ-HW-04, REQ-HW-05, REQ-HW-06, REQ-NFR-01, REQ-NFR-02                                      |
+| Capability  | Name                                                   | Code                                                                            | Requirements                                                                                                                                             |
+|-------------|--------------------------------------------------------|---------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| CAP-FRAME   | Frame buffer and font                                  | core/src/font.rs, core/src/frame.rs                                             | REQ-DSP-01                                                                                                                                               |
+| CAP-TIME    | Calendar maths                                         | core/src/time.rs                                                                | REQ-TIME-01, REQ-TIME-03                                                                                                                                 |
+| CAP-TZ      | Timezone rules and zone table                          | core/src/tz.rs, core/src/tzdb.rs                                                | REQ-TZ-01, REQ-TZ-02, REQ-TZ-03, REQ-TZ-05                                                                                                               |
+| CAP-GEO     | IP geolocation reply parser                            | core/src/geo.rs                                                                 | REQ-TZ-04                                                                                                                                                |
+| CAP-SNTP    | SNTP packets and client transport                      | core/src/sntp.rs, firmware/src/ntp.rs                                           | REQ-TIME-03, REQ-NTP-01, REQ-NTP-02, REQ-SRV-02, REQ-SRV-03                                                                                              |
+| CAP-CONFIG  | Configuration model and flash storage                  | core/src/config.rs, firmware/src/storage.rs                                     | REQ-TIME-02, REQ-TZ-03, REQ-TZ-04, REQ-TZ-05, REQ-NTP-01, REQ-SRV-01, REQ-NET-01, REQ-NET-02, REQ-CFG-01, REQ-CFG-02, REQ-CFG-03, REQ-CFG-04, REQ-NFR-01 |
+| CAP-CLI     | Terminal commands and USB serial console               | core/src/cli.rs, firmware/src/usb_cli.rs                                        | REQ-TZ-02, REQ-NTP-03, REQ-NET-02, REQ-CFG-01, REQ-CFG-03, REQ-CLI-01, REQ-CLI-02, REQ-HW-01, REQ-HW-02                                                  |
+| CAP-HTTP    | HTTP parsing, settings page and web server             | core/src/http.rs, firmware/src/web.rs                                           | REQ-CFG-01, REQ-CFG-03, REQ-WEB-01, REQ-WEB-02, REQ-WEB-03, REQ-WEB-04, REQ-WEB-05                                                                       |
+| CAP-UI      | Button, menu, alarm and view state machine             | core/src/ui.rs                                                                  | REQ-TIME-01, REQ-TIME-02, REQ-UI-01, REQ-UI-02, REQ-UI-03, REQ-UI-04, REQ-UI-05, REQ-UI-06, REQ-UI-07, REQ-HW-01                                         |
+| CAP-DISPLAY | LED matrix scan                                        | firmware/src/display.rs                                                         | REQ-DSP-01, REQ-HW-04, REQ-NFR-02                                                                                                                        |
+| CAP-INPUT   | Button polling                                         | firmware/src/buttons.rs                                                         | REQ-UI-01, REQ-UI-03, REQ-UI-04                                                                                                                          |
+| CAP-BUZZER  | Buzzer driver                                          | firmware/src/buzzer.rs                                                          | REQ-UI-05, REQ-UI-06, REQ-HW-03                                                                                                                          |
+| CAP-RTC     | DS3231 driver                                          | firmware/src/rtc.rs                                                             | REQ-TIME-01, REQ-TIME-04, REQ-HW-01                                                                                                                      |
+| CAP-NET     | WiFi, hourly sync, geolocation request and NTP server  | firmware/src/net.rs                                                             | REQ-TZ-04, REQ-NTP-01, REQ-NTP-03, REQ-SRV-01, REQ-SRV-02, REQ-SRV-03, REQ-SRV-04, REQ-NET-01, REQ-NET-02, REQ-NET-03                                    |
+| CAP-APP     | Composition: task wiring, shared state, chip selection | core/src/lib.rs, firmware/build.rs, firmware/src/main.rs, firmware/src/state.rs | REQ-TIME-01, REQ-TIME-04, REQ-SRV-04, REQ-HW-02, REQ-HW-04, REQ-HW-05, REQ-HW-06, REQ-NFR-01, REQ-NFR-02                                                 |
 
 ## Unit tests by requirement
 
@@ -136,6 +137,7 @@ These have never been seen working on the clock (they may still have unit tests)
 - **REQ-TZ-02**: `cli::tz_listing_and_status`, `tz::lookup_is_case_insensitive_and_complete`, `tz::every_zone_has_sane_offsets`, `tz::prefix_listing`
 - **REQ-TZ-03**: `config::set_validates`, `config::timezone_modes`, `tz::fixed_offsets`, `tz::default_dst_offset_and_julian_days`, `tz::rejects_garbage`
 - **REQ-TZ-04**: `config::timezone_modes`, `geo::parses_real_shaped_reply`, `geo::parses_captured_ip_api_response`, `geo::rejects_everything_else`
+- **REQ-TZ-05**: `config::daylight_saving_is_an_option_default_on`, `tz::without_dst_uses_standard_time_all_year`
 - **REQ-NTP-01**: `config::defaults_match_the_spec`, `sntp::request_layout`, `sntp::parses_valid_reply`
 - **REQ-NTP-02**: `sntp::rejects_bad_replies`
 - **REQ-NTP-03**: `cli::actions`
@@ -188,3 +190,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-15  | 2026-10-16 | hardware | Web password                                                         | REQ-WEB-04, REQ-CFG-03                                                                       |
 | VR-16  | 2026-10-16 | hardware | Display looks right (user observation)                               | REQ-DSP-01                                                                                   |
 | VR-17  | 2026-10-16 | hardware | Buttons and buzzer work (user observation)                           | REQ-UI-01, REQ-UI-03, REQ-HW-03                                                              |
+| VR-18  | 2026-10-16 | hardware | Daylight-saving option                                               | REQ-TZ-05                                                                                    |

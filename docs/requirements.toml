@@ -163,6 +163,15 @@ statement = "When the timezone is `auto`, the clock shall look the zone up from 
 rationale = "Requested location lookup; plain HTTP is the only free option, so the reply is untrusted input."
 cap = ["CAP-GEO", "CAP-NET", "CAP-CONFIG"]
 
+[[req]]
+id = "REQ-TZ-05"
+area = "Timezone"
+status = "ratified"
+criticality = "medium"
+statement = "Daylight saving time shall be a setting that is on by default; when it is off, the clock shall use the zone's standard time all year."
+rationale = "Requested; some users keep standard time year-round, and the option must work for every zone, including those whose rule has a negative daylight-saving offset."
+cap = ["CAP-TZ", "CAP-CONFIG"]
+
 # ---------------------------------------------------------------------------------------------------- NTP client
 
 [[req]]

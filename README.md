@@ -78,6 +78,7 @@ Changes apply immediately but are only written to flash by `save` (the web page 
 | `wifi1_ssid`, `wifi1_password` ... `wifi8_ssid`, `wifi8_password` | up to 8 networks, tried in slot order (empty SSID = unused slot; empty password = open network, else 8-63 characters). `wifi_ssid` / `wifi_password` are aliases for slot 1 | empty |
 | `ntp_servers` | comma-separated, tried in order; `gateway` = DHCP router | `gateway,pool.ntp.org` |
 | `timezone` | `utc`, `auto`, IANA name or POSIX rule | `utc` |
+| `dst` | `on`: apply daylight saving time; `off`: the zone's standard time all year (no effect for `utc`) | on |
 | `hour12`, `fahrenheit` | display options | off |
 | `brightness` | `auto` (light sensor) or 1-100 | `auto` |
 | `key_beep`, `hourly_chime` | buzzer | on / off |
