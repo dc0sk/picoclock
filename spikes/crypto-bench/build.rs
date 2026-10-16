@@ -1,0 +1,13 @@
+//! Puts the product's RP2040 memory map where the linker finds it, and adds the link scripts.
+use std::{env, fs::File, io::Write, path::PathBuf};
+
+fn main() {
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    File::create(out.join("memory.x")).unwrap().write_all(include_bytes!("../../firmware/memory-rp2040.x")).unwrap();
+    println!("cargo:rustc-link-search={}", out.display());
+    println!("cargo:rerun-if-changed=../../firmware/memory-rp2040.x");
+    println!("cargo:rustc-link-arg-bins=--nmagic");
+    println!("cargo:rustc-link-arg-bins=-Tlink.x");
+    println!("cargo:rustc-link-arg-bins=-Tlink-rp.x");
+    println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
+}

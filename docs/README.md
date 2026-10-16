@@ -14,6 +14,7 @@ last_updated: 2026-10-16
 | [srs.md](srs.md)                                    | Software requirements specification                                | generated  |
 | [traceability-matrix.md](traceability-matrix.md)    | Requirement to capability to code to evidence                      | generated  |
 | [verification-log.md](verification-log.md)          | Dated records of verification runs, mainly on hardware             | ledger     |
+| [design/adr/](design/adr/README.md)                 | Decision records (why TLS stack X, why not Y), with evidence tiers | ledger     |
 | [requirements.toml](requirements.toml)              | The requirements as data: the source of the SRS and the matrix     | source     |
 
 ## How the pieces fit

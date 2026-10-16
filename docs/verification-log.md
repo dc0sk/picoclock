@@ -275,3 +275,24 @@ provider that connects but returns a bad reply, and the real ip-api.com entry as
 from this clock on this network).
 
 Verifies: REQ-NTP-01, REQ-NET-01, REQ-NET-03, REQ-TZ-04
+
+### VR-29 · 2026-10-16 · hardware · Crypto cost on the RP2040 (feasibility, not a verification of the requirements)
+
+A throwaway benchmark (`spikes/crypto-bench`, pure-Rust RustCrypto crates at the versions `embedded-tls` 0.19 uses,
+opt-level 3, RP2040 at 125 MHz, timed with the 1 MHz timer, one run each, read over RTT): SHA-256 of 4 KiB 4.5 ms;
+AES-128-GCM seal of 1 KiB 4.2 ms; AES-SIV-CMAC-256 of an NTS-sized request 1.4 to 1.5 ms; ECDSA P-256 sign 346 to 358 ms
+and verify 558 to 580 ms; P-256 ephemeral key 283 to 294 ms and ECDH 283 to 294 ms; X25519 key generation 150 ms and
+shared secret 146 ms. Run-to-run spread was about 4 %; one run per primitive, no warm-up effects expected. Handshake
+times derived from these are estimates (see ADR-0001 and ADR-0002). The clock ran the benchmark instead of the product
+firmware for about two minutes per run and was reflashed afterwards.
+
+Verifies: REQ-HW-08, REQ-WEB-06
+
+### VR-30 · 2026-10-16 · build · rustls without std on both chips (feasibility)
+
+`spikes/rustls-check`: `rustls` 0.23 with `default-features = false` and `rustls-rustcrypto` 0.0.2-alpha builds for
+`thumbv8m.main-none-eabihf` (RP2350) once a `getrandom` backend is registered; for `thumbv6m-none-eabi` (RP2040) it fails
+in `spin` (no atomic `compare_exchange`), and `rustls` itself uses `alloc::sync::Arc`, unavailable on that target, in
+about 30 files. Compile only; nothing was run.
+
+Verifies: REQ-WEB-06

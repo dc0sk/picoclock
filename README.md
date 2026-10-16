@@ -218,14 +218,18 @@ Planned for future releases (requirements, not implemented):
 - **HTTPS** for the web page, with a custom certificate that can be uploaded (web page and console) and a default
   certificate included. Note: a default key shipped in an open-source repository is public, so it protects nothing
   against an attacker; a per-device self-signed certificate generated on first boot is the better default. There is
-  no mature `no_std` TLS *server* crate, so this needs a design decision (and RAM/flash budget) first.
+  no mature `no_std` TLS *server* crate. Feasibility is measured (see ADR-0002): a handshake would cost about 0.65 s
+  on the RP2040, but the vetted option (`rustls`) does not build for the RP2040 and the alternatives are a fork or a
+  hand-written TLS server, so **the owner has to choose** ([ADR-0002](docs/design/adr/0002-https-server-stack.md)).
 - **Secure NTP (NTS, RFC 8915)** for the NTP client. This needs a TLS 1.3 client for the key-exchange step (TCP 4460),
   server certificate validation, and AES-SIV authenticated NTP packets with a cookie store. Design notes: the
   default `pool.ntp.org` does not offer NTS and a typical router does not either, so NTS needs its own server list
   (for example `time.cloudflare.com`) and a per-server `nts` option; certificate checks need a roughly correct clock,
   which the battery-backed RTC provides but a first boot with a dead battery does not (the plain NTP fallback and
   its trade-off must be an explicit setting); and the root-certificate store costs flash. The TLS pieces are shared
-  with the HTTPS item above, so the two should be designed together.
+  with the HTTPS item above, so the two should be designed together. Decision record and measurements:
+  [ADR-0001](docs/design/adr/0001-tls-client-for-nts.md) (`embedded-tls` plus a key exporter, AES-SIV for the packets;
+  a key exchange would take about 2.3 s once per boot, estimated from measured primitives).
 - **DCF77 receiver module** as an additional time source (a free GPIO and a module that fits the clock's case).
 - **GPS module (u-blox)** as a time source over UART (NMEA/UBX, optionally the PPS pulse for sub-millisecond
   accuracy), which would also let the NTP server claim a low stratum.

@@ -1,0 +1,14 @@
+# Throwaway compile check: does rustls + the RustCrypto provider build for the RP2040 / RP2350 without std?
+[package]
+name = "rustls-check"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "AGPL-3.0-or-later"
+
+[workspace]
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["custom-provider"] }
+rustls-rustcrypto = { version = "0.0.2-alpha", default-features = false, features = ["alloc"] }
+getrandom = { version = "0.2", features = ["custom"] }

@@ -286,8 +286,9 @@ crates.io releases.
   A source abstraction would let several producers publish (seconds, sub-second, quality) and let `ui_task` pick the
   best; a GPS with a PPS pulse could replace the anchor's free-running phase and allow a lower stratum. Needs free
   GPIOs that reach the clock's case.
-- **HTTPS and NTS.** Both need TLS 1.3 and certificate handling; they share a TLS client/server layer, so they should
-  be designed together. Open questions: a `no_std` TLS server, RAM and flash budget, certificate storage and upload,
+- **HTTPS and NTS.** Both need TLS 1.3 and certificate handling. The feasibility spike (ADR-0001, ADR-0002) showed that
+  they do not share a library after all: NTS needs a TLS *client* (`embedded-tls` plus an exporter patch works on both
+  chips) and HTTPS needs a TLS *server* (nothing vetted builds for the RP2040). Open questions: a `no_std` TLS server, RAM and flash budget, certificate storage and upload,
   and a per-device generated certificate instead of a shipped default key.
 - **DHCP option 42, mDNS, strongest-network selection** touch only `net.rs`.
 
