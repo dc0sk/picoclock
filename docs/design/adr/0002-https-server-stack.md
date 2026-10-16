@@ -65,11 +65,25 @@ implementation without a fork or hand-written protocol code, at the price that t
 - Cons: the installed Pico W gets no HTTPS, and cannot be used to test it; the RustCrypto provider for rustls is an
   alpha release (a different provider or a newer release may be needed); the feature depends on the Pico 2 W port,
   which has never run on hardware (REQ-HW-06).
-- Evidence: `spikes/rustls-check` builds for `thumbv8m.main-none-eabihf` (build tier, 2026-10-16).
+- Evidence: `spikes/rustls-check` builds for `thumbv8m.main-none-eabihf` (build tier, 2026-10-16). As a TLS 1.3 server on a
+  PC (host tier, 2026-10-16, `spikes/rustls-server-host`, VR-37) it interoperated with `curl` (X25519) and `openssl
+  s_client` (X25519 and P-256) using an ECDSA P-256 certificate, and refused a client that offered only the hybrid
+  post-quantum group. Not yet shown: the unbuffered `no_std` API, an RP2350, a browser. The alpha provider chose
+  AES-256-GCM/SHA-384; the device build should offer only AES-128-GCM/SHA-256.
 
 ### Option D: no HTTPS; document the risk and offer web password plus `web_enabled off` — NOT CHOSEN; remains the behaviour of the Pico W build
 
 - Cons: the web password and WiFi passphrase cross the LAN in clear.
+
+## Progress (hardware-independent parts)
+
+- The certificate code exists and is tested against OpenSSL: `core/src/x509.rs` generates the self-signed ECDSA P-256
+  certificate (valid from a day before the RTC time for ten years, DNS names for the device name and `.local`, leaf only,
+  digital signature and server authentication) and inspects, matches and validates an uploaded certificate and key (PEM or
+  DER, PKCS#8 or SEC1, P-256 only). REQ-WEB-07, VR-38.
+- Open questions for the implementation: where the key and certificate live (the 2 KiB settings record is too small; a
+  second flash sector next to the settings one, in the Pico 2 W memory map only), when to generate (only with a valid RTC
+  time), and whether port 80 stays open or redirects.
 
 ## Consequences
 

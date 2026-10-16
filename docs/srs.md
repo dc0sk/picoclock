@@ -281,6 +281,11 @@ On the Pico 2 W build the web page shall be available over HTTPS with a certific
 *Why:* Decided in ADR-0002 (2026-10-16). A default private key shipped in an open repository is public, so none is shipped. rustls does not build for the RP2040, so HTTPS comes with the Pico 2 W; it needs the Pico 2 W build to run on hardware first (REQ-HW-06).  
 *Implemented by:* none yet
 
+**REQ-WEB-07** (ratified, high)  
+The device shall build a self-signed ECDSA P-256 server certificate that OpenSSL reads and verifies (valid for the given host names and the current time, for digital signatures and server authentication, not a CA, positive serial), and shall accept an uploaded P-256 certificate and key only if the key matches the certificate and the certificate is valid at the time; PEM and DER, PKCS#8 and SEC1 are read, and any other curve, RSA, or malformed input is refused without panicking.  
+*Why:* ADR-0002: the HTTPS certificate is generated on the device or uploaded; a wrong or mismatched certificate would fail at the first browser connection, or worse, be accepted when it should not be.  
+*Implemented by:* Web page TLS certificate: generate, inspect, validate
+
 
 ### 4.10 Display
 

@@ -373,3 +373,34 @@ P-256/P-384 verification, AES-GCM, SHA-2 and the deferred-verification buffers).
 bytes. Both build; the NTS code has not run on a Pico 2 W.
 
 Verifies: REQ-NFR-01
+
+### VR-37 · 2026-10-16 · host · rustls with the RustCrypto provider as a TLS 1.3 server (feasibility for ADR-0002)
+
+`spikes/rustls-server-host`: `rustls` 0.23 (std API, TLS 1.3 only) with `rustls-rustcrypto` 0.0.2-alpha, an ECDSA
+P-256 certificate with a subject alternative name, on localhost. `curl` with default settings connected (X25519,
+`TLS13_AES_256_GCM_SHA384`), verified the certificate and received the page; `openssl s_client` connected with
+`-groups X25519` and with `-groups P-256` (secp256r1). A client that offered only the post-quantum hybrid group
+`X25519MLKEM768` was refused (`NoKxGroupsInCommon`), as expected; browsers also offer plain X25519. Handshakes took 2 to 6 ms
+on this PC. Not done: a browser, the unbuffered `no_std` API that the device would use, any run on an RP2350. The server
+preferred AES-256-GCM/SHA-384; the device build should restrict the suites to AES-128-GCM/SHA-256 (cheaper on this CPU).
+
+Verifies: REQ-WEB-06
+
+### VR-38 · 2026-10-16 · host · The device's certificate code against OpenSSL
+
+`core/tests/x509_openssl.rs` (part of the gate, needs the `openssl` binary) and the unit tests in `core/src/x509.rs`:
+OpenSSL reads the generated certificate (version 3, ecdsa-with-SHA256, P-256, CA:FALSE critical, Digital Signature critical,
+TLS Web Server Authentication, the three DNS names, validity exactly from one day before to ten years after the given
+time, serial positive with a nonzero first byte), verifies its self-signature (`-check_ss_sig`), accepts it for the
+listed names and refuses another name, a time before its start and a time after its end, and prints the same SHA-256
+fingerprint as ours. Flipping any one of every seventh byte makes OpenSSL refuse it. Uploaded material made by OpenSSL:
+the same key in PEM and DER, PKCS#8 and SEC1 gives the same secret; a certificate is accepted with its own key and refused
+with another; a P-384 certificate or key is refused as unsupported; garbage, an empty input and a certificate given as a
+key are refused; a PEM chain keeps order and lengths and a fifth certificate is refused. Six mutations of the generator
+(validity one day short, key usage or extended key usage dropped, serial sign bit kept, signature over the wrong bytes,
+alternative name with the wrong tag) were each caught. A flaw in the first version of the test was found and fixed:
+`openssl verify` does not check the signature of a self-signed trust anchor unless `-check_ss_sig` is given, so neither the
+positive check nor the tamper check had tested our signature. Not done: the certificate has not been served by a browser
+or run on a device.
+
+Verifies: REQ-WEB-07

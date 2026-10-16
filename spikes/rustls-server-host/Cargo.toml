@@ -1,0 +1,15 @@
+# Throwaway spike: does rustls + the RustCrypto provider (the stack chosen in ADR-0002) work as a TLS 1.3 server with real
+# clients? Host only; the std API is used here, the device would use the unbuffered one.
+[package]
+name = "rustls-server-host"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "AGPL-3.0-or-later"
+
+[workspace]
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std", "custom-provider"] }
+rustls-rustcrypto = { version = "0.0.2-alpha", default-features = false, features = ["std"] }
+pki-types = { package = "rustls-pki-types", version = "1", features = ["std"] }

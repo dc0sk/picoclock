@@ -260,8 +260,10 @@ Planned for future releases (requirements, not implemented):
 - **HTTPS** for the web page ([ADR-0002](docs/design/adr/0002-https-server-stack.md), decided): `rustls` on the **Pico 2 W
   only**, because it does not build for the RP2040, so the Pico W keeps plain HTTP. The certificate is generated on the
   device at first boot (self-signed, fingerprint in `status`) and can be replaced by an uploaded certificate and key; no
-  key is shipped in the repository, since a shipped key would be public. First step: run the Pico 2 W build on real
-  hardware. Estimated cost of a handshake: under a second.
+  key is shipped in the repository, since a shipped key would be public. Done so far (on the host, no hardware needed): the
+  certificate code (`core/src/x509.rs`, checked against OpenSSL) and a feasibility test of `rustls` as a server with
+  `curl` and OpenSSL. Next: run the Pico 2 W build on real hardware, then the server itself. Estimated cost of a
+  handshake: under a second.
 - **NTS beyond what works today:** RSA certificate chains (Netnod, PTB, System76 servers), user-supplied roots, a TRNG
   for the Pico 2 W, and offering the exporter patch upstream.
 - **DCF77 receiver module** as an additional time source (a free GPIO and a module that fits the clock's case).

@@ -14,6 +14,9 @@ embedded-tls = { path = "../vendor/embedded-tls", default-features = false, feat
 embassy-crypto = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967" }
 embedded-io-async = "0.7"
 aes-siv = { version = "0.7", default-features = false }
+# The web page's certificate (ADR-0002). Same crate versions the embassy-crypto drivers use, so the firmware links one copy.
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "arithmetic", "pkcs8"] }
+sha2 = { version = "0.11", default-features = false }
 rand_core = { version = "0.6", default-features = false }
 
 [dev-dependencies]
