@@ -395,7 +395,7 @@ the server's own certificate first, then any intermediates, and the matching pri
 <button>Replace certificate</button></form>",
         )?;
     }
-    out.write_str("</body></html>")
+    write!(out, "<hr><p><small>picoclock {} is free software under the <a href=\"https://www.gnu.org/licenses/agpl-3.0.html\">GNU AGPL v3 or later</a>. Source code: <a href=\"https://github.com/dc0sk/picoclock\">github.com/dc0sk/picoclock</a></small></p></body></html>", crate::VERSION)
 }
 
 /// Plain-text list of all timezone names, one per line, streamed by the caller in chunks.
@@ -614,6 +614,8 @@ mod tests {
         assert!(!page(&Status { https_state: 1, ..Default::default() }, true).contains("action=/cert"));
         assert!(!page(&Status::default(), true).contains("action=/cert"), "not in a build without HTTPS");
         assert!(page(&ready, true).len() < 11_000);
+        let p = page(&Status::default(), false);
+        assert!(p.contains("https://github.com/dc0sk/picoclock") && p.contains("AGPL v3") && p.contains(&format!("picoclock {} is free", crate::VERSION)), "version, repository link and license on the page");
     }
 
     fn pem(label: &str, der: &[u8]) -> std::string::String {

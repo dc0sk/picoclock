@@ -467,3 +467,14 @@ test only), heap use over a long run (no RTT on this board), the expiry path on 
 I restored the board afterwards to a fresh self-signed certificate and the default settings.
 
 Verifies: REQ-WEB-06, REQ-WEB-08
+
+### VR-43 · 2026-10-16 · hardware · Pico 2 W: per-provider geo status and the page footer
+
+Flashed the Pico 2 W. `status` now lists each timezone provider on its own line (`ipwho.is: ...`, `ip-api.com: ...`), so a
+failure of the first stays visible when the second succeeds; each provider is tried twice, two seconds apart, before the next.
+With `timezone=auto`, `geo` gave `ipwho.is: ok (391 bytes, ...)` and `ip-api.com: never tried`. **Not verified on hardware:**
+the retry and the second provider's line after a real failure (host test of the output only; no failure could be provoked).
+The HTTPS page ends with the version, a link to the repository and the license. I set `timezone` back to Europe/Berlin.
+
+Verifies: REQ-TZ-04, REQ-CFG-06
+

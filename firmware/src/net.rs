@@ -12,6 +12,7 @@ use embassy_net::wire::{IpAddr, SocketAddr};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use embedded_io_async::Write as _;
 use picoclock_core::config::Config;
+use picoclock_core::cli::GeoTry;
 use picoclock_core::geo;
 
 use crate::nts::Nts;
@@ -170,30 +171,35 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
 /// that answers with a zone in the built-in table.
 async fn geolocate(stack: Stack<'static>) -> Option<(heapless::String<48>, &'static str)> {
     for (n, provider) in geo::PROVIDERS.iter().enumerate() {
-        state::with_runtime(|r| r.geo_provider = n as u8);
-        if let Some(found) = geolocate_with(stack, provider).await {
-            return Some(found);
+        // one retry: a single dropped connection is the commonest failure; the outcome of the last try stays in `status`
+        for attempt in 0..2 {
+            if let Some(found) = geolocate_with(stack, provider, n).await {
+                return Some(found);
+            }
+            warn!("geo: {} gave no usable answer (attempt {})", provider.host, attempt + 1);
+            if attempt == 0 {
+                Timer::after_secs(2).await;
+            }
         }
-        warn!("geo: {} gave no usable answer", provider.host);
     }
     None
 }
 
 /// One plain-HTTP request to one provider.
-async fn geolocate_with(stack: Stack<'static>, provider: &geo::Provider) -> Option<(heapless::String<48>, &'static str)> {
-    fn stage(n: u8, bytes: usize) {
+async fn geolocate_with(stack: Stack<'static>, provider: &geo::Provider, slot: usize) -> Option<(heapless::String<48>, &'static str)> {
+    let stage = |n: u8, bytes: usize| {
         state::with_runtime(|r| {
-            r.geo_stage = n;
-            r.geo_bytes = bytes as u16;
+            r.geo[slot].stage = n;
+            r.geo[slot].bytes = bytes as u16;
         });
-    }
-    state::with_runtime(|r| r.geo_end = 0);
+    };
+    state::with_runtime(|r| r.geo[slot] = GeoTry::default());
     let Some(addr) = stack.dns_query(provider.host, DnsQueryType::A).await.ok().and_then(|a| a.first().copied()) else {
         stage(1, 0);
         return None;
     };
     let IpAddr::V4(a) = addr;
-    state::with_runtime(|r| r.geo_addr = a.octets());
+    state::with_runtime(|r| r.geo[slot].addr = a.octets());
     let mut rx = [0u8; 1024];
     let mut tx = [0u8; 192];
     let mut sock = TcpSocket::new(stack, &mut rx, &mut tx).ok()?;
@@ -214,11 +220,11 @@ async fn geolocate_with(stack: Stack<'static>, provider: &geo::Provider) -> Opti
         while len < buf.len() {
             match sock.read(&mut buf[len..]).await {
                 Ok(0) => {
-                    state::with_runtime(|r| r.geo_end = 1);
+                    state::with_runtime(|r| r.geo[slot].end = 1);
                     break;
                 }
                 Err(_) => {
-                    state::with_runtime(|r| r.geo_end = 2);
+                    state::with_runtime(|r| r.geo[slot].end = 2);
                     break;
                 }
                 Ok(n) => len += n,

@@ -9,7 +9,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex as Cs, ThreadModeRawMutex as Tm};
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
-use picoclock_core::cli::Status;
+use picoclock_core::cli::{GeoTry, Status};
 use picoclock_core::config::Config;
 use picoclock_core::ui::{Beep, Button, Press};
 
@@ -33,16 +33,12 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     scan_late_max_us: 0,
     scan_late_count: 0,
     uptime_s: 0,
-    geo_stage: 0,
-    geo_bytes: 0,
-    geo_end: 0,
-    geo_provider: 0,
+    geo: [GeoTry { stage: 0, bytes: 0, end: 0, addr: [0; 4] }; picoclock_core::geo::PROVIDERS.len()],
     sync_secure: false,
     https_state: 0,
     cert_fp: [0; 32],
     cert_not_after: 0,
     cert_uploaded: false,
-    geo_addr: [0; 4],
     unsaved: false,
 }));
 

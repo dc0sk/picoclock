@@ -235,6 +235,11 @@ Settings changed on the USB terminal shall take effect at once and be written to
 *Why:* What the terminal and the README say; found on the hardware that a debounced save also wrote terminal edits, so trying a value was not reversible by a reboot.  
 *Implemented by:* Terminal commands and USB serial console, Configuration model and flash storage
 
+**REQ-CFG-06** (ratified, medium)  
+The software version, the source repository and the license shall be shown on the web page and by the terminal command `version` (alias `about`); the version is the package version, identical for the core and firmware packages.  
+*Why:* Requested by the owner: a user of a running clock must be able to tell which build it runs and where the source is, as the AGPL expects.  
+*Implemented by:* Terminal commands and USB serial console, HTTP parsing, settings page and web server, Configuration model and flash storage
+
 
 ### 4.8 Terminal
 

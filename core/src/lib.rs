@@ -2,6 +2,23 @@
 #![cfg_attr(not(test), no_std)]
 
 pub mod cli;
+
+/// Software version, from the package version in `Cargo.toml` (the firmware package carries the same number; a test checks it).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const REPOSITORY: &str = "https://github.com/dc0sk/picoclock";
+pub const LICENSE: &str = "GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)";
+
+#[cfg(test)]
+mod tests {
+    // VERIFIES: REQ-CFG-06
+    #[test]
+    fn firmware_and_core_carry_the_same_version() {
+        let firmware = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../firmware/Cargo.toml")).unwrap();
+        let line = firmware.lines().find(|l| l.starts_with("version = ")).unwrap();
+        assert_eq!(line, format!("version = \"{}\"", super::VERSION));
+    }
+}
+
 pub mod config;
 pub mod font;
 pub mod geo;

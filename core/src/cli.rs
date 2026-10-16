@@ -30,14 +30,8 @@ pub struct Status {
     pub scan_late_max_us: u32,
     pub scan_late_count: u32,
     pub uptime_s: u32,
-    /// Last timezone-lookup outcome: 0 never tried, 1 DNS failed, 2 connect failed, 3 request failed, 4 no usable reply, 5 ok.
-    pub geo_stage: u8,
-    /// Bytes received in the last lookup reply.
-    pub geo_bytes: u16,
-    /// How the last lookup read ended: 0 timeout, 1 peer closed, 2 read error. And the address it resolved.
-    pub geo_end: u8,
-    /// Index into `geo::PROVIDERS` of the provider the last lookup used.
-    pub geo_provider: u8,
+    /// The last attempt at each timezone-lookup provider, indexed like `geo::PROVIDERS`.
+    pub geo: [GeoTry; crate::geo::PROVIDERS.len()],
     /// The last sync was authenticated (NTS).
     pub sync_secure: bool,
     /// The HTTPS server: 0 = not part of this build, 1 = starting (needs a valid time), 2 = serving.
@@ -46,12 +40,24 @@ pub struct Status {
     pub cert_fp: [u8; 32],
     pub cert_not_after: i64,
     pub cert_uploaded: bool,
-    pub geo_addr: [u8; 4],
     /// Config differs from what is saved in flash.
     pub unsaved: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// One timezone-lookup attempt, as shown in `status`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GeoTry {
+    /// 0 never tried, 1 DNS failed, 2 connect failed, 3 request failed, 4 no usable reply, 5 ok.
+    pub stage: u8,
+    /// Bytes received in the reply.
+    pub bytes: u16,
+    /// How the read ended: 0 timeout, 1 peer closed, 2 read error.
+    pub end: u8,
+    /// The address the host name resolved to.
+    pub addr: [u8; 4],
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Action {
     None,
     /// A setting changed; the firmware should apply it (e.g. rejoin WiFi, redraw).
@@ -78,6 +84,7 @@ commands:
   tz [prefix]           list known timezone names, e.g. 'tz europe/'
   sync                  query NTP now
   geo                   look up the timezone from the public IP now (needs timezone=auto)
+  version               show the software version, source repository and license
   cert                  show the HTTPS certificate (fingerprint, validity)
   cert new              replace the HTTPS certificate with a new self-signed one
   reboot | bootsel      restart / enter USB flashing mode
@@ -239,21 +246,25 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                 }
             }
             let _ = write!(out, "\nlight   : {} (raw ADC)", st.light_raw);
-            let geo = match st.geo_stage {
-                0 => "never tried",
-                1 => "DNS lookup failed",
-                2 => "connect failed",
-                3 => "request failed",
-                4 => "no usable reply",
-                _ => "ok",
-            };
-            let end = match st.geo_end {
-                0 => "read timed out",
-                1 => "peer closed the connection",
-                _ => "read error",
-            };
-            let host = crate::geo::PROVIDERS.get(st.geo_provider as usize).map_or("?", |p| p.host);
-            let _ = write!(out, "\ngeo     : {geo} via {host} ({} bytes, {end}, server {}.{}.{}.{})", st.geo_bytes, st.geo_addr[0], st.geo_addr[1], st.geo_addr[2], st.geo_addr[3]);
+            for (p, t) in crate::geo::PROVIDERS.iter().zip(st.geo.iter()) {
+                let what = match t.stage {
+                    0 => {
+                        let _ = write!(out, "\ngeo     : {}: never tried", p.host);
+                        continue;
+                    }
+                    1 => "DNS lookup failed",
+                    2 => "connect failed",
+                    3 => "request failed",
+                    4 => "no usable reply",
+                    _ => "ok",
+                };
+                let end = match t.end {
+                    0 => "read timed out",
+                    1 => "peer closed the connection",
+                    _ => "read error",
+                };
+                let _ = write!(out, "\ngeo     : {}: {what} ({} bytes, {end}, server {}.{}.{}.{})", p.host, t.bytes, t.addr[0], t.addr[1], t.addr[2], t.addr[3]);
+            }
             let _ = write!(out, "\nhttps   : ");
             match (st.https_state, cfg.https) {
                 (0, _) => { let _ = out.write_str("not in this build (Pico 2 W only)"); }
@@ -267,6 +278,10 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             if st.unsaved {
                 let _ = out.write_str("unsaved changes: type 'save'\n");
             }
+            Action::None
+        }
+        "version" | "about" => {
+            let _ = writeln!(out, "picoclock {}\nsource : {}\nlicense: {}", crate::VERSION, crate::REPOSITORY, crate::LICENSE);
             Action::None
         }
         "sync" => Action::SyncNow,
@@ -461,13 +476,19 @@ mod tests {
         let mut out = String::new();
         execute("status", &mut Config::default(), &st, &mut out);
         assert!(out.contains("scan    : worst late 588 us, 37 waits > 100 us in 23 s"), "{out}");
-        assert!(out.contains("geo     : never tried"), "{out}");
+        assert!(out.contains("geo     : ipwho.is: never tried\ngeo     : ip-api.com: never tried"), "{out}");
         for (stage, text) in [(1, "DNS lookup failed"), (2, "connect failed"), (3, "request failed"), (4, "no usable reply"), (5, "ok")] {
-            let st = Status { geo_stage: stage, geo_bytes: 157, geo_end: 2, geo_addr: [208, 95, 112, 1], ..Default::default() };
+            let t = GeoTry { stage, bytes: 157, end: 2, addr: [208, 95, 112, 1] };
+            let st = Status { geo: [t, GeoTry::default()], ..Default::default() };
             let mut out = String::new();
             execute("status", &mut Config::default(), &st, &mut out);
-            assert!(out.contains(&format!("geo     : {text} via ipwho.is (157 bytes, read error, server 208.95.112.1)")), "{out}");
+            assert!(out.contains(&format!("geo     : ipwho.is: {text} (157 bytes, read error, server 208.95.112.1)\ngeo     : ip-api.com: never tried")), "{out}");
         }
+        // a failure of the first provider stays visible after the second succeeded
+        let st = Status { geo: [GeoTry { stage: 2, ..Default::default() }, GeoTry { stage: 5, bytes: 120, end: 1, addr: [1, 2, 3, 4] }], ..Default::default() };
+        let mut out = String::new();
+        execute("status", &mut Config::default(), &st, &mut out);
+        assert!(out.contains("ipwho.is: connect failed") && out.contains("ip-api.com: ok (120 bytes, peer closed the connection, server 1.2.3.4)"), "{out}");
     }
 
     // VERIFIES: REQ-NTS-04
@@ -520,5 +541,18 @@ mod tests {
         assert!(run(&mut c, "cert", &Status::default()).1.contains("no HTTPS in this build"));
         assert!(run(&mut c, "cert bogus", &ready).1.contains("usage"));
         assert!(run(&mut c, "help", &ready).1.contains("cert new"));
+    }
+
+    // VERIFIES: REQ-CFG-06
+    #[test]
+    fn version_command_names_version_repository_and_license() {
+        for cmd in ["version", "about"] {
+            let mut out = String::new();
+            assert_eq!(execute(cmd, &mut Config::default(), &Status::default(), &mut out), Action::None);
+            assert!(out.contains(&format!("picoclock {}", crate::VERSION)) && out.contains("https://github.com/dc0sk/picoclock") && out.contains("AGPL-3.0-or-later"), "{out}");
+        }
+        let mut out = String::new();
+        execute("help", &mut Config::default(), &Status::default(), &mut out);
+        assert!(out.contains("version "), "{out}");
     }
 }
