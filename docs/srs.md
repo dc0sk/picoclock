@@ -285,8 +285,7 @@ The clock shall also read the RP2040 internal temperature sensor and show it in 
 **REQ-HW-03** (ratified, medium)  
 The clock shall drive the buzzer for key beeps, the hourly chime and the alarm.  
 *Why:* Requested buzzer support.  
-*Implemented by:* Buzzer driver  
-*Unverified:* Never heard on hardware; whether the buzzer is the active type the vendor demo drives is unconfirmed.
+*Implemented by:* Buzzer driver
 
 **REQ-HW-04** (ratified, medium)  
 The clock shall set the display brightness from the ambient light sensor when brightness is `auto`.  

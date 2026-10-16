@@ -493,7 +493,6 @@ criticality = "medium"
 statement = "The clock shall drive the buzzer for key beeps, the hourly chime and the alarm."
 rationale = "Requested buzzer support."
 cap = ["CAP-BUZZER"]
-unverified = "Never heard on hardware; whether the buzzer is the active type the vendor demo drives is unconfirmed."
 
 [[req]]
 id = "REQ-HW-04"

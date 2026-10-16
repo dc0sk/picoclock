@@ -147,3 +147,12 @@ temperature), brightness levels or the 12-hour setting were looked at. Flicker w
 icons were not specifically reported on.
 
 Verifies: REQ-DSP-01
+
+### VR-17 · 2026-10-16 · hardware · Buttons and buzzer work (user observation)
+
+The clock's owner reported that the buttons and the buzzer work on the current image. This is the user's word, not a
+measurement. It does not say which presses were tried: the long-press menu, the alarm ringing and stopping, the
+hourly chime and the key beep setting were not specifically reported. It does settle that the buzzer is the active
+type the code drives (high = sound), which had been an open question.
+
+Verifies: REQ-UI-01, REQ-UI-03, REQ-HW-03

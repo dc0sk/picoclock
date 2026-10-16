@@ -163,10 +163,12 @@ cross-site POST), and the NTP server (replies, off switch, junk packets ignored)
 below the settings sector, and converts to an RP2350 UF2. It has **never run on a Pico 2 W**: expect to check WiFi
 SPI speed, the settings sector, the temperature sensor and the high-priority display interrupt first.
 
-**Not checked yet:** how the display looks, the buttons and menu, the buzzer, the light sensor and auto-brightness,
-`timezone=auto` on the clock, and the web page's look in a browser. Known unknowns: whether the buzzer is the active
-type the demo drives, the polarity of the light sensor (copied from the demo: high reading = dark), and whether the
-count-up icon suits the sync indicator.
+**Checked by the owner by eye and ear** (a user report, not a measurement): the display looks right, and the buttons
+and the buzzer work. The long-press menu, the alarm, the hourly chime and the key-beep setting were not singled out.
+
+**Not checked yet:** the light sensor and auto-brightness, `timezone=auto` on the clock, and the web page's look in a
+browser. Known unknowns: the polarity of the light sensor (copied from the demo: high reading = dark), and whether
+the count-up icon suits the sync indicator.
 
 Other limits: saving pauses the CPU for tens of milliseconds (the display blinks once); the hourly NTP sync pauses
 the display for up to a second while the RTC is set on the second boundary; no countdown/stopwatch; the USB VID/PID
