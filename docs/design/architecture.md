@@ -327,7 +327,7 @@ crates.io releases.
   A source abstraction would let several producers publish (seconds, sub-second, quality) and let `ui_task` pick the
   best; a GPS with a PPS pulse could replace the anchor's free-running phase and allow a lower stratum. Needs free
   GPIOs that reach the clock's case.
-- **HTTPS.** Needs a TLS *server*; nothing vetted builds for the RP2040 (ADR-0002, owner to choose).
+- **HTTPS.** Needs a TLS *server*; nothing vetted builds for the RP2040. Decided in ADR-0002: `rustls` on the Pico 2 W only, a per-device certificate generated at first boot, uploadable replacement; the Pico W keeps HTTP.
 - **NTS beyond today:** RSA chains, user roots, TRNG on the RP2350.
 - **DHCP option 42, mDNS, strongest-network selection** touch only `net.rs`.
 

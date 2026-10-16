@@ -14,4 +14,4 @@ evidence tier and date, and every rejection is labelled measured or assumed.
 | ADR                                           | Title                                                 | Status                  | Date       |
 |-----------------------------------------------|-------------------------------------------------------|-------------------------|------------|
 | [0001](0001-tls-client-for-nts.md)            | TLS 1.3 client for NTS: vendored embedded-tls, exporter patch, deferred checks | Accepted | 2026-10-16 |
-| [0002](0002-https-server-stack.md)            | HTTPS server for the web page                         | Proposed (owner to choose) | 2026-10-16 |
+| [0002](0002-https-server-stack.md)            | HTTPS server for the web page                         | Accepted | 2026-10-16 |

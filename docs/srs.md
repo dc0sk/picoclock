@@ -277,8 +277,8 @@ All setting values written into the page shall be HTML-escaped.
 *Implemented by:* HTTP parsing, settings page and web server
 
 **REQ-WEB-06** (draft, high)  
-The web page shall be available over HTTPS with a certificate the user can upload and a default certificate included.  
-*Why:* Roadmap. A default private key shipped in an open repository is public; a per-device certificate generated on first boot is the better default. Needs a no_std TLS server.  
+On the Pico 2 W build the web page shall be available over HTTPS with a certificate generated on the device at first boot and replaceable by an uploaded certificate and key; the Pico W build keeps plain HTTP.  
+*Why:* Decided in ADR-0002 (2026-10-16). A default private key shipped in an open repository is public, so none is shipped. rustls does not build for the RP2040, so HTTPS comes with the Pico 2 W; it needs the Pico 2 W build to run on hardware first (REQ-HW-06).  
 *Implemented by:* none yet
 
 
