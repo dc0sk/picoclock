@@ -16,71 +16,72 @@ last_updated: 2026-10-16
 
 | Measure                                                           | Count |
 |-------------------------------------------------------------------|-------|
-| Requirements                                                      | 51    |
-| Ratified                                                          | 46    |
+| Requirements                                                      | 52    |
+| Ratified                                                          | 47    |
 | Draft (roadmap)                                                   | 5     |
 | Retired                                                           | 0     |
-| Ratified with hardware evidence                                   | 28    |
+| Ratified with hardware evidence                                   | 29    |
 | Ratified with unit tests only (no hardware, host or build record) | 10    |
 | Ratified and UNVERIFIED (stated reason)                           | 3     |
 | Unit tests bound to requirements                                  | 80    |
-| Verification records                                              | 18    |
+| Verification records                                              | 19    |
 
 ## Forward: requirement to evidence
 
-| Requirement | Status   | Crit.  | Capabilities       | Unit tests | Records             | Evidence             |
-|-------------|----------|--------|--------------------|------------|---------------------|----------------------|
-| REQ-TIME-01 | ratified | high   | APP, UI, RTC, TIME | 4          | VR-01               | unit, hardware       |
-| REQ-TIME-02 | ratified | medium | UI, CONFIG         | 4          | -                   | unit                 |
-| REQ-TIME-03 | ratified | high   | TIME, SNTP         | 3          | -                   | unit                 |
-| REQ-TIME-04 | ratified | high   | APP, RTC           | 1          | VR-05, VR-14        | unit, hardware       |
-| REQ-TZ-01   | ratified | high   | TZ                 | 7          | VR-03, VR-10        | unit, host, hardware |
-| REQ-TZ-02   | ratified | high   | TZ, CLI            | 4          | -                   | unit                 |
-| REQ-TZ-03   | ratified | medium | TZ, CONFIG         | 5          | VR-02               | unit, hardware       |
-| REQ-TZ-04   | ratified | medium | GEO, NET, CONFIG   | 4          | VR-13               | unit, host           |
-| REQ-TZ-05   | ratified | medium | TZ, CONFIG         | 2          | VR-18               | unit, hardware       |
-| REQ-NTP-01  | ratified | high   | SNTP, NET, CONFIG  | 3          | VR-04, VR-13        | unit, host, hardware |
-| REQ-NTP-02  | ratified | high   | SNTP               | 1          | VR-10               | unit, host           |
-| REQ-NTP-03  | ratified | medium | NET, CLI           | 1          | VR-04               | unit, hardware       |
-| REQ-SRV-01  | ratified | medium | CONFIG, NET        | 1          | VR-06               | unit, hardware       |
-| REQ-SRV-02  | ratified | high   | SNTP, NET          | 2          | VR-06, VR-10        | unit, host, hardware |
-| REQ-SRV-03  | ratified | high   | SNTP, NET          | 3          | VR-06, VR-10        | unit, host, hardware |
-| REQ-SRV-04  | ratified | medium | NET, APP           | 0          | VR-05, VR-14        | hardware             |
-| REQ-NET-01  | ratified | high   | CONFIG, NET        | 2          | VR-04, VR-07, VR-11 | unit, hardware       |
-| REQ-NET-02  | ratified | medium | CONFIG, NET, CLI   | 3          | VR-08               | unit, hardware       |
-| REQ-NET-03  | ratified | medium | NET                | 0          | VR-07               | hardware             |
-| REQ-NET-04  | draft    | low    | -                  | 0          | -                   | -                    |
-| REQ-NET-05  | draft    | low    | -                  | 0          | -                   | -                    |
-| REQ-CFG-01  | ratified | high   | CONFIG, CLI, HTTP  | 4          | VR-03               | unit, hardware       |
-| REQ-CFG-02  | ratified | high   | CONFIG             | 5          | VR-03, VR-10        | unit, host, hardware |
-| REQ-CFG-03  | ratified | high   | CONFIG, HTTP, CLI  | 5          | VR-15               | unit, hardware       |
-| REQ-CFG-04  | ratified | medium | CONFIG             | 2          | -                   | unit                 |
-| REQ-CLI-01  | ratified | medium | CLI                | 6          | VR-01, VR-02        | unit, hardware       |
-| REQ-CLI-02  | ratified | low    | CLI                | 1          | -                   | unit                 |
-| REQ-WEB-01  | ratified | medium | HTTP               | 3          | VR-09               | unit, hardware       |
-| REQ-WEB-02  | ratified | high   | HTTP               | 5          | VR-10               | unit, host           |
-| REQ-WEB-03  | ratified | high   | HTTP               | 1          | VR-09, VR-10        | unit, host, hardware |
-| REQ-WEB-04  | ratified | high   | HTTP               | 1          | VR-15               | unit, hardware       |
-| REQ-WEB-05  | ratified | medium | HTTP               | 2          | -                   | unit                 |
-| REQ-WEB-06  | draft    | high   | -                  | 0          | -                   | -                    |
-| REQ-DSP-01  | ratified | high   | FRAME, DISPLAY     | 6          | VR-16               | unit, hardware       |
-| REQ-UI-01   | ratified | high   | UI, INPUT          | 2          | VR-17               | unit, hardware       |
-| REQ-UI-02   | ratified | medium | UI                 | 2          | -                   | unit                 |
-| REQ-UI-03   | ratified | medium | UI, INPUT          | 1          | VR-17               | unit, hardware       |
-| REQ-UI-04   | ratified | medium | UI, INPUT          | 3          | -                   | unit                 |
-| REQ-UI-05   | ratified | high   | UI, BUZZER         | 4          | VR-10               | unit, host           |
-| REQ-UI-06   | ratified | low    | UI, BUZZER         | 2          | -                   | unit                 |
-| REQ-UI-07   | ratified | low    | UI                 | 2          | -                   | unit                 |
-| REQ-HW-01   | ratified | medium | RTC, UI, CLI       | 2          | VR-02               | unit, hardware       |
-| REQ-HW-02   | ratified | low    | APP, CLI           | 1          | VR-02               | unit, hardware       |
-| REQ-HW-03   | ratified | medium | BUZZER             | 0          | VR-17               | hardware             |
-| REQ-HW-04   | ratified | medium | APP, DISPLAY       | 0          | -                   | UNVERIFIED           |
-| REQ-HW-05   | ratified | high   | APP                | 0          | VR-01, VR-11        | hardware             |
-| REQ-HW-06   | ratified | medium | APP                | 0          | -                   | UNVERIFIED           |
-| REQ-HW-07   | draft    | low    | -                  | 0          | -                   | -                    |
-| REQ-HW-08   | draft    | medium | -                  | 0          | -                   | -                    |
-| REQ-NFR-01  | ratified | medium | APP, CONFIG        | 2          | VR-12               | unit, build          |
-| REQ-NFR-02  | ratified | high   | APP, DISPLAY       | 0          | -                   | UNVERIFIED           |
+| Requirement | Status   | Crit.  | Capabilities       | Unit tests | Records                    | Evidence             |
+|-------------|----------|--------|--------------------|------------|----------------------------|----------------------|
+| REQ-TIME-01 | ratified | high   | APP, UI, RTC, TIME | 4          | VR-01                      | unit, hardware       |
+| REQ-TIME-02 | ratified | medium | UI, CONFIG         | 4          | -                          | unit                 |
+| REQ-TIME-03 | ratified | high   | TIME, SNTP         | 3          | -                          | unit                 |
+| REQ-TIME-04 | ratified | high   | APP, RTC           | 1          | VR-05, VR-14               | unit, hardware       |
+| REQ-TZ-01   | ratified | high   | TZ                 | 7          | VR-03, VR-10               | unit, host, hardware |
+| REQ-TZ-02   | ratified | high   | TZ, CLI            | 4          | -                          | unit                 |
+| REQ-TZ-03   | ratified | medium | TZ, CONFIG         | 5          | VR-02                      | unit, hardware       |
+| REQ-TZ-04   | ratified | medium | GEO, NET, CONFIG   | 4          | VR-13                      | unit, host           |
+| REQ-TZ-05   | ratified | medium | TZ, CONFIG         | 2          | VR-18                      | unit, hardware       |
+| REQ-NTP-01  | ratified | high   | SNTP, NET, CONFIG  | 3          | VR-04, VR-13               | unit, host, hardware |
+| REQ-NTP-02  | ratified | high   | SNTP               | 1          | VR-10                      | unit, host           |
+| REQ-NTP-03  | ratified | medium | NET, CLI           | 1          | VR-04                      | unit, hardware       |
+| REQ-SRV-01  | ratified | medium | CONFIG, NET        | 1          | VR-06                      | unit, hardware       |
+| REQ-SRV-02  | ratified | high   | SNTP, NET          | 2          | VR-06, VR-10               | unit, host, hardware |
+| REQ-SRV-03  | ratified | high   | SNTP, NET          | 3          | VR-06, VR-10               | unit, host, hardware |
+| REQ-SRV-04  | ratified | medium | NET, APP           | 0          | VR-05, VR-14               | hardware             |
+| REQ-NET-01  | ratified | high   | CONFIG, NET        | 2          | VR-04, VR-07, VR-11, VR-19 | unit, hardware       |
+| REQ-NET-02  | ratified | medium | CONFIG, NET, CLI   | 3          | VR-08                      | unit, hardware       |
+| REQ-NET-03  | ratified | medium | NET                | 0          | VR-07                      | hardware             |
+| REQ-NET-06  | ratified | medium | NET                | 0          | VR-19                      | hardware             |
+| REQ-NET-04  | draft    | low    | -                  | 0          | -                          | -                    |
+| REQ-NET-05  | draft    | low    | -                  | 0          | -                          | -                    |
+| REQ-CFG-01  | ratified | high   | CONFIG, CLI, HTTP  | 4          | VR-03                      | unit, hardware       |
+| REQ-CFG-02  | ratified | high   | CONFIG             | 5          | VR-03, VR-10               | unit, host, hardware |
+| REQ-CFG-03  | ratified | high   | CONFIG, HTTP, CLI  | 5          | VR-15                      | unit, hardware       |
+| REQ-CFG-04  | ratified | medium | CONFIG             | 2          | -                          | unit                 |
+| REQ-CLI-01  | ratified | medium | CLI                | 6          | VR-01, VR-02               | unit, hardware       |
+| REQ-CLI-02  | ratified | low    | CLI                | 1          | -                          | unit                 |
+| REQ-WEB-01  | ratified | medium | HTTP               | 3          | VR-09                      | unit, hardware       |
+| REQ-WEB-02  | ratified | high   | HTTP               | 5          | VR-10                      | unit, host           |
+| REQ-WEB-03  | ratified | high   | HTTP               | 1          | VR-09, VR-10               | unit, host, hardware |
+| REQ-WEB-04  | ratified | high   | HTTP               | 1          | VR-15                      | unit, hardware       |
+| REQ-WEB-05  | ratified | medium | HTTP               | 2          | -                          | unit                 |
+| REQ-WEB-06  | draft    | high   | -                  | 0          | -                          | -                    |
+| REQ-DSP-01  | ratified | high   | FRAME, DISPLAY     | 6          | VR-16                      | unit, hardware       |
+| REQ-UI-01   | ratified | high   | UI, INPUT          | 2          | VR-17                      | unit, hardware       |
+| REQ-UI-02   | ratified | medium | UI                 | 2          | -                          | unit                 |
+| REQ-UI-03   | ratified | medium | UI, INPUT          | 1          | VR-17                      | unit, hardware       |
+| REQ-UI-04   | ratified | medium | UI, INPUT          | 3          | -                          | unit                 |
+| REQ-UI-05   | ratified | high   | UI, BUZZER         | 4          | VR-10                      | unit, host           |
+| REQ-UI-06   | ratified | low    | UI, BUZZER         | 2          | -                          | unit                 |
+| REQ-UI-07   | ratified | low    | UI                 | 2          | -                          | unit                 |
+| REQ-HW-01   | ratified | medium | RTC, UI, CLI       | 2          | VR-02                      | unit, hardware       |
+| REQ-HW-02   | ratified | low    | APP, CLI           | 1          | VR-02                      | unit, hardware       |
+| REQ-HW-03   | ratified | medium | BUZZER             | 0          | VR-17                      | hardware             |
+| REQ-HW-04   | ratified | medium | APP, DISPLAY       | 0          | -                          | UNVERIFIED           |
+| REQ-HW-05   | ratified | high   | APP                | 0          | VR-01, VR-11               | hardware             |
+| REQ-HW-06   | ratified | medium | APP                | 0          | -                          | UNVERIFIED           |
+| REQ-HW-07   | draft    | low    | -                  | 0          | -                          | -                    |
+| REQ-HW-08   | draft    | medium | -                  | 0          | -                          | -                    |
+| REQ-NFR-01  | ratified | medium | APP, CONFIG        | 2          | VR-12                      | unit, build          |
+| REQ-NFR-02  | ratified | high   | APP, DISPLAY       | 0          | -                          | UNVERIFIED           |
 
 ## Ratified requirements without hardware evidence
 
@@ -124,7 +125,7 @@ These have never been seen working on the clock (they may still have unit tests)
 | CAP-INPUT   | Button polling                                         | firmware/src/buttons.rs                                                         | REQ-UI-01, REQ-UI-03, REQ-UI-04                                                                                                                          |
 | CAP-BUZZER  | Buzzer driver                                          | firmware/src/buzzer.rs                                                          | REQ-UI-05, REQ-UI-06, REQ-HW-03                                                                                                                          |
 | CAP-RTC     | DS3231 driver                                          | firmware/src/rtc.rs                                                             | REQ-TIME-01, REQ-TIME-04, REQ-HW-01                                                                                                                      |
-| CAP-NET     | WiFi, hourly sync, geolocation request and NTP server  | firmware/src/net.rs                                                             | REQ-TZ-04, REQ-NTP-01, REQ-NTP-03, REQ-SRV-01, REQ-SRV-02, REQ-SRV-03, REQ-SRV-04, REQ-NET-01, REQ-NET-02, REQ-NET-03                                    |
+| CAP-NET     | WiFi, hourly sync, geolocation request and NTP server  | firmware/src/net.rs                                                             | REQ-TZ-04, REQ-NTP-01, REQ-NTP-03, REQ-SRV-01, REQ-SRV-02, REQ-SRV-03, REQ-SRV-04, REQ-NET-01, REQ-NET-02, REQ-NET-03, REQ-NET-06                        |
 | CAP-APP     | Composition: task wiring, shared state, chip selection | core/src/lib.rs, firmware/build.rs, firmware/src/main.rs, firmware/src/state.rs | REQ-TIME-01, REQ-TIME-04, REQ-SRV-04, REQ-HW-02, REQ-HW-04, REQ-HW-05, REQ-HW-06, REQ-NFR-01, REQ-NFR-02                                                 |
 
 ## Unit tests by requirement
@@ -191,3 +192,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-16  | 2026-10-16 | hardware | Display looks right (user observation)                               | REQ-DSP-01                                                                                   |
 | VR-17  | 2026-10-16 | hardware | Buttons and buzzer work (user observation)                           | REQ-UI-01, REQ-UI-03, REQ-HW-03                                                              |
 | VR-18  | 2026-10-16 | hardware | Daylight-saving option                                               | REQ-TZ-05                                                                                    |
+| VR-19  | 2026-10-16 | hardware | WiFi join robustness after the join timeout and retry change         | REQ-NET-01, REQ-NET-06                                                                       |

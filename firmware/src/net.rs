@@ -2,7 +2,7 @@
 //! timezone up from the public IP address. Re-reads the configuration continuously, so changes made over USB or the
 //! web page take effect without a reboot.
 
-use cyw43::{Control, JoinOptions};
+use cyw43::{Control, JoinError, JoinOptions};
 use defmt::{info, warn};
 use embassy_net::Stack;
 use embassy_net::dns::DnsQueryType;
@@ -20,7 +20,16 @@ const RESYNC: Duration = Duration::from_secs(3600);
 const NTP_RETRY: Duration = Duration::from_secs(30);
 const GEO_REFRESH: Duration = Duration::from_secs(24 * 3600);
 const GEO_RETRY: Duration = Duration::from_secs(300);
-const JOIN_RETRY: Duration = Duration::from_secs(30);
+/// A join attempt that has not finished by then is abandoned: the radio driver waits for an event that can be lost,
+/// and without a limit one lost event leaves the clock offline until reboot.
+const JOIN_TIMEOUT: Duration = Duration::from_secs(15);
+/// Attempts per slot for errors that are often transient (an access point may reject the first authentication).
+const JOIN_ATTEMPTS: u8 = 3;
+const JOIN_GAP: Duration = Duration::from_secs(1);
+/// Pause after every stored network failed, before starting over (shorter wait if the user changes a setting).
+const JOIN_RETRY: Duration = Duration::from_secs(10);
+/// After joining, the link and a DHCP lease must arrive within this time.
+const CONFIG_TIMEOUT: Duration = Duration::from_secs(30);
 
 type Creds = (heapless::String<64>, heapless::String<64>);
 
@@ -47,15 +56,27 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
         }
         // Try the stored networks in slot order; the first one that joins wins.
         let mut joined = None;
-        for (slot, net) in cfg.wifi.iter().enumerate().filter(|(_, n)| !n.ssid.is_empty()) {
-            info!("wifi: joining slot {} ({})", slot + 1, net.ssid.as_str());
-            let opts = if net.password.is_empty() { JoinOptions::new_open() } else { JoinOptions::new(net.password.as_bytes()) };
-            match control.join(&net.ssid, opts).await {
-                Ok(()) => {
-                    joined = Some(slot);
-                    break;
+        'slots: for (slot, net) in cfg.wifi.iter().enumerate().filter(|(_, n)| !n.ssid.is_empty()) {
+            for attempt in 1..=JOIN_ATTEMPTS {
+                info!("wifi: joining slot {} ({}), attempt {}", slot + 1, net.ssid.as_str(), attempt);
+                let opts = if net.password.is_empty() { JoinOptions::new_open() } else { JoinOptions::new(net.password.as_bytes()) };
+                match with_timeout(JOIN_TIMEOUT, control.join(&net.ssid, opts)).await {
+                    Ok(Ok(())) => {
+                        joined = Some(slot);
+                        break 'slots;
+                    }
+                    // A wrong passphrase or a network that is not there will not get better in a second.
+                    Ok(Err(e @ (JoinError::InvalidPassphrase | JoinError::NetworkNotFound))) => {
+                        warn!("wifi: slot {} join failed: {:?}", slot + 1, e);
+                        break;
+                    }
+                    Ok(Err(e)) => warn!("wifi: slot {} join failed: {:?}", slot + 1, e),
+                    Err(_) => {
+                        warn!("wifi: slot {} join timed out", slot + 1);
+                        let _ = control.leave().await;
+                    }
                 }
-                Err(e) => warn!("wifi: slot {} join failed: {:?}", slot + 1, e),
+                Timer::after(JOIN_GAP).await;
             }
         }
         let Some(slot) = joined else {
@@ -63,8 +84,16 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
             let _ = with_timeout(JOIN_RETRY, state::CONFIG_CHANGED.wait()).await;
             continue;
         };
-        iface.wait_link_up().await;
-        iface.wait_config_up().await;
+        let up = with_timeout(CONFIG_TIMEOUT, async {
+            iface.wait_link_up().await;
+            iface.wait_config_up().await;
+        })
+        .await;
+        if up.is_err() {
+            warn!("wifi: joined slot {} but no link or DHCP lease in time; starting over", slot + 1);
+            let _ = control.leave().await;
+            continue;
+        }
         info!("wifi: up on slot {}", slot + 1);
         control.gpio_set(0, true).await; // onboard LED = connected
         online(stack, &iface, slot, &creds(&cfg, slot)).await;

@@ -188,7 +188,10 @@ One model serves three front ends, so there is exactly one place that validates 
 ## 6. Networking
 
 - **Join.** `wifi_task` derives the hostname `picoclock-<last MAC octet>` before DHCP runs, then tries the stored
-  networks in order; if none is reachable it retries after 30 s or on a settings change.
+  networks in order. Each attempt is abandoned after 15 s (the radio driver can wait forever for a lost event),
+  an authentication or join failure is retried up to three times on the same network, and a network that is not
+  there or a wrong passphrase is not. After a full round the task waits 10 s, or until a setting changes, and starts
+  over. After joining, the link and a DHCP lease must arrive within 30 s.
 - **NTP client.** `ntp::query` resolves each configured server (`gateway` means the DHCP router, others via DNS), sends
   one request whose transmit timestamp is a nonce (the microsecond uptime), and accepts only a reply that echoes it,
   is server-mode, not LI 3 and not stratum 0. Half the round-trip time is added. Hourly, retry after 30 s.

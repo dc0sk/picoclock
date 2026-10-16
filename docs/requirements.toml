@@ -269,6 +269,15 @@ rationale = "Settings changes must take effect at once."
 cap = ["CAP-NET"]
 
 [[req]]
+id = "REQ-NET-06"
+area = "Network"
+status = "ratified"
+criticality = "medium"
+statement = "A WiFi join attempt that does not finish within 15 seconds shall be abandoned, a transient failure shall be retried on the same network, and the clock shall keep trying until it is connected."
+rationale = "Found on the hardware: the radio driver waits for an event that can be lost, so one lost event left the clock offline until reset, and an access point sometimes rejects the first authentication."
+cap = ["CAP-NET"]
+
+[[req]]
 id = "REQ-NET-04"
 area = "Network"
 status = "draft"

@@ -149,6 +149,11 @@ When the credentials of the active network change, the clock shall leave it and 
 *Why:* Settings changes must take effect at once.  
 *Implemented by:* WiFi, hourly sync, geolocation request and NTP server
 
+**REQ-NET-06** (ratified, medium)  
+A WiFi join attempt that does not finish within 15 seconds shall be abandoned, a transient failure shall be retried on the same network, and the clock shall keep trying until it is connected.  
+*Why:* Found on the hardware: the radio driver waits for an event that can be lost, so one lost event left the clock offline until reset, and an access point sometimes rejects the first authentication.  
+*Implemented by:* WiFi, hourly sync, geolocation request and NTP server
+
 **REQ-NET-04** (draft, low)  
 The clock shall scan and prefer the strongest known network instead of trying slots in order.  
 *Why:* Roadmap.  

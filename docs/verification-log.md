@@ -165,3 +165,15 @@ the settings form showed the `dst` field, and `POST dst=off` changed the time to
 both were saved to flash. The display and the hour-by-hour behaviour over a real DST change were not observed.
 
 Verifies: REQ-TZ-05
+
+### VR-19 · 2026-10-16 · hardware · WiFi join robustness after the join timeout and retry change
+
+Before the change, RTT logs of six reboots showed `AuthenticationFailure` on the first attempt at slot 1 in most
+boots, followed by a 30 s wait; in one boot the join call had not returned after 40 s and the clock stayed offline
+until reset (`status`: `not connected`, `synced: never`). The radio driver waits for an event without a time limit.
+After the change (15 s limit per attempt, three attempts per slot, 10 s pause between rounds, 30 s limit for link and
+DHCP): eight reboots in a row all connected, and three RTT logs show first-attempt success at 7 s and 16 s and a
+first-attempt `AuthenticationFailure` followed by success on attempt 2 three seconds later. Why the access point
+rejects some first attempts is not known. Link loss while running was not tested.
+
+Verifies: REQ-NET-01, REQ-NET-06
