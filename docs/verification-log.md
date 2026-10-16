@@ -177,3 +177,11 @@ first-attempt `AuthenticationFailure` followed by success on attempt 2 three sec
 rejects some first attempts is not known. Link loss while running was not tested.
 
 Verifies: REQ-NET-01, REQ-NET-06
+
+### VR-20 · 2026-10-16 · hardware · Alarm and menu work (user observation)
+
+The clock's owner reported that the alarm and the settings menu work on the current image. This is the user's word, not
+a measurement. It does not say which menu items were changed, whether the alarm was stopped by a button or by its own
+timeout, or whether it stayed silent when disabled. The hourly chime and the key-beep setting were not singled out.
+
+Verifies: REQ-UI-04, REQ-UI-05

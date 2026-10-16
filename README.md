@@ -164,8 +164,8 @@ cross-site POST), and the NTP server (replies, off switch, junk packets ignored)
 below the settings sector, and converts to an RP2350 UF2. It has **never run on a Pico 2 W**: expect to check WiFi
 SPI speed, the settings sector, the temperature sensor and the high-priority display interrupt first.
 
-**Checked by the owner by eye and ear** (a user report, not a measurement): the display looks right, and the buttons
-and the buzzer work. The long-press menu, the alarm, the hourly chime and the key-beep setting were not singled out.
+**Checked by the owner by eye and ear** (a user report, not a measurement): the display looks right, and the buttons,
+the buzzer, the alarm and the settings menu work. The hourly chime and the key-beep setting were not singled out.
 
 **Not checked yet:** the light sensor and auto-brightness, `timezone=auto` on the clock, and the web page's look in a
 browser. Known unknowns: the polarity of the light sensor (copied from the demo: high reading = dark), and whether

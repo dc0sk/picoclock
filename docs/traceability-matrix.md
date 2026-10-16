@@ -20,11 +20,11 @@ last_updated: 2026-10-16
 | Ratified                                                          | 47    |
 | Draft (roadmap)                                                   | 5     |
 | Retired                                                           | 0     |
-| Ratified with hardware evidence                                   | 29    |
-| Ratified with unit tests only (no hardware, host or build record) | 10    |
+| Ratified with hardware evidence                                   | 31    |
+| Ratified with unit tests only (no hardware, host or build record) | 9     |
 | Ratified and UNVERIFIED (stated reason)                           | 3     |
 | Unit tests bound to requirements                                  | 80    |
-| Verification records                                              | 19    |
+| Verification records                                              | 20    |
 
 ## Forward: requirement to evidence
 
@@ -68,8 +68,8 @@ last_updated: 2026-10-16
 | REQ-UI-01   | ratified | high   | UI, INPUT          | 2          | VR-17                      | unit, hardware       |
 | REQ-UI-02   | ratified | medium | UI                 | 2          | -                          | unit                 |
 | REQ-UI-03   | ratified | medium | UI, INPUT          | 1          | VR-17                      | unit, hardware       |
-| REQ-UI-04   | ratified | medium | UI, INPUT          | 3          | -                          | unit                 |
-| REQ-UI-05   | ratified | high   | UI, BUZZER         | 4          | VR-10                      | unit, host           |
+| REQ-UI-04   | ratified | medium | UI, INPUT          | 3          | VR-20                      | unit, hardware       |
+| REQ-UI-05   | ratified | high   | UI, BUZZER         | 4          | VR-10, VR-20               | unit, host, hardware |
 | REQ-UI-06   | ratified | low    | UI, BUZZER         | 2          | -                          | unit                 |
 | REQ-UI-07   | ratified | low    | UI                 | 2          | -                          | unit                 |
 | REQ-HW-01   | ratified | medium | RTC, UI, CLI       | 2          | VR-02                      | unit, hardware       |
@@ -99,8 +99,6 @@ These have never been seen working on the clock (they may still have unit tests)
 | REQ-WEB-02  | unit, host  |                                                                                                                                             |
 | REQ-WEB-05  | unit        |                                                                                                                                             |
 | REQ-UI-02   | unit        |                                                                                                                                             |
-| REQ-UI-04   | unit        |                                                                                                                                             |
-| REQ-UI-05   | unit, host  |                                                                                                                                             |
 | REQ-UI-06   | unit        |                                                                                                                                             |
 | REQ-UI-07   | unit        |                                                                                                                                             |
 | REQ-HW-04   | UNVERIFIED  | Light-sensor polarity (high reading = dark) is copied from the vendor demo and unconfirmed; the sensor reads, but dimming was not observed. |
@@ -193,3 +191,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-17  | 2026-10-16 | hardware | Buttons and buzzer work (user observation)                           | REQ-UI-01, REQ-UI-03, REQ-HW-03                                                              |
 | VR-18  | 2026-10-16 | hardware | Daylight-saving option                                               | REQ-TZ-05                                                                                    |
 | VR-19  | 2026-10-16 | hardware | WiFi join robustness after the join timeout and retry change         | REQ-NET-01, REQ-NET-06                                                                       |
+| VR-20  | 2026-10-16 | hardware | Alarm and menu work (user observation)                               | REQ-UI-04, REQ-UI-05                                                                         |
