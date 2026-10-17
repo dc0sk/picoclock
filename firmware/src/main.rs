@@ -43,7 +43,6 @@ use embassy_futures::select::select;
 use embassy_net::{StackStorage, StaticPool};
 use embassy_rp::Peri;
 use embassy_rp::adc::{self, Adc, Channel};
-use embassy_rp::clocks::RoscRng;
 use embassy_rp::executor::InterruptExecutor;
 use embassy_rp::gpio::{AnyPin, Input, Level, Output, Pull};
 use embassy_rp::i2c::{self, I2c};
@@ -201,6 +200,11 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "https")]
     heap::init();
     let p = embassy_rp::init(Default::default());
+    #[cfg(feature = "rp235x")]
+    {
+        let ok = crypto::init_trng(p.TRNG);
+        state::with_runtime(|r| r.rng_hardware = ok);
+    }
 
     // Settings first: they decide how everything else behaves.
     let mut flash = storage::new(p.FLASH);
@@ -268,7 +272,6 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(usb_cli::cli_task(class)));
 
     // WiFi (CYW43439).
-    let mut rng = RoscRng;
     let fw = aligned_bytes!("../fw/43439A0.bin");
     let clm = aligned_bytes!("../fw/43439A0_clm.bin");
     let nvram = aligned_bytes!("../fw/nvram_rp2040.bin");
@@ -295,7 +298,7 @@ async fn main(spawner: Spawner) {
 
     static STACK: StaticCell<StackStorage> = StaticCell::new();
     static POOL: StaticPool<{ cyw43::RX_BUF_SIZE }, 16, { cyw43::RX_BUF_ALIGN }> = StaticPool::new();
-    let (stack, net_runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, rng.next_u64());
+    let (stack, net_runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, crypto::next_u64());
     static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(net_device)));
     unwrap!(iface.set_dhcpv4(Some(Default::default())));

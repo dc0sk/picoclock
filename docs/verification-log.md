@@ -478,3 +478,44 @@ The HTTPS page ends with the version, a link to the repository and the license. 
 
 Verifies: REQ-TZ-04, REQ-CFG-06
 
+### VR-44 · 2026-10-16 · hardware · HTTPS web page in daily use (user observation)
+
+The clock's owner reports that they use the web interface over HTTPS all the time and that it works fine. This is the user's
+word, not a measurement; it settles the open question of a browser test (which browser, and the certificate warning flow,
+were not stated).
+
+Verifies: REQ-WEB-06, REQ-WEB-08
+
+### VR-45 · 2026-10-16 · hardware · Pico 2 W: hardware random number generator, heap peak, display scan under load
+
+Flashed the Pico 2 W. `status` shows `random  : hardware TRNG` (the boot self-test passed: two 32-byte draws differ and
+are not constant). HTTPS, an NTS sync with `time.cloudflare.com` (`NTS, authenticated`) and the certificate upload all work
+with it. **A regression found and fixed:** the first version took the TRNG under a critical section, which held off the
+display interrupt; with 60 HTTPS requests the scan was late 181 times (worst 4.9 ms) against 1 wait idle. With a thread-mode
+lock instead, 60 requests with 6 in parallel gave 0 waits over 100 us (worst 86 us in 100 s). **Heap:** peak 7.5 KB of the
+144 KiB after 60 parallel requests, `/zones` and a certificate upload (the allocator records its peak; `status` shows it).
+**Not verified:** the quality of the random numbers beyond that self-test (no statistical test suite was run), and long-term
+heap behaviour (the peak after days, not minutes).
+I changed `ntp_servers` and `timezone` for tests and set them back; nothing was saved except the certificate.
+
+Verifies: REQ-WEB-06, REQ-NFR-02
+
+
+### VR-46 · 2026-10-16 · hardware · Display scan priority held under network load (summary of earlier runs)
+
+REQ-NFR-02 (the scan runs above all networking tasks) had a waiver because only its outcome was recorded. The outcome now
+has two further measurements on the Pico 2 W under heavy network load: 100 sequential HTTPS requests with one scan wait over
+100 us in 75 s (VR-42), and 60 HTTPS requests, 6 in parallel, with none over 100 us and a worst lateness of 86 us in 100 s
+(VR-45). The same arrangement on the Pico W is covered by VR-22 and VR-24. The VR-45 run also showed what the property does
+not cover: work in the thread-mode executor that holds interrupts off (a critical section around the hardware random number
+generator) delayed the scan 181 times, so the priority alone is not the guarantee; no interrupt-masking section may be long.
+**Not verified:** the priority arrangement itself is still not tested directly, only its effect.
+
+Verifies: REQ-NFR-02
+
+### VR-47 · 2026-10-17 · hardware · Pico 2 W: buttons, beeper and light sensor (user observation)
+
+The clock's owner tried the buttons, the beeper and the light sensor on the Pico 2 W and reports that they work. This is the
+user's word, not a measurement; the key-beep setting and the light-sensor thresholds were not singled out.
+
+Verifies: REQ-HW-06

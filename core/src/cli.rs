@@ -36,6 +36,12 @@ pub struct Status {
     pub sync_secure: bool,
     /// The HTTPS server: 0 = not part of this build, 1 = starting (needs a valid time), 2 = serving.
     pub https_state: u8,
+    /// Random numbers come from a hardware TRNG (RP2350) rather than ring-oscillator jitter (RP2040).
+    pub rng_hardware: bool,
+    /// HTTPS heap, bytes: in use now, the most ever in use at once, and its size (0 where there is no heap).
+    pub heap_used: u32,
+    pub heap_peak: u32,
+    pub heap_size: u32,
     /// SHA-256 of the HTTPS certificate in use, its end of validity (unix seconds), and whether the user uploaded it.
     pub cert_fp: [u8; 32],
     pub cert_not_after: i64,
@@ -264,6 +270,10 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                     _ => "read error",
                 };
                 let _ = write!(out, "\ngeo     : {}: {what} ({} bytes, {end}, server {}.{}.{}.{})", p.host, t.bytes, t.addr[0], t.addr[1], t.addr[2], t.addr[3]);
+            }
+            let _ = write!(out, "\nrandom  : {}", if st.rng_hardware { "hardware TRNG" } else { "ring-oscillator jitter (no hardware TRNG on this chip)" });
+            if st.heap_size > 0 {
+                let _ = write!(out, "\nheap    : {} of {} bytes in use, peak {} ({}%)", st.heap_used, st.heap_size, st.heap_peak, st.heap_peak as u64 * 100 / st.heap_size as u64);
             }
             let _ = write!(out, "\nhttps   : ");
             match (st.https_state, cfg.https) {
@@ -554,5 +564,20 @@ mod tests {
         let mut out = String::new();
         execute("help", &mut Config::default(), &Status::default(), &mut out);
         assert!(out.contains("version "), "{out}");
+    }
+
+    // VERIFIES: REQ-WEB-06
+    #[test]
+    fn status_shows_heap_use_only_where_there_is_a_heap() {
+        let mut out = String::new();
+        execute("status", &mut Config::default(), &Status::default(), &mut out);
+        assert!(!out.contains("heap"), "{out}");
+        let st = Status { heap_used: 6_000, heap_peak: 73_728, heap_size: 147_456, ..Default::default() };
+        let mut out = String::new();
+        execute("status", &mut Config::default(), &st, &mut out);
+        assert!(out.contains("heap    : 6000 of 147456 bytes in use, peak 73728 (50%)"), "{out}");
+        let mut out = String::new();
+        execute("status", &mut Config::default(), &Status { rng_hardware: true, ..Default::default() }, &mut out);
+        assert!(out.contains("random  : hardware TRNG\n") || out.contains("random  : hardware TRNG"), "{out}");
     }
 }

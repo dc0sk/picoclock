@@ -6,6 +6,16 @@ a USB terminal, a web configuration page and full use of the clock's hardware. B
 **Requires a Raspberry Pi Pico W** (RP2040) **or Pico 2 W** (RP2350), both with the CYW43439 radio, in the clock.
 A plain Pico or Pico 2 has no WiFi. Both have run in the clock; the Pico W has had far more use (see *Status*).
 
+| | Pico W (RP2040) | Pico 2 W (RP2350) |
+|---|---|---|
+| Web page | plain HTTP only | **HTTPS** (TLS 1.3), plain HTTP only redirects to it |
+| Random numbers | ring-oscillator jitter (no hardware generator) | hardware TRNG |
+| NTS key exchange | about 5 to 7 s once per boot | about 1 s |
+
+**HTTPS is available only on the Pico 2 W.** The TLS server library (`rustls`) does not build for the RP2040, so a Pico W
+serves the web page, the web password and the WiFi passphrases over plain HTTP. If that matters, use a Pico 2 W, set a
+`web_password`, or `set web_enabled off`. See *HTTPS (Pico 2 W)* below.
+
 ## Features
 
 - **Time:** the DS3231 RTC always holds **UTC**. Local time is computed at display time from the configured
@@ -20,8 +30,8 @@ A plain Pico or Pico 2 has no WiFi. Both have run in the clock; the Pico W has h
 - **WiFi:** up to 8 stored networks, tried in slot order. The device name on the network is
   `picoclock-<last MAC octet>`.
 - **Configuration** in three ways, all validated by the same code and stored in flash:
-  USB serial terminal, web page (port 80), and the buttons for the everyday settings.
-- **Hardware:** RTC with its temperature sensor plus the RP2040 die sensor (`chip` in `status`; it reads warmer
+  USB serial terminal, web page (HTTPS on the Pico 2 W, plain HTTP on the Pico W), and the buttons for the everyday settings.
+- **Hardware:** RTC with its temperature sensor plus the RP2040/RP2350 die sensor (`chip` in `status`; it reads warmer
   than the room), buzzer (key beep, hourly chime, alarm), ambient-light auto-brightness, and the three buttons.
 
 ## Build and flash
@@ -140,9 +150,13 @@ forward port 123 from the internet to the clock.
 
 ## Web page
 
-Find the clock's IP with `status` (or your router) and open `http://<ip>/`. The page shows status and all settings.
-**It is plain HTTP**: the web password and WiFi passphrase cross your LAN unencrypted, and without a web password
-anyone on the LAN can change the settings. Set `web_password`, or `set web_enabled off`, if that matters to you.
+Find the clock's IP with `status` (or your router) and open `http://<ip>/`. The page shows status and all settings, and
+ends with the software version, the repository link and the license.
+
+- **Pico 2 W:** HTTPS. `http://<ip>/` redirects to `https://<ip>/`; accept the clock's certificate once (compare the
+  fingerprint with `cert` in the terminal), see *HTTPS (Pico 2 W)*.
+- **Pico W: plain HTTP only.** The web password and WiFi passphrase cross your LAN unencrypted, and without a web
+  password anyone on the LAN can change the settings. Set `web_password`, or `set web_enabled off`, if that matters to you.
 Password fields are never echoed; leave them blank to keep the current value. Cross-site form posts are refused.
 
 ## Buttons
@@ -226,9 +240,15 @@ cookies); the whole client is also tested against those servers from a PC (`carg
 with OpenSSL (these run in `tools/gate.sh`, which needs the `openssl` binary). Not covered: RSA servers (refused) and a server
 that sends a malformed key exchange message beyond what the unit tests construct.
 
+**HTTPS (Pico 2 W only):** works on the clock and is in daily use by the owner in a browser (a report, not a measurement).
+Measured with `curl` and `openssl s_client` (VR-42, VR-44): TLS 1.3 only, handshake 0.14 to 0.2 s, 60 requests with 6 in
+parallel and 100 in sequence all succeeded, the display scan stayed on time (0 waits over 100 µs), the certificate survives
+reboots, `cert new` and the upload work, the plain port redirects, and the heap peaked at about 7 KB of its 144 KiB. The
+Pico W build has no HTTPS and was only checked to still build and keep serving plain HTTP.
+
 **Checked on the host:** the core crate's unit tests, mutation-checked by hand (bugs planted in DST, alarm, HTTP, CRC, SNTP client and server code were each caught); every one of the 486 zones parses and gives sane offsets; the SNTP exchange and the ip-api response format were checked against the real servers.
 
-**Pico 2 W (RP2350):** the same source runs on it. Checked from the console of a board in the clock (no debug probe was
+**Pico 2 W (RP2350):** the same source runs on it. The owner reports that the buttons, the beeper and the light sensor work on it too (VR-47). Checked from the console of a board in the clock (no debug probe was
 attached): boot and USB console, the radio (name from its MAC address), WiFi join, NTP sync, the DS3231 and its temperature,
 settings saved to the 4 MB flash and read back after a reboot, the web page, the NTP server, the location lookup and the
 DST option. The display scan stays on time (no wait more than 100 µs late in 74 s with 50 page loads) and a settings save
@@ -264,10 +284,11 @@ Other limits: saving pauses the CPU for tens of milliseconds (the display blinks
 the display for up to a second while the RTC is set on the second boundary; no countdown/stopwatch; the USB VID/PID
 is the pid.codes test pair `1209:0001`. The firmware image is about 440 KB of flash and 72 KB of static RAM.
 
-## HTTPS (Pico 2 W)
+## HTTPS (Pico 2 W only)
 
 The Pico 2 W build serves the web page over HTTPS on port 443 ([ADR-0002](docs/design/adr/0002-https-server-stack.md)):
-`rustls`, TLS 1.3 only. The Pico W cannot (rustls does not build for the RP2040) and keeps plain HTTP.
+`rustls`, TLS 1.3 only. **The Pico W cannot** (rustls does not build for the RP2040) and serves plain HTTP only; the
+`https` and `http_redirect` settings and the `cert` command have no effect there (`status` says "not in this build").
 
 - **Certificate.** Made on the device once the clock has a valid time: self-signed ECDSA P-256 for `picoclock-xx` and
   `picoclock-xx.local`, valid ten years, kept in its own flash sector so it survives reboots. No key is shipped in the
@@ -283,12 +304,15 @@ The Pico 2 W build serves the web page over HTTPS on port 443 ([ADR-0002](docs/d
 
 Planned for future releases (requirements, not implemented):
 
-- **HTTPS, remaining:** browser test, heap headroom over a long run, and the RP2350 TRNG (see *HTTPS* below for what works).
-- **NTS beyond what works today:** RSA certificate chains (Netnod, PTB, System76 servers), user-supplied roots, a TRNG
-  for the Pico 2 W, and offering the exporter patch upstream.
-- **DCF77 receiver module** as an additional time source (a free GPIO and a module that fits the clock's case).
+- **NTS beyond what works today:** RSA certificate chains (Netnod, PTB, System76 servers), user-supplied roots, and
+  offering the exporter patch upstream.
+- **Choosing between time sources** (requirements REQ-SRC-01 to 05, draft): two modes, `order` (an ordered list with
+  fallbacks, as for NTP servers today) and `vote` (a plausibility check between the selected sources, with a selectable
+  vote power per source and a tolerance). Delivered with the first additional source.
+- **DCF77 receiver module** as an additional time source (a free GPIO and a module that fits the clock's case). Delivering it bumps the software version, after a full-code review.
 - **GPS module (u-blox)** as a time source over UART (NMEA/UBX, optionally the PPS pulse for sub-millisecond
-  accuracy), which would also let the NTP server claim a low stratum.
+  accuracy), which would also let the NTP server claim a low stratum. Delivering it bumps the software version again, after
+  another full-code review.
 - Pico 2 W: run it for days; press the buttons and cover the light sensor on it.
 - Scan for the strongest known WiFi network instead of trying slots in order.
 - DHCP option 42 (NTP server from the router) and mDNS (`picoclock.local`).

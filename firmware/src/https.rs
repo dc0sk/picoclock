@@ -70,6 +70,12 @@ fn publish(m: &Material) {
         r.cert_not_after = info.map(|i| i.not_after).unwrap_or(0);
         r.cert_uploaded = m.uploaded;
     });
+    publish_heap();
+}
+
+fn publish_heap() {
+    let (used, peak, size) = heap::usage();
+    state::with_runtime(|r| (r.heap_used, r.heap_peak, r.heap_size) = (used as u32, peak as u32, size as u32));
 }
 
 #[embassy_executor::task]
@@ -154,12 +160,13 @@ pub async fn https_task(stack: Stack<'static>) -> ! {
         let started = Instant::now();
         let result = with_timeout(Duration::from_secs(20), serve(&mut sock, config, &mut incoming[..], &mut outgoing[..])).await;
         match result {
-            Ok(Ok(())) => info!("https: served a request in {} ms (heap {} used, {} free)", started.elapsed().as_millis(), heap::usage().0, heap::usage().1),
+            Ok(Ok(())) => info!("https: served a request in {} ms (heap peak {})", started.elapsed().as_millis(), heap::usage().1),
             Ok(Err(e)) => warn!("https: connection failed: {:?}", defmt::Debug2Format(&e)),
             Err(_) => warn!("https: connection timed out"),
         }
         sock.abort();
         let _ = with_timeout(Duration::from_secs(1), sock.flush()).await;
+        publish_heap();
     }
 }
 

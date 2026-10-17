@@ -297,7 +297,7 @@ wrong and are redefined.
 | Variant   | Chip / board          | Target                         | Feature  | Flash   | Settings sector       |
 |-----------|-----------------------|--------------------------------|----------|---------|-----------------------|
 | Pico W    | RP2040                | `thumbv6m-none-eabi`           | `rp2040` | 2 MiB   | last 4 KiB (`memory-rp2040.x`) |
-| Pico 2 W  | RP2350                | `thumbv8m.main-none-eabihf`    | `rp235x` | 4 MiB   | last 4 KiB (`memory-rp235x.x`) |
+| Pico 2 W  | RP2350                | `thumbv8m.main-none-eabihf`    | `rp235x` | 4 MiB   | last 8 KiB (`memory-rp235x.x`): settings in the last sector, the HTTPS key and certificates before it |
 
 The chip feature selects the memory map and linker scripts (`build.rs`), the RP2350 boot block (`IMAGE_DEF`), the
 flash size constant and the WiFi SPI clock divider. Nothing else differs. Both images are about 440 KiB of code and
@@ -327,6 +327,7 @@ crates.io releases.
   A source abstraction would let several producers publish (seconds, sub-second, quality) and let `ui_task` pick the
   best; a GPS with a PPS pulse could replace the anchor's free-running phase and allow a lower stratum. Needs free
   GPIOs that reach the clock's case.
+- **Random numbers.** Pico 2 W: the RP2350 hardware TRNG (`firmware/src/crypto.rs`, started at boot and kept only if a self-test passes, taken under a thread-mode lock so it cannot delay the display interrupt). Pico W: ring-oscillator jitter, because the RP2040 has no TRNG; `status` says which one is in use.
 - **HTTPS.** Needs a TLS *server*; nothing vetted builds for the RP2040. Implemented per ADR-0002: `rustls` on the Pico 2 W only (`firmware/src/{https,tls,heap}.rs`, record format in `core/src/tlsstore.rs`), a per-device certificate generated once the RTC is valid and stored in its own flash sector, uploadable replacement over HTTPS; the Pico W keeps HTTP.
 - **NTS beyond today:** RSA chains, user roots, TRNG on the RP2350.
 - **DHCP option 42, mDNS, strongest-network selection** touch only `net.rs`.

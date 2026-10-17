@@ -523,6 +523,55 @@ statement = "The device shall build a self-signed ECDSA P-256 server certificate
 rationale = "ADR-0002: the HTTPS certificate is generated on the device or uploaded; a wrong or mismatched certificate would fail at the first browser connection, or worse, be accepted when it should not be."
 cap = ["CAP-CERT"]
 
+# ---------------------------------------------------------------------------------------------------- time source selection
+# Draft: requested by the owner on 2026-10-16 ahead of the DCF77 and GPS sources. Nothing implements these yet; they are
+# ratified when the first additional source (DCF77) is delivered, together with an ADR for the design.
+
+[[req]]
+id = "REQ-SRC-01"
+area = "Time sources"
+status = "draft"
+criticality = "high"
+statement = "The user shall be able to select which time sources the clock uses (NTP or NTS, and, when delivered, DCF77 and GPS), and choose one of two selection modes: `order` or `vote`. The RTC keeps the time between updates in both modes. With only NTP/NTS selected the clock shall behave as it does today."
+rationale = "Requested by the owner. Today the clock trusts NTP alone; more sources need an explicit rule for which of them sets the time."
+cap = []
+
+[[req]]
+id = "REQ-SRC-02"
+area = "Time sources"
+status = "draft"
+criticality = "high"
+statement = "In mode `order` the selected sources shall form an ordered list; the clock shall take the time from the first source that delivers a valid, fresh time and fall back to the next one when a source has no valid time, is too old, or fails; it shall return to a higher-ranked source as soon as that delivers again."
+rationale = "Requested by the owner: a simple, predictable priority with fallbacks, the way the NTP server list works today."
+cap = []
+
+[[req]]
+id = "REQ-SRC-03"
+area = "Time sources"
+status = "draft"
+criticality = "high"
+statement = "In mode `vote` the clock shall compare the times of all selected sources that currently deliver one (a plausibility check, or triage): sources whose times agree within a selectable tolerance form a group, and the time is accepted only if the best group holds more than half of the total vote power of the sources that deliver; sources outside that group are rejected and reported. If no group has a majority the RTC shall be left unchanged and the status shall say so."
+rationale = "Requested by the owner. A wrong source (a spoofed NTP reply, a GPS fix with a wrong week, a DCF77 decoding error) must not set the clock when the others disagree."
+cap = []
+
+[[req]]
+id = "REQ-SRC-04"
+area = "Time sources"
+status = "draft"
+criticality = "medium"
+statement = "In mode `vote` every selected source shall have a selectable vote power (a whole number; 0 means the source is shown and compared but cannot decide), and the agreement tolerance shall be selectable, in seconds."
+rationale = "Requested by the owner: sources differ in how much they can be trusted and in precision (the RTC has whole-second resolution, DCF77 second resolution, NTP milliseconds)."
+cap = []
+
+[[req]]
+id = "REQ-SRC-05"
+area = "Time sources"
+status = "draft"
+criticality = "medium"
+statement = "The terminal status and the web page shall show the selection mode and, for each selected source, its state, its last time and offset from the accepted time, its vote power in mode `vote`, and whether it was accepted or rejected; all of it shall be settable from the terminal and the web page and saved with the other settings."
+rationale = "A rejected source is a fault the owner needs to see; hidden voting would be unexplainable."
+cap = []
+
 # ---------------------------------------------------------------------------------------------------- display and interaction
 
 [[req]]
@@ -699,4 +748,3 @@ criticality = "high"
 statement = "The display scan shall run at a priority above all networking tasks."
 rationale = "WiFi activity must not make the display flicker."
 cap = ["CAP-APP", "CAP-DISPLAY"]
-unverified = "This is the design property; its outcome (scan timing under load, and the owner seeing no flicker) is recorded under REQ-DSP-02 (VR-22, VR-24). Nothing tests the priority arrangement itself."

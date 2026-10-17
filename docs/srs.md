@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/srs.md
 status: living
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # Software requirements specification
@@ -297,7 +297,35 @@ The device shall build a self-signed ECDSA P-256 server certificate that OpenSSL
 *Implemented by:* Web page TLS certificate: generate, inspect, validate
 
 
-### 4.10 Display
+### 4.10 Time sources
+
+**REQ-SRC-01** (draft, high)  
+The user shall be able to select which time sources the clock uses (NTP or NTS, and, when delivered, DCF77 and GPS), and choose one of two selection modes: `order` or `vote`. The RTC keeps the time between updates in both modes. With only NTP/NTS selected the clock shall behave as it does today.  
+*Why:* Requested by the owner. Today the clock trusts NTP alone; more sources need an explicit rule for which of them sets the time.  
+*Implemented by:* none yet
+
+**REQ-SRC-02** (draft, high)  
+In mode `order` the selected sources shall form an ordered list; the clock shall take the time from the first source that delivers a valid, fresh time and fall back to the next one when a source has no valid time, is too old, or fails; it shall return to a higher-ranked source as soon as that delivers again.  
+*Why:* Requested by the owner: a simple, predictable priority with fallbacks, the way the NTP server list works today.  
+*Implemented by:* none yet
+
+**REQ-SRC-03** (draft, high)  
+In mode `vote` the clock shall compare the times of all selected sources that currently deliver one (a plausibility check, or triage): sources whose times agree within a selectable tolerance form a group, and the time is accepted only if the best group holds more than half of the total vote power of the sources that deliver; sources outside that group are rejected and reported. If no group has a majority the RTC shall be left unchanged and the status shall say so.  
+*Why:* Requested by the owner. A wrong source (a spoofed NTP reply, a GPS fix with a wrong week, a DCF77 decoding error) must not set the clock when the others disagree.  
+*Implemented by:* none yet
+
+**REQ-SRC-04** (draft, medium)  
+In mode `vote` every selected source shall have a selectable vote power (a whole number; 0 means the source is shown and compared but cannot decide), and the agreement tolerance shall be selectable, in seconds.  
+*Why:* Requested by the owner: sources differ in how much they can be trusted and in precision (the RTC has whole-second resolution, DCF77 second resolution, NTP milliseconds).  
+*Implemented by:* none yet
+
+**REQ-SRC-05** (draft, medium)  
+The terminal status and the web page shall show the selection mode and, for each selected source, its state, its last time and offset from the accepted time, its vote power in mode `vote`, and whether it was accepted or rejected; all of it shall be settable from the terminal and the web page and saved with the other settings.  
+*Why:* A rejected source is a fault the owner needs to see; hidden voting would be unexplainable.  
+*Implemented by:* none yet
+
+
+### 4.11 Display
 
 **REQ-DSP-01** (ratified, high)  
 The firmware shall compose the 32x8 matrix, weekday LEDs and status icons into the panel's row format so that glyphs, shifts and icons do not disturb each other.  
@@ -310,7 +338,7 @@ During normal operation (WiFi connected, web page and NTP in use) the display sc
 *Implemented by:* LED matrix scan, Composition: task wiring, shared state, chip selection, Terminal commands and USB serial console
 
 
-### 4.11 Interaction
+### 4.12 Interaction
 
 **REQ-UI-01** (ratified, high)  
 The SET button shall cycle the time, date and temperature views and return to the time view after a timeout.  
@@ -348,7 +376,7 @@ The colon shall blink only while the time is NTP-synchronised, and the status ic
 *Implemented by:* Button, menu, alarm and view state machine
 
 
-### 4.12 Hardware
+### 4.13 Hardware
 
 **REQ-HW-01** (ratified, medium)  
 The clock shall read the DS3231 temperature sensor and show it on the display, the terminal and the web page.  
@@ -386,7 +414,7 @@ The clock shall accept a DCF77 receiver module and a u-blox GPS module as additi
 *Implemented by:* none yet
 
 
-### 4.13 Non-functional
+### 4.14 Non-functional
 
 **REQ-NFR-01** (ratified, medium)  
 The firmware image and the settings sector shall fit the flash of the target board without overlapping, and the static RAM shall fit the chip.  
@@ -396,5 +424,4 @@ The firmware image and the settings sector shall fit the flash of the target boa
 **REQ-NFR-02** (ratified, high)  
 The display scan shall run at a priority above all networking tasks.  
 *Why:* WiFi activity must not make the display flicker.  
-*Implemented by:* Composition: task wiring, shared state, chip selection, LED matrix scan  
-*Unverified:* This is the design property; its outcome (scan timing under load, and the owner seeing no flicker) is recorded under REQ-DSP-02 (VR-22, VR-24). Nothing tests the priority arrangement itself.
+*Implemented by:* Composition: task wiring, shared state, chip selection, LED matrix scan
