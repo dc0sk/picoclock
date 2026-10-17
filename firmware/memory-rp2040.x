@@ -1,7 +1,7 @@
 MEMORY {
     /* The last 4 KiB sector of the 2 MiB flash holds the saved configuration (see storage.rs). */
     BOOT2 : ORIGIN = 0x10000000, LENGTH = 0x100
-    FLASH : ORIGIN = 0x10000100, LENGTH = 2048K - 0x100 - 4K
+    FLASH : ORIGIN = 0x10000100, LENGTH = 2048K - 0x100 - 8K
 
     /* Pick one of the two options for RAM layout     */
 

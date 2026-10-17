@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/design/adr/0001-tls-client-for-nts.md
 status: ledger
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # 0001. TLS 1.3 client for NTS: vendored embedded-tls, an exporter patch, deferred certificate checks
@@ -73,7 +73,7 @@ the same source, an RP2350. Requirements: REQ-HW-08 and REQ-NTS-01 to REQ-NTS-07
   `thumbv6m-none-eabi` (`getrandom` has no backend, `ring`'s build script fails). The main branch dropped that
   dependency, hence the vendored snapshot.
 
-### E: support RSA certificate chains — NOT DONE (assumed, not built)
+### E: support RSA certificate chains — NOT DONE here; done for the Pico 2 W in ADR-0003 (2026-10-17)
 
 - Netnod, PTB and System76 use RSA certificates. embedded-tls's verifier without an allocator has no RSA; adding it
   means enabling the `alloc`/`rsa` paths and a heap, plus RSA verification time on this chip. Left as future work.

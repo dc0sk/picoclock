@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/design/architecture.md
 status: design
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # Architecture and design
@@ -329,7 +329,7 @@ crates.io releases.
   GPIOs that reach the clock's case.
 - **Random numbers.** Pico 2 W: the RP2350 hardware TRNG (`firmware/src/crypto.rs`, started at boot and kept only if a self-test passes, taken under a thread-mode lock so it cannot delay the display interrupt). Pico W: ring-oscillator jitter, because the RP2040 has no TRNG; `status` says which one is in use.
 - **HTTPS.** Needs a TLS *server*; nothing vetted builds for the RP2040. Implemented per ADR-0002: `rustls` on the Pico 2 W only (`firmware/src/{https,tls,heap}.rs`, record format in `core/src/tlsstore.rs`), a per-device certificate generated once the RTC is valid and stored in its own flash sector, uploadable replacement over HTTPS; the Pico W keeps HTTP.
-- **NTS beyond today:** RSA chains, user roots, TRNG on the RP2350.
+- **NTS trust.** The key exchange checks the recorded chain against all trusted roots in one connection (`core/src/nts_ke.rs`): the built-in ones (`core/roots/`; ISRG Root X1 only with the `rsa` feature, Pico 2 W) and up to four the user added (`core/src/rootstore.rs`, own flash sector, `root` commands, HTTPS page on the Pico 2 W). RSA chains need the heap, so the Pico W refuses them. See ADR-0003.
 - **DHCP option 42, mDNS, strongest-network selection** touch only `net.rs`.
 
 ## 11. Testing strategy

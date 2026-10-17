@@ -39,6 +39,10 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     rng_hardware: false,
     dhcp_ntp: [[0; 4]; 4],
     dhcp_ntp_n: 0,
+    roots_user: 0,
+    nts_ke: 0,
+    nts_ke_ms: 0,
+    nts_ke_host: [0; 32],
     wifi_scanned: None,
     mdns_group: 0,
     mdns_seen: 0,
@@ -97,6 +101,36 @@ pub fn set_tls_material(m: picoclock_core::tlsstore::Material) {
 #[cfg(feature = "https")]
 pub fn tls_material() -> Option<picoclock_core::tlsstore::Material> {
     TLS_MATERIAL.lock(|t| t.borrow().clone())
+}
+
+/// The NTS trust anchors the user added. Loaded from flash at boot; changed by `root add` / `root remove` and the web page.
+static ROOTS: Mutex<Tm, RefCell<picoclock_core::rootstore::Roots>> = Mutex::new(RefCell::new(picoclock_core::rootstore::Roots::new()));
+/// Ask the storage task to write the roots to their flash sector.
+pub static ROOTS_SAVE: Signal<Cs, ()> = Signal::new();
+
+pub fn roots_snapshot() -> picoclock_core::rootstore::Roots {
+    ROOTS.lock(|r| r.borrow().clone())
+}
+
+/// Runs `f` on the roots; if it reports a change (the `bool`) they are saved to flash. `status` is updated either way.
+pub fn change_roots<R>(f: impl FnOnce(&mut picoclock_core::rootstore::Roots) -> (bool, R)) -> R {
+    let (changed, out, n) = ROOTS.lock(|r| {
+        let mut r = r.borrow_mut();
+        let (changed, out) = f(&mut r);
+        (changed, out, r.len() as u8)
+    });
+    with_runtime(|rt| rt.roots_user = n);
+    if changed {
+        ROOTS_SAVE.signal(());
+    }
+    out
+}
+
+/// At boot: the roots read from flash (not written back).
+pub fn set_roots(roots: picoclock_core::rootstore::Roots) {
+    let n = roots.len() as u8;
+    ROOTS.lock(|r| *r.borrow_mut() = roots);
+    with_runtime(|rt| rt.roots_user = n);
 }
 
 pub fn with_config<R>(f: impl FnOnce(&mut Config) -> R) -> R {

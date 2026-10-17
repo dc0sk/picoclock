@@ -10,7 +10,8 @@ description = "Pico-Clock-Green firmware for the Raspberry Pi Pico W / Pico 2 W 
 # --target thumbv8m.main-none-eabihf.
 default = ["rp2040"]
 rp2040 = ["embassy-rp/rp2040"]
-rp235x = ["embassy-rp/rp235xa", "https"]
+# The Pico 2 W has a heap, so it also verifies RSA certificate chains for NTS (the RP2040 build does not: no allocator).
+rp235x = ["embassy-rp/rp235xa", "https", "picoclock-core/rsa"]
 # HTTPS for the web page (ADR-0002): rustls needs an allocator, so it is only built for the Pico 2 W (the RP2040 has no
 # atomic compare-and-swap, which rustls needs).
 https = ["dep:rustls", "dep:rustls-rustcrypto", "dep:embedded-alloc", "dep:getrandom"]

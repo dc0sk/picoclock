@@ -8,7 +8,7 @@ use embassy_rp::usb::Driver;
 use embassy_time::Timer;
 use embassy_usb::class::cdc_acm::device::CdcAcmClass;
 use embassy_usb::driver::EndpointError;
-use picoclock_core::cli::{self, Action, MAX_LINE};
+use picoclock_core::cli::{self, Action, MAX_LINE, Paste, PasteStep};
 
 use crate::state;
 
@@ -34,7 +34,44 @@ async fn send(class: &mut Class, s: &str) -> Result<(), Disconnected> {
     Ok(())
 }
 
-async fn run_line(class: &mut Class, line: &str) -> Result<(), Disconnected> {
+fn crlf_of(text: &str) -> heapless::String<1400> {
+    let mut crlf = heapless::String::new();
+    for c in text.chars() {
+        if c == '\n' {
+            let _ = crlf.push('\r');
+        }
+        let _ = crlf.push(c);
+    }
+    crlf
+}
+
+/// Adds the pasted certificate to the trusted roots and says what happened.
+async fn add_root(class: &mut Class, text: &str) -> Result<(), Disconnected> {
+    let now = state::status().utc_unix;
+    let result = state::change_roots(|r| match r.add_pem(text, now) {
+        Ok(added) => (true, Ok((added, r.len()))),
+        Err(e) => (false, Err(e)),
+    });
+    match result {
+        Ok((added, total)) => {
+            for info in added.iter() {
+                let mut line = heapless::String::<360>::new();
+                let _ = core::fmt::Write::write_str(&mut line, "added: ");
+                let _ = core::fmt::Write::write_str(&mut line, &picoclock_core::rootstore::summary(total, info, now));
+                let _ = core::fmt::Write::write_str(&mut line, "\r\nCompare the fingerprint with the one your CA publishes. Saved to flash.\r\n");
+                send(class, &line).await?;
+            }
+        }
+        Err(e) => {
+            send(class, "not added: ").await?;
+            send(class, e.message()).await?;
+            send(class, "\r\n").await?;
+        }
+    }
+    Ok(())
+}
+
+async fn run_line(class: &mut Class, line: &str) -> Result<Action, Disconnected> {
     let mut out = heapless::String::<2048>::new();
     let st = state::status();
     let action = state::with_config(|cfg| cli::execute(line, cfg, &st, &mut out));
@@ -63,6 +100,23 @@ async fn run_line(class: &mut Class, line: &str) -> Result<(), Disconnected> {
         Action::NewCertificate => state::CERT_NEW.signal(()),
         #[cfg(not(feature = "https"))]
         Action::NewCertificate => {}
+        Action::RootList => {
+            let mut text = heapless::String::<1024>::new();
+            let now = state::status().utc_unix;
+            cli::root_listing(&state::roots_snapshot(), now, &mut text);
+            send(class, &crlf_of(&text)).await?;
+        }
+        Action::RootRemove(n) => {
+            let removed = state::change_roots(|r| {
+                let ok = r.remove(n - 1);
+                (ok, ok)
+            });
+            send(class, if removed { "removed; saved to flash\r\n" } else { "no such root; see 'root'\r\n" }).await?;
+        }
+        Action::RootAdd => {
+            // handled by the session: the next lines are the certificate
+            send(class, "paste the PEM certificate (-----BEGIN CERTIFICATE----- ... -----END CERTIFICATE-----), or type cancel:\r\n").await?;
+        }
         Action::SyncNow => {
             state::SYNC_NOW.signal(());
             send(class, "NTP sync requested\r\n").await?;
@@ -82,7 +136,7 @@ async fn run_line(class: &mut Class, line: &str) -> Result<(), Disconnected> {
             embassy_rp::rom_data::reset_to_usb_boot(0, 0);
         }
     }
-    Ok(())
+    Ok(action)
 }
 
 async fn session(class: &mut Class) -> Result<(), Disconnected> {
@@ -91,6 +145,8 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
     let mut line = heapless::String::<MAX_LINE>::new();
     let mut buf = [0u8; 64];
     let mut last_was_cr = false;
+    // after `root add`: the lines of the pasted certificate (not echoed, not run as commands)
+    let mut paste: Option<Paste> = None;
     loop {
         let n = class.read_packet(&mut buf).await?;
         for &b in &buf[..n] {
@@ -98,9 +154,30 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
             match b {
                 b'\n' if was_cr => {} // second half of CRLF
                 b'\r' | b'\n' => {
-                    send(class, "\r\n").await?;
+                    if paste.is_none() {
+                        send(class, "\r\n").await?;
+                    }
                     let l = core::mem::take(&mut line);
-                    run_line(class, &l).await?;
+                    if let Some(p) = paste.as_mut() {
+                        match p.feed(&l) {
+                            PasteStep::More => continue,
+                            PasteStep::Done(text) => {
+                                paste = None;
+                                add_root(class, &text).await?;
+                            }
+                            PasteStep::Cancelled => {
+                                paste = None;
+                                send(class, "cancelled\r\n").await?;
+                            }
+                            PasteStep::TooLong => {
+                                paste = None;
+                                send(class, "too long: not a certificate this clock accepts\r\n").await?;
+                            }
+                        }
+                    } else if run_line(class, &l).await? == Action::RootAdd {
+                        paste = Some(Paste::new());
+                        continue;
+                    }
                     send(class, PROMPT).await?;
                 }
                 0x08 | 0x7F => {
@@ -110,13 +187,14 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
                 }
                 0x03 => {
                     line.clear();
+                    paste = None;
                     send(class, "^C\r\n").await?;
                     send(class, PROMPT).await?;
                 }
                 0x20..=0x7E => {
-                    if line.push(b as char).is_ok() {
+                    if line.push(b as char).is_ok() && paste.is_none() {
                         send(class, core::str::from_utf8(&[b]).unwrap_or("")).await?;
-                    } // else: line full, drop the character
+                    } // else: line full, drop the character (pasted text is not echoed)
                 }
                 _ => {}
             }

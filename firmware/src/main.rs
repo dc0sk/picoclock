@@ -215,6 +215,10 @@ async fn main(spawner: Spawner) {
         }
         None => info!("config: none stored, using defaults"),
     }
+    if let Some(roots) = storage::load_roots(&mut flash) {
+        info!("nts: {} user root(s) loaded from flash", roots.len());
+        state::set_roots(roots);
+    }
     #[cfg(feature = "https")]
     if let Some(m) = storage::load_tls(&mut flash) {
         info!("https: certificate loaded from flash");

@@ -40,7 +40,7 @@ code = ["core/src/sntp.rs", "firmware/src/ntp.rs"]
 [[cap]]
 id = "CAP-NTS"
 name = "NTS client: key exchange, authenticated packets, sessions"
-code = ["core/src/nts.rs", "core/src/nts_ke.rs", "firmware/src/nts.rs"]
+code = ["core/src/nts.rs", "core/src/nts_ke.rs", "core/src/rootstore.rs", "firmware/src/nts.rs"]
 
 [[cap]]
 id = "CAP-CONFIG"
@@ -278,11 +278,50 @@ cap = ["CAP-NTS"]
 [[req]]
 id = "REQ-NTS-07"
 area = "NTS"
-status = "ratified"
+status = "retired"
 criticality = "high"
 statement = "The server certificate chain, the host name, the validity dates and the CertificateVerify signature shall all be verified against a built-in root before any result of the key exchange (cookies, keys) is used, even though the checks run after the key exchange."
 rationale = "On the RP2040 the checks take about 5 s and NTS-KE servers drop a client that is silent for more than about 2 s in the middle of the handshake, so they are deferred. That is safe only because NTS-KE sends no secret and nothing is used before the checks pass."
+retired_because = "Assumed the only trust anchors are built in. Users can now add their own (REQ-NTS-09), and a chain that ends at one of those is checked just as strictly, so the statement named the wrong set of roots."
+superseded_by = "REQ-NTS-11"
+cap = []
+
+[[req]]
+id = "REQ-NTS-11"
+area = "NTS"
+status = "ratified"
+criticality = "high"
+statement = "The server certificate chain, the host name, the validity dates and the CertificateVerify signature shall all be verified against a trusted root (a built-in one or one the user added) before any result of the key exchange (cookies, keys) is used, even though the checks run after the key exchange; a chain that ends at no trusted root shall be refused."
+rationale = "On the RP2040 the checks take about 5 s and NTS-KE servers drop a client that is silent for more than about 2 s in the middle of the handshake, so they are deferred. That is safe only because NTS-KE sends no secret and nothing is used before the checks pass. All roots are tried against the one recorded chain, so a longer list costs no extra connection."
+supersedes = "REQ-NTS-07"
 cap = ["CAP-NTS"]
+
+[[req]]
+id = "REQ-NTS-08"
+area = "NTS"
+status = "ratified"
+criticality = "high"
+statement = "On the Pico 2 W the NTS key exchange shall also accept servers whose certificate chain uses RSA (2048 to 8192 bit keys, RSA-PSS signatures; the built-in ISRG Root X1 covers the Let's Encrypt RSA chains of Netnod, PTB and others). The Pico W build has no allocator for it and shall refuse every RSA chain, never accept one."
+rationale = "Roadmap item. The RSA code needs a heap, which only the Pico 2 W build has; the refusal on the Pico W must be a certificate error, not a silent pass."
+cap = ["CAP-NTS", "CAP-NETUTIL"]
+
+[[req]]
+id = "REQ-NTS-09"
+area = "NTS"
+status = "ratified"
+criticality = "high"
+statement = "The user shall be able to add up to four trust anchors for NTS as PEM certificates, on both boards through the USB terminal (`root add`, `root`, `root remove`) and on the Pico 2 W also through the HTTPS page, never through plain HTTP; they shall be kept in their own flash sector across reboots, listed with name, expiry and SHA-256 fingerprint, and a key exchange shall accept a server whose chain ends at any built-in or added root and at no other. A certificate that is unreadable, expired, already trusted, over the size limit, or (without RSA support) RSA shall be refused, and a refused paste shall change nothing."
+rationale = "Roadmap item. A private NTS server or a CA missing from the built-in list needs a way in; trusting a CA changes who the clock believes, so it is offered only over USB or TLS."
+cap = ["CAP-NTS", "CAP-NETUTIL", "CAP-CLI", "CAP-HTTP", "CAP-CERT"]
+
+[[req]]
+id = "REQ-NTS-10"
+area = "NTS"
+status = "ratified"
+criticality = "medium"
+statement = "The terminal's `status` shall show the outcome of the last NTS key exchange (server, accepted or why refused, and how long it took) and how many trust anchors are built in and added."
+rationale = "A refused certificate and a server that was never tried look the same without it; found while testing a private root on the clock, where the only sign of success was a later sync."
+cap = ["CAP-CLI", "CAP-NTS"]
 
 # ---------------------------------------------------------------------------------------------------- NTP server
 

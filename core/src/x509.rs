@@ -299,6 +299,111 @@ pub fn inspect(cert: &[u8]) -> Result<Info, X509Error> {
     Ok(Info { public_key, not_before, not_after })
 }
 
+/// The kind of public key a certificate carries, as far as trust anchors care.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyKind {
+    EcP256,
+    EcP384,
+    Rsa,
+    Other,
+}
+
+/// What we show about a trust anchor (a CA certificate the user adds for NTS).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaInfo {
+    pub fingerprint: [u8; 32],
+    pub not_before: i64,
+    pub not_after: i64,
+    /// Issuer and subject are identical: a root, or a pinned self-signed server certificate.
+    pub self_signed: bool,
+    /// The common name of the subject (or its organisation), for the list; may be cut short.
+    pub name: String<48>,
+    pub key: KeyKind,
+}
+
+const OID_ORGANIZATION: &[u8] = &[0x55, 0x04, 0x0A];
+const OID_RSA_ENCRYPTION: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01];
+const OID_SECP384R1: &[u8] = &[0x2B, 0x81, 0x04, 0x00, 0x22];
+
+/// Reads any X.509 v3 certificate far enough to describe it as a trust anchor: dates, fingerprint, who it is, what key it
+/// has. The signature is not checked (a trust anchor is trusted by being listed, not by being signed); whether a server
+/// chain really ends at it is decided by the TLS verifier at use.
+pub fn describe_ca(cert: &[u8]) -> Result<CaInfo, X509Error> {
+    if cert.len() > MAX_CERT {
+        return Err(X509Error::TooLarge);
+    }
+    let mut top = Reader(cert);
+    let body = top.expect(0x30)?;
+    if !top.done() {
+        return Err(X509Error::Der);
+    }
+    let mut c = Reader(body);
+    let tbs_body = c.expect(0x30)?;
+    c.expect(0x30)?;
+    c.expect(0x03)?;
+    if !c.done() {
+        return Err(X509Error::Der);
+    }
+    let mut t = Reader(tbs_body);
+    let version = t.expect(0xA0).map_err(|_| X509Error::Unsupported)?;
+    if Reader(version).expect(0x02)? != [0x02] {
+        return Err(X509Error::Unsupported);
+    }
+    t.expect(0x02)?;
+    t.expect(0x30)?;
+    let issuer = t.expect(0x30)?;
+    let validity = t.expect(0x30)?;
+    let subject = t.expect(0x30)?;
+    let spki = t.expect(0x30)?;
+    let mut v = Reader(validity);
+    let (t1, b1) = v.next()?;
+    let (t2, b2) = v.next()?;
+    if !v.done() {
+        return Err(X509Error::Der);
+    }
+    let (not_before, not_after) = (parse_time(t1, b1)?, parse_time(t2, b2)?);
+
+    let mut k = Reader(spki);
+    let mut alg = Reader(k.expect(0x30)?);
+    k.expect(0x03)?;
+    let alg_oid = alg.expect(0x06)?;
+    let key = if alg_oid == OID_RSA_ENCRYPTION {
+        KeyKind::Rsa
+    } else if alg_oid == OID_EC_PUBLIC_KEY {
+        match alg.expect(0x06) {
+            Ok(c) if c == OID_PRIME256V1 => KeyKind::EcP256,
+            Ok(c) if c == OID_SECP384R1 => KeyKind::EcP384,
+            _ => KeyKind::Other,
+        }
+    } else {
+        KeyKind::Other
+    };
+
+    // the subject: SEQUENCE OF SET OF SEQUENCE { OID, string }; the common name if there is one, else the organisation
+    let (mut cn, mut org): (Option<&[u8]>, Option<&[u8]>) = (None, None);
+    let mut rdns = Reader(subject);
+    while !rdns.done() {
+        let set = rdns.expect(0x31)?;
+        let mut atv = Reader(Reader(set).expect(0x30)?);
+        let oid = atv.expect(0x06)?;
+        let (_, text) = atv.next()?;
+        if oid == OID_COMMON_NAME {
+            cn = Some(text);
+        } else if oid == OID_ORGANIZATION {
+            org = Some(text);
+        }
+    }
+    let mut name = String::new();
+    for ch in core::str::from_utf8(cn.or(org).unwrap_or(b"")).unwrap_or("").chars() {
+        // printable text only, so a hostile name cannot inject terminal control codes into the listing
+        let ch = if ch.is_ascii_graphic() || ch == ' ' { ch } else { '?' };
+        if name.push(ch).is_err() {
+            break;
+        }
+    }
+    Ok(CaInfo { fingerprint: fingerprint(cert), not_before, not_after, self_signed: issuer == subject, name, key })
+}
+
 /// Checks that `secret` belongs to `cert` and that the certificate is valid at `now_unix`.
 pub fn validate_pair(cert: &[u8], secret: &[u8; 32], now_unix: i64) -> Result<Info, X509Error> {
     let info = inspect(cert)?;

@@ -108,39 +108,60 @@ impl Nts {
                 return None;
             }
         };
-        for root in nts_ke::roots_for(host) {
-            let Buffers { tls_read, tls_write, tcp_rx, tcp_tx } = &mut *self.buffers;
-            let mut socket = TcpSocket::new(stack, &mut tcp_rx[..], &mut tcp_tx[..]).ok()?;
-            socket.set_timeout(Some(Duration::from_secs(20)));
-            if !matches!(with_timeout(CONNECT_TIMEOUT, socket.connect(SocketAddr::new(addr, NTS_KE_PORT))).await, Ok(Ok(()))) {
-                warn!("nts: cannot connect to {}:{}", host, NTS_KE_PORT);
-                return None;
+        // the built-in authorities plus the ones the user added; the chain may end at any of them
+        let user = state::roots_snapshot();
+        let mut roots: heapless::Vec<&[u8], 8> = heapless::Vec::new();
+        for r in nts_ke::BUILT_IN_ROOTS.iter().copied().chain(user.iter()) {
+            let _ = roots.push(r);
+        }
+        let Buffers { tls_read, tls_write, tcp_rx, tcp_tx } = &mut *self.buffers;
+        let mut socket = TcpSocket::new(stack, &mut tcp_rx[..], &mut tcp_tx[..]).ok()?;
+        socket.set_timeout(Some(Duration::from_secs(20)));
+        if !matches!(with_timeout(CONNECT_TIMEOUT, socket.connect(SocketAddr::new(addr, NTS_KE_PORT))).await, Ok(Ok(()))) {
+            warn!("nts: cannot connect to {}:{}", host, NTS_KE_PORT);
+            return None;
+        }
+        info!("nts: key exchange with {} (the clock is busy for a few seconds)", host);
+        let started = Instant::now();
+        let outcome = with_timeout(KE_TIMEOUT, nts_ke::key_exchange::<_, DeviceClock>(socket, host, &roots, &mut tls_read[..], &mut tls_write[..])).await;
+        let code = match &outcome {
+            Ok(Ok(_)) => 1,
+            Ok(Err(KeError::Tls(_))) => 2,
+            Ok(Err(KeError::Nts(NtsError::NoAgreement))) => 3,
+            Ok(Err(KeError::Nts(_))) | Ok(Err(KeError::Closed)) => 4,
+            Ok(Err(KeError::NoTime)) | Err(_) => 5,
+        };
+        state::with_runtime(|r| {
+            r.nts_ke = code;
+            r.nts_ke_ms = started.elapsed().as_millis().min(u16::MAX as u64) as u16;
+            r.nts_ke_host = [0; 32];
+            let n = host.len().min(32);
+            r.nts_ke_host[..n].copy_from_slice(&host.as_bytes()[..n]);
+        });
+        match outcome {
+            Ok(Ok(session)) => {
+                info!("nts: key exchange with {} done in {} ms, {} cookies", host, started.elapsed().as_millis(), session.cookies_left());
+                Some(session)
             }
-            info!("nts: key exchange with {} (the clock is busy for a few seconds)", host);
-            let started = Instant::now();
-            match with_timeout(KE_TIMEOUT, nts_ke::key_exchange::<_, DeviceClock>(socket, host, root, &mut tls_read[..], &mut tls_write[..])).await {
-                Ok(Ok(session)) => {
-                    info!("nts: key exchange with {} done in {} ms, {} cookies", host, started.elapsed().as_millis(), session.cookies_left());
-                    return Some(session);
-                }
-                // a certificate that does not chain to this root: the next root may still fit (new connection)
-                Ok(Err(KeError::Tls(e))) => warn!("nts: TLS with {} failed after {} ms: {:?}", host, started.elapsed().as_millis(), e),
-                Ok(Err(KeError::Nts(NtsError::NoAgreement))) => {
-                    warn!("nts: {} does not offer NTPv4 with AES-SIV-CMAC-256", host);
-                    return None;
-                }
-                Ok(Err(KeError::NoTime)) => return None,
-                Ok(Err(KeError::Nts(_))) | Ok(Err(KeError::Closed)) => {
-                    warn!("nts: {} sent a bad or incomplete key exchange message", host);
-                    return None;
-                }
-                Err(_) => {
-                    warn!("nts: key exchange with {} timed out", host);
-                    return None;
-                }
+            // the chain does not end at any trusted root, or the name or dates do not fit
+            Ok(Err(KeError::Tls(e))) => {
+                warn!("nts: TLS with {} failed after {} ms: {:?}", host, started.elapsed().as_millis(), e);
+                None
+            }
+            Ok(Err(KeError::Nts(NtsError::NoAgreement))) => {
+                warn!("nts: {} does not offer NTPv4 with AES-SIV-CMAC-256", host);
+                None
+            }
+            Ok(Err(KeError::NoTime)) => None,
+            Ok(Err(KeError::Nts(_))) | Ok(Err(KeError::Closed)) => {
+                warn!("nts: {} sent a bad or incomplete key exchange message", host);
+                None
+            }
+            Err(_) => {
+                warn!("nts: key exchange with {} timed out", host);
+                None
             }
         }
-        None
     }
 }
 

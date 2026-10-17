@@ -113,6 +113,7 @@ pub async fn https_task(stack: Stack<'static>) -> ! {
             Timer::after_secs(2).await;
             continue;
         }
+        publish_heap(); // every pass (at least every 2 s): the NTS key exchange allocates too
         let new_requested = state::CERT_NEW.try_take().is_some();
         if state::CERT_RELOAD.try_take().is_some() || new_requested {
             rebuild = true;

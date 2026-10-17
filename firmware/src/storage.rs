@@ -20,6 +20,11 @@ const OFFSET: u32 = (FLASH_SIZE - ERASE_SIZE) as u32;
 /// The sector before it holds the HTTPS key and certificates (Pico 2 W only; `memory-rp235x.x` keeps it free).
 #[cfg(feature = "https")]
 const TLS_OFFSET: u32 = (FLASH_SIZE - 2 * ERASE_SIZE) as u32;
+/// The sector for the NTS roots the user added (both chips): before the HTTPS sector on the Pico 2 W, before the settings on the Pico W.
+#[cfg(feature = "https")]
+const ROOTS_OFFSET: u32 = (FLASH_SIZE - 3 * ERASE_SIZE) as u32;
+#[cfg(not(feature = "https"))]
+const ROOTS_OFFSET: u32 = (FLASH_SIZE - 2 * ERASE_SIZE) as u32;
 const RECORD: usize = 2048;
 /// Edits via buttons arrive in bursts; wait for this long without a new one before writing flash.
 const QUIET: Duration = Duration::from_secs(3);
@@ -51,6 +56,27 @@ fn save_tls(flash: &mut Store, m: &picoclock_core::tlsstore::Material) -> Result
     flash.blocking_write(TLS_OFFSET, &buf)
 }
 
+pub fn load_roots(flash: &mut Store) -> Option<picoclock_core::rootstore::Roots> {
+    let mut buf = [0u8; picoclock_core::rootstore::MAX_RECORD];
+    flash.blocking_read(ROOTS_OFFSET, &mut buf).ok()?;
+    picoclock_core::rootstore::Roots::decode(&buf)
+}
+
+fn save_roots(flash: &mut Store, roots: &picoclock_core::rootstore::Roots) -> Result<(), embassy_rp::flash::Error> {
+    let mut buf = [0xFFu8; picoclock_core::rootstore::MAX_RECORD];
+    roots.encode(&mut buf).ok_or(embassy_rp::flash::Error::OutOfBounds)?;
+    flash.blocking_erase(ROOTS_OFFSET, ROOTS_OFFSET + ERASE_SIZE as u32)?;
+    flash.blocking_write(ROOTS_OFFSET, &buf)
+}
+
+/// Pending until the HTTPS certificate must be saved; never, in a build without HTTPS.
+async fn tls_request() {
+    #[cfg(feature = "https")]
+    state::TLS_SAVE.wait().await;
+    #[cfg(not(feature = "https"))]
+    core::future::pending::<()>().await
+}
+
 fn save(flash: &mut Store, cfg: &Config) -> Result<(), embassy_rp::flash::Error> {
     let mut buf = [0xFFu8; RECORD];
     if cfg.to_bytes(&mut buf).is_err() {
@@ -65,11 +91,12 @@ fn save(flash: &mut Store, cfg: &Config) -> Result<(), embassy_rp::flash::Error>
 #[embassy_executor::task]
 pub async fn storage_task(mut flash: Store) -> ! {
     loop {
-        #[cfg(feature = "https")]
-        let mut now = match embassy_futures::select::select(state::SAVE_REQUEST.wait(), state::TLS_SAVE.wait()).await {
-            embassy_futures::select::Either::First(now) => now,
-            embassy_futures::select::Either::Second(()) => {
+        use embassy_futures::select::{Either3, select3};
+        let mut now = match select3(state::SAVE_REQUEST.wait(), tls_request(), state::ROOTS_SAVE.wait()).await {
+            Either3::First(now) => now,
+            Either3::Second(()) => {
                 // read back, like the settings: a silent write failure must not look like success
+                #[cfg(feature = "https")]
                 match state::tls_material() {
                     Some(m) => match save_tls(&mut flash, &m) {
                         Ok(()) if load_tls(&mut flash).as_ref() == Some(&m) => info!("storage: certificate saved"),
@@ -80,9 +107,16 @@ pub async fn storage_task(mut flash: Store) -> ! {
                 }
                 continue;
             }
+            Either3::Third(()) => {
+                let roots = state::roots_snapshot();
+                match save_roots(&mut flash, &roots) {
+                    Ok(()) if load_roots(&mut flash).as_ref() == Some(&roots) => info!("storage: NTS roots saved"),
+                    Ok(()) => warn!("storage: NTS roots verify failed"),
+                    Err(_) => warn!("storage: NTS roots write failed"),
+                }
+                continue;
+            }
         };
-        #[cfg(not(feature = "https"))]
-        let mut now = state::SAVE_REQUEST.wait().await;
         while !now {
             match with_timeout(QUIET, state::SAVE_REQUEST.wait()).await {
                 Ok(n) => now = n,

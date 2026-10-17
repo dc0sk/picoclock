@@ -164,3 +164,50 @@ fn keys_and_certificates_made_by_openssl_are_read_and_matched() {
     let many = pem("CERTIFICATE", &read("a.der")).repeat(5);
     assert_eq!(x509::parse_pem_chain(&many, &mut chain, &mut lens), Err(X509Error::TooLarge));
 }
+
+// VERIFIES: REQ-NTS-08
+#[test]
+fn describe_ca_reads_what_openssl_made() {
+    let Some(dir) = setup("describe-ca") else { return };
+    let d = &dir.0;
+    let mk = |name: &str, keyargs: &[&str], subj: &str| -> bool {
+        let (key, pem) = (format!("{name}.key"), format!("{name}.pem"));
+        let mut args = vec!["req", "-x509", "-new", "-nodes", "-days", "30", "-sha256", "-subj", subj, "-keyout", &key, "-out", &pem];
+        args.extend_from_slice(keyargs);
+        openssl(d, &args).is_some() && openssl(d, &["x509", "-in", &pem, "-outform", "DER", "-out", &format!("{name}.der")]).is_some()
+    };
+    assert!(
+        mk("ec256", &["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1"], "/CN=Test EC 256/O=Org")
+            && mk("ec384", &["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:secp384r1"], "/O=Only Org")
+            && mk("rsa", &["-newkey", "rsa:2048"], "/CN=Test RSA")
+            && mk("ed", &["-newkey", "ed25519"], "/CN=Test Ed"),
+        "openssl could not make the test certificates"
+    );
+    let der = |n: &str| std::fs::read(d.join(format!("{n}.der"))).unwrap();
+    let ec = x509::describe_ca(&der("ec256")).unwrap();
+    assert_eq!((ec.key, ec.name.as_str(), ec.self_signed), (x509::KeyKind::EcP256, "Test EC 256", true));
+    assert_eq!(x509::describe_ca(&der("ec384")).unwrap().key, x509::KeyKind::EcP384);
+    assert_eq!(x509::describe_ca(&der("ec384")).unwrap().name.as_str(), "Only Org", "organisation when there is no common name");
+    assert_eq!(x509::describe_ca(&der("rsa")).unwrap().key, x509::KeyKind::Rsa);
+    assert_eq!(x509::describe_ca(&der("ed")).unwrap().key, x509::KeyKind::Other);
+    // fingerprint and validity agree with openssl
+    let fp = openssl(d, &["x509", "-in", "ec256.pem", "-noout", "-fingerprint", "-sha256"]).unwrap();
+    assert_eq!(fp.trim().rsplit('=').next().unwrap(), x509::fingerprint_hex(&ec.fingerprint).as_str());
+    assert!((29 * 86_400..=31 * 86_400).contains(&(ec.not_after - ec.not_before)), "30 days of validity");
+    // a name with control characters (edited into the bytes; the signature is not checked here) is shown without them
+    let mut evil = der("ec256");
+    let at = evil.windows(11).position(|w| w == b"Test EC 256").unwrap();
+    evil[at..at + 11].copy_from_slice(b"A\x1b[31m\n\x07\x7fCD");
+    let shown = x509::describe_ca(&evil).unwrap().name;
+    assert!(shown.bytes().all(|b| (0x20..0x7F).contains(&b)), "{shown:?}");
+    // junk, truncations and trailing bytes never panic or pass
+    let good = der("ec256");
+    for cut in 0..good.len() {
+        assert!(x509::describe_ca(&good[..cut]).is_err(), "cut {cut}");
+    }
+    let mut trailing = good.clone();
+    trailing.push(0);
+    assert!(x509::describe_ca(&trailing).is_err());
+    assert!(x509::describe_ca(&[0x30, 0x00]).is_err());
+    assert!(x509::describe_ca(&[0xFF; 40]).is_err());
+}

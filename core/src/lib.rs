@@ -27,6 +27,7 @@ pub mod netutil;
 pub mod nts;
 pub mod nts_ke;
 pub mod frame;
+pub mod rootstore;
 pub mod sntp;
 pub mod time;
 pub mod tlsstore;

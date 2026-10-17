@@ -146,10 +146,31 @@ The TLS exporter used to derive the NTS keys shall produce exactly what OpenSSL 
 *Why:* The exporter is a patch to a vendored TLS library; a wrong derivation makes every server reject our requests, a subtly wrong one could weaken the keys.  
 *Implemented by:* NTS client: key exchange, authenticated packets, sessions
 
-**REQ-NTS-07** (ratified, high)  
+**REQ-NTS-07** (retired, high)  
 The server certificate chain, the host name, the validity dates and the CertificateVerify signature shall all be verified against a built-in root before any result of the key exchange (cookies, keys) is used, even though the checks run after the key exchange.  
 *Why:* On the RP2040 the checks take about 5 s and NTS-KE servers drop a client that is silent for more than about 2 s in the middle of the handshake, so they are deferred. That is safe only because NTS-KE sends no secret and nothing is used before the checks pass.  
+*Implemented by:* none yet  
+*Retired:* Assumed the only trust anchors are built in. Users can now add their own (REQ-NTS-09), and a chain that ends at one of those is checked just as strictly, so the statement named the wrong set of roots.
+
+**REQ-NTS-11** (ratified, high)  
+The server certificate chain, the host name, the validity dates and the CertificateVerify signature shall all be verified against a trusted root (a built-in one or one the user added) before any result of the key exchange (cookies, keys) is used, even though the checks run after the key exchange; a chain that ends at no trusted root shall be refused.  
+*Why:* On the RP2040 the checks take about 5 s and NTS-KE servers drop a client that is silent for more than about 2 s in the middle of the handshake, so they are deferred. That is safe only because NTS-KE sends no secret and nothing is used before the checks pass. All roots are tried against the one recorded chain, so a longer list costs no extra connection.  
 *Implemented by:* NTS client: key exchange, authenticated packets, sessions
+
+**REQ-NTS-08** (ratified, high)  
+On the Pico 2 W the NTS key exchange shall also accept servers whose certificate chain uses RSA (2048 to 8192 bit keys, RSA-PSS signatures; the built-in ISRG Root X1 covers the Let's Encrypt RSA chains of Netnod, PTB and others). The Pico W build has no allocator for it and shall refuse every RSA chain, never accept one.  
+*Why:* Roadmap item. The RSA code needs a heap, which only the Pico 2 W build has; the refusal on the Pico W must be a certificate error, not a silent pass.  
+*Implemented by:* NTS client: key exchange, authenticated packets, sessions, WiFi order, DHCP option 42 and mDNS packet logic
+
+**REQ-NTS-09** (ratified, high)  
+The user shall be able to add up to four trust anchors for NTS as PEM certificates, on both boards through the USB terminal (`root add`, `root`, `root remove`) and on the Pico 2 W also through the HTTPS page, never through plain HTTP; they shall be kept in their own flash sector across reboots, listed with name, expiry and SHA-256 fingerprint, and a key exchange shall accept a server whose chain ends at any built-in or added root and at no other. A certificate that is unreadable, expired, already trusted, over the size limit, or (without RSA support) RSA shall be refused, and a refused paste shall change nothing.  
+*Why:* Roadmap item. A private NTS server or a CA missing from the built-in list needs a way in; trusting a CA changes who the clock believes, so it is offered only over USB or TLS.  
+*Implemented by:* NTS client: key exchange, authenticated packets, sessions, WiFi order, DHCP option 42 and mDNS packet logic, Terminal commands and USB serial console, HTTP parsing, settings page and web server, Web page TLS certificate: generate, inspect, validate
+
+**REQ-NTS-10** (ratified, medium)  
+The terminal's `status` shall show the outcome of the last NTS key exchange (server, accepted or why refused, and how long it took) and how many trust anchors are built in and added.  
+*Why:* A refused certificate and a server that was never tried look the same without it; found while testing a private root on the clock, where the only sign of success was a later sync.  
+*Implemented by:* Terminal commands and USB serial console, NTS client: key exchange, authenticated packets, sessions
 
 
 ### 4.5 NTP server

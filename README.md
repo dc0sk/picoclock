@@ -11,6 +11,8 @@ A plain Pico or Pico 2 has no WiFi. Both have run in the clock; the Pico W has h
 | Web page | plain HTTP only | **HTTPS** (TLS 1.3), plain HTTP only redirects to it |
 | Random numbers | ring-oscillator jitter (no hardware generator) | hardware TRNG |
 | NTS key exchange | about 5 to 7 s once per boot | about 1 s |
+| NTS servers with **RSA** certificates (Netnod, PTB, NIC.br, ...) | **not supported** | supported |
+| NTS trust anchors you add | USB terminal only | USB terminal and the HTTPS page |
 
 **HTTPS is available only on the Pico 2 W.** The TLS server library (`rustls`) does not build for the RP2040, so a Pico W
 serves the web page, the web password and the WiFi passphrases over plain HTTP. If that matters, use a Pico 2 W, set a
@@ -59,7 +61,7 @@ cp pico2w-s.uf2 /media/$USER/RP2350/      # hold BOOTSEL while plugging in the P
 (`picotool load -x` does the same in one step if you have it.)
 
 The two builds differ only in the chip feature (`rp2040` default / `rp235x`), the memory map (`firmware/memory-*.x`;
-the settings sector is the last 4 KiB of the 2 MiB / 4 MiB flash), the RP2350 `IMAGE_DEF` boot block and the WiFi
+the last sectors of the 2 MiB / 4 MiB flash are reserved for settings and certificates, see *Flash layout* below), the RP2350 `IMAGE_DEF` boot block and the WiFi
 SPI clock divider. Everything else, including the pin map, is shared.
 
 To flash with a debug probe instead (for example the Raspberry Pi Debug Probe, CMSIS-DAP, with OpenOCD):
@@ -114,7 +116,7 @@ picoclock> save
 ```
 
 The clock first runs NTS-KE: a TLS 1.3 connection (port 4460) in which it checks the server's certificate chain and
-host name against a built-in root and the RTC's date, and receives *cookies* and the keys. Every NTP request after that
+host name against a trusted root (built in, or one you added, see below) and the RTC's date, and receives *cookies* and the keys. Every NTP request after that
 carries a cookie and an AES-SIV authenticator, and a reply is accepted only if its authenticator verifies and it answers
 that very request. `status` says `synced : 5 s ago (NTS, authenticated)` or `(plain NTP)`.
 
@@ -124,16 +126,45 @@ What you need to know:
   `nts:` entries never falls back to plain NTP. The default list stays `gateway,pool.ntp.org`.
 - **It needs a good RTC time** to check certificate dates; without one the key exchange is not attempted and the next
   entry is used. (A clock that has never been set gets its first time from a plain entry.)
-- **Which servers work:** those whose certificate chain is ECDSA and ends at ISRG Root X2 or the SSL.com ECC root:
-  `time.cloudflare.com`, `nts.time.nl`, `ntppool1.time.nl`, `nts.teambelgium.net`, `ntp3.fau.de`, `time.txryan.com`, and any
-  server with a Let's Encrypt ECDSA certificate. Servers with RSA certificates (Netnod, PTB, System76) are not supported.
+- **Which servers work:**
+  - **Pico W and Pico 2 W:** servers whose certificate chain is ECDSA and ends at ISRG Root X2 or the SSL.com ECC root:
+    `time.cloudflare.com`, `nts.time.nl`, `ntppool1.time.nl`, `nts.teambelgium.net`, `ntp3.fau.de`, `time.txryan.com`, and any
+    server with a Let's Encrypt ECDSA certificate.
+  - **Pico 2 W only: servers with RSA certificates**, such as `ptbtime1.ptb.de`, `nts.netnod.se` (its NTP server is IPv6-only,
+    which the clock cannot use, so only its key exchange works), `a.st1.ntp.br` and other Let's Encrypt RSA chains (ISRG Root
+    X1 is built in on this board). **The Pico W cannot verify RSA** (the RSA code needs a memory allocator that only the
+    Pico 2 W build has), so it refuses such a server with a certificate error; it will never accept one.
 - **The key exchange takes 5 to 7 seconds** on the RP2040 (about 1 second on the RP2350), during which the console, the web page and the buttons wait
   (the display stays lit). It happens once after boot; later hourly syncs reuse the cookies and are as fast as plain NTP.
 - **The certificate is checked after the key exchange, not during the handshake.** The clock's CPU needs about five
   seconds for the checks, and NTS servers drop a client that is silent for more than about two seconds in the middle of the
   handshake. Nothing the server sent is used before the checks pass, and NTS-KE sends no secret, so this is safe for this
   protocol; the reasoning and the measurements are in [ADR-0001](docs/design/adr/0001-tls-client-for-nts.md).
-- The RP2040 has no hardware random number generator; the keys and identifiers use the ring-oscillator source.
+- The RP2040 has no hardware random number generator; the keys and identifiers use the ring-oscillator source (the Pico 2 W
+  uses its hardware generator).
+
+### Trusting another certificate authority (`root`)
+
+A private NTS server, or an authority that is not built in, can be added as a trust anchor. Up to four, kept in their own
+flash sector, on both boards:
+
+```
+picoclock> root                  # the built-in authorities and yours, with name, expiry and SHA-256 fingerprint
+picoclock> root add              # then paste the PEM certificate; it ends at the -----END CERTIFICATE----- line
+picoclock> root remove 1         # remove your root number 1
+```
+
+- Compare the fingerprint `root add` prints with the one your authority publishes: a trust anchor decides whom the clock
+  believes about the time.
+- The chain a server sends must end at the root you added (the server's intermediates come from the server). A pinned
+  self-signed server certificate is not covered by what has been tested.
+- Refused, with the reason: text that is not a certificate, an expired one, one already trusted (built in or added), one
+  larger than 1536 bytes, and (Pico W) an RSA certificate. A refused paste changes nothing.
+- **Pico 2 W:** the HTTPS page has the same list and an add/remove form. **Pico W: USB terminal only.** Its web page is plain
+  HTTP, and a trust anchor added through an unencrypted form could be replaced by anyone on your LAN, so the form is not
+  offered there (nor on the Pico 2 W's plain port).
+- `status` shows the last key exchange (`nts ke  : <server>: ok (450 ms)` or why it was refused) and how many roots are
+  built in and added. After removing a root, reboot to see a refusal: the clock reuses its cookies until they run out.
 
 ## Network name and NTP server
 
@@ -215,8 +246,11 @@ and both firmware builds; run it before committing.
 - `spikes/` throwaway experiments that answered design questions with measurements (see its README).
 - `tools/gen_tzdb.py` regenerates `core/src/tzdb.rs` from the system tz database.
 
-Flash layout: program image, then a reserved 4 KiB sector at the end of the 2 MiB flash for settings
-(2 KiB record with a CRC32; a corrupt or blank sector means defaults). Embassy is pinned by git revision in `firmware/Cargo.toml`
+Flash layout (4 KiB sectors at the end of flash, each a record with a CRC32; a corrupt or blank sector means "nothing
+stored"): **Pico W (2 MiB)** the last sector holds the settings (2 KiB record, blank = defaults) and the one before it the
+NTS trust anchors you added. **Pico 2 W (4 MiB)** the last sector holds the settings, the one before it the HTTPS key and
+certificates, and the one before that the NTS trust anchors. The program image ends before them (`firmware/memory-*.x`).
+A firmware from before this layout leaves these sectors blank or untouched, so updating loses nothing. Embassy is pinned by git revision in `firmware/Cargo.toml`
 because the networking APIs used here are newer than the crates.io releases. The CYW43 firmware blobs in
 `firmware/fw/` come from the Embassy repository under their own license.
 
@@ -252,8 +286,13 @@ password), and the NTP server (replies, off switch, junk packets ignored, offset
 **NTS:** works on the clock against `time.cloudflare.com` and `nts.time.nl` (key exchange 5.0 s and 6.9 s, then reused
 cookies); the whole client is also tested against those servers from a PC (`cargo test -p picoclock-core --test nts_live --
 --ignored`, needs internet), the TLS exporter against OpenSSL, and the certificate checks against a three-level chain made
-with OpenSSL (these run in `tools/gate.sh`, which needs the `openssl` binary). Not covered: RSA servers (refused) and a server
-that sends a malformed key exchange message beyond what the unit tests construct.
+with OpenSSL (these run in `tools/gate.sh`, which needs the `openssl` binary). **RSA chains (Pico 2 W only):** the key
+exchange with `ptbtime1.ptb.de` works on the clock (authenticated sync, console stall 0.45 s) and, from a PC, with PTB and
+Netnod; the Pico W build was not run on a board for this and only has the host test that shows it refuses RSA chains.
+**Your own trust anchors:** on the Pico 2 W, against a local test server, a chain was refused until its root was pasted into
+`root add`, then accepted, and refused again after `root remove` and a reboot; ECDSA and RSA chains both; the HTTPS form
+was exercised with `curl` (not in a browser). Not covered: a server that sends a malformed key exchange message beyond what
+the unit tests construct, and a pinned self-signed server certificate.
 
 **HTTPS (Pico 2 W only):** works on the clock and is in daily use by the owner in a browser (a report, not a measurement).
 Measured with `curl` and `openssl s_client` (VR-42, VR-44): TLS 1.3 only, handshake 0.14 to 0.2 s, 60 requests with 6 in
@@ -319,8 +358,7 @@ The Pico 2 W build serves the web page over HTTPS on port 443 ([ADR-0002](docs/d
 
 Planned for future releases (requirements, not implemented):
 
-- **NTS beyond what works today:** RSA certificate chains (Netnod, PTB, System76 servers), user-supplied roots, and
-  offering the exporter patch upstream.
+- **NTS:** offering the exporter patch to `embedded-tls` upstream (not done: it is outward-facing and needs your go-ahead).
 - **Choosing between time sources** (requirements REQ-SRC-01 to 05, draft): two modes, `order` (an ordered list with
   fallbacks, as for NTP servers today) and `vote` (a plausibility check between the selected sources, with a selectable
   vote power per source and a tolerance). Delivered with the first additional source.

@@ -172,16 +172,17 @@ async fn exporter_matches_openssl() {
 }
 
 /// Handshake with the deferring verifier against `openssl s_server`, then the deferred checks.
-async fn deferred(root_file: &str, host: &str, clock_offset: i64) -> Option<Result<(), TlsError>> {
+async fn deferred(root_files: &[&str], host: &str, clock_offset: i64) -> Option<Result<(), TlsError>> {
     let server = start_server()?;
-    let root = server.der(root_file);
+    let roots: Vec<Vec<u8>> = root_files.iter().map(|f| server.der(f)).collect();
+    let roots: Vec<&[u8]> = roots.iter().map(|r| &r[..]).collect();
     let stream = server.connect().await;
     let mut read_buf = vec![0u8; 16640];
     let mut write_buf = vec![0u8; 4096];
     let config = TlsConfig::new().with_server_name(host);
     let mut tls = TlsConnection::<_, Aes128GcmSha256>::new(FromTokio::new(stream), &mut read_buf, &mut write_buf);
     CLOCK_OFFSET.store(clock_offset, std::sync::atomic::Ordering::Relaxed);
-    let mut verifier = DeferredVerifier::<Offset>::new(&root);
+    let mut verifier = DeferredVerifier::<Offset>::new(&roots);
     // the handshake must succeed whatever the certificate says: the checks are not run yet
     tls.open(TlsContext::new(&config, &mut verifier)).await.expect("the handshake itself completes with the deferred verifier");
     Some(verifier.finish())
@@ -197,36 +198,46 @@ impl TlsClock for Offset {
 }
 
 /// One test, not several: the clock offset is a global (`TlsClock::now` has no state), so the cases must not run in parallel.
-// VERIFIES: REQ-NTS-07
+// VERIFIES: REQ-NTS-11
 #[tokio::test]
 async fn deferred_verification_accepts_only_what_the_real_checks_accept() {
     // right root, right name, right time: accepted
-    if let Some(r) = deferred("ca.pem", "localhost", 0).await {
+    if let Some(r) = deferred(&["ca.pem"], "localhost", 0).await {
         assert!(r.is_ok(), "{r:?}");
     }
+    // several roots: the one that fits is found whatever its position, and no extra connection is needed
+    for roots in [&["other-ca.pem", "ca.pem"][..], &["ca.pem", "other-ca.pem"][..]] {
+        if let Some(r) = deferred(roots, "localhost", 0).await {
+            assert!(r.is_ok(), "{roots:?}: {r:?}");
+        }
+    }
+    if let Some(r) = deferred(&[], "localhost", 0).await {
+        assert!(r.is_err(), "no root at all must refuse");
+    }
     // a chain that does not lead to the trusted root
-    if let Some(r) = deferred("other-ca.pem", "localhost", 0).await {
+    if let Some(r) = deferred(&["other-ca.pem"], "localhost", 0).await {
         assert!(r.is_err(), "a certificate from another CA must be refused");
     }
     // a certificate for another name
-    if let Some(r) = deferred("ca.pem", "not-the-server.example", 0).await {
+    if let Some(r) = deferred(&["ca.pem"], "not-the-server.example", 0).await {
         assert!(r.is_err(), "a certificate for another name must be refused");
     }
     // the test certificates are valid for two days: three days later they are expired, three days earlier not yet valid
-    if let Some(r) = deferred("ca.pem", "localhost", 3 * 86_400).await {
+    if let Some(r) = deferred(&["ca.pem"], "localhost", 3 * 86_400).await {
         assert!(r.is_err(), "an expired certificate must be refused");
     }
-    if let Some(r) = deferred("ca.pem", "localhost", -3 * 86_400).await {
+    if let Some(r) = deferred(&["ca.pem"], "localhost", -3 * 86_400).await {
         assert!(r.is_err(), "a certificate that is not valid yet must be refused");
     }
     CLOCK_OFFSET.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
-// VERIFIES: REQ-NTS-07
+// VERIFIES: REQ-NTS-11
 #[test]
 fn deferred_verification_refuses_when_no_handshake_happened() {
-    let root = [0u8; 4];
-    let mut verifier = DeferredVerifier::<Now>::new(&root);
+    let root: &[u8] = &[0u8; 4];
+    let roots = [root];
+    let mut verifier = DeferredVerifier::<Now>::new(&roots);
     assert!(verifier.finish().is_err(), "finish without a recorded certificate chain and signature must fail, not pass");
 }
 
@@ -243,7 +254,7 @@ fn certificate_verify_message(transcript_hash: &[u8]) -> Vec<u8> {
 /// Drives the deferred verifier by hand with the certificate openssl made and a signature we make with its private key,
 /// to prove that `finish` really checks the `CertificateVerify` signature: a man in the middle can present the real
 /// server's public certificate, and only this check stops him.
-// VERIFIES: REQ-NTS-07
+// VERIFIES: REQ-NTS-11
 #[test]
 fn deferred_verification_checks_the_certificate_verify_signature() {
     let Some(server) = start_server() else { return };
@@ -263,7 +274,8 @@ fn deferred_verification_checks_the_certificate_verify_signature() {
     let good = good.to_der();
 
     let run = |chain: &[&[u8]], transcript_for_chain: &Hash, signature: &[u8]| -> Result<(), TlsError> {
-        let mut v = DeferredVerifier::<Offset>::new(&root);
+        let roots = [&root[..]];
+        let mut v = DeferredVerifier::<Offset>::new(&roots);
         CLOCK_OFFSET.store(0, std::sync::atomic::Ordering::Relaxed);
         TlsVerifier::<Aes128GcmSha256>::set_hostname_verification(&mut &mut v, "localhost")?;
         let mut cert = CertificateRef::with_context(&[]);

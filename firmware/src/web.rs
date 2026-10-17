@@ -33,7 +33,7 @@ async fn respond<S: Write>(io: &mut S, status: &str, ctype: &str, extra: &str, b
 async fn page<S: Write>(io: &mut S, msg: Option<(&str, bool)>, secure: bool) -> Result<(), S::Error> {
     let mut body = heapless::String::<12288>::new();
     let (cfg, st) = (state::config_snapshot(), state::status());
-    if http::render_page(&cfg, &st, msg, secure, &mut body).is_err() {
+    if http::render_page(&cfg, &st, msg, secure, &state::roots_snapshot(), &mut body).is_err() {
         return respond(io, "500 Internal Server Error", "text/plain", "", "page too large\n").await;
     }
     respond(io, "200 OK", "text/html; charset=utf-8", "", &body).await
@@ -114,6 +114,43 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
                     page(io, Some(("Certificate replaced. New connections use it; reload the page and your browser may ask you to trust it.", false)), secure).await
                 }
                 Err(e) => page(io, Some((e.message(), true)), secure).await,
+            }
+        }
+        (Method::Post, "/root") => {
+            if !secure {
+                return respond(io, "403 Forbidden", "text/plain", "", "trusted authorities can only be changed over HTTPS or the USB terminal\n").await;
+            }
+            if !http::same_origin(req, secure) {
+                return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
+            }
+            let now = state::status().utc_unix;
+            match http::parse_root_form(req.body) {
+                Some(http::RootForm::Add(pem)) => {
+                    let result = state::change_roots(|r| match r.add_pem(&pem, now) {
+                        Ok(added) => (true, Ok(added.len())),
+                        Err(e) => (false, Err(e)),
+                    });
+                    match result {
+                        Ok(n) => {
+                            let mut msg = heapless::String::<96>::new();
+                            let _ = write!(msg, "Added {n} certificate authorit{}; saved to flash.", if n == 1 { "y" } else { "ies" });
+                            page(io, Some((&msg, false)), secure).await
+                        }
+                        Err(e) => page(io, Some((e.message(), true)), secure).await,
+                    }
+                }
+                Some(http::RootForm::Remove(n)) => {
+                    let removed = state::change_roots(|r| {
+                        let ok = r.remove(n - 1);
+                        (ok, ok)
+                    });
+                    if removed {
+                        page(io, Some(("Removed; saved to flash.", false)), secure).await
+                    } else {
+                        page(io, Some(("There is no such number in the list.", true)), secure).await
+                    }
+                }
+                None => page(io, Some(("Paste a PEM certificate, or give the number to remove.", true)), secure).await,
             }
         }
         (Method::Get | Method::Post, _) => respond(io, "404 Not Found", "text/plain", "", "not found\n").await,

@@ -13,6 +13,10 @@ trap 'rm -f "$OUT"' EXIT
 echo "== unit tests ($HOST)"
 cargo test -p picoclock-core --target "$HOST" 2>&1 | tee "$OUT" | grep -E "^test result|FAILED|panicked" || true
 grep -q "^test result: ok" "$OUT" && ! grep -q "FAILED" "$OUT" || { echo "unit tests failed"; exit 1; }
+# The Pico 2 W build verifies RSA chains (feature `rsa`); its tests run too, and count as run for the traceability check.
+echo "== unit tests with RSA support ($HOST)"
+cargo test -p picoclock-core --target "$HOST" --features rsa 2>&1 | tee -a "$OUT" | grep -E "^test result|FAILED|panicked" || true
+! grep -q "FAILED" "$OUT" || { echo "unit tests with RSA support failed"; exit 1; }
 
 echo "== traceability"
 python3 tools/trace.py check --tests-output "$OUT"

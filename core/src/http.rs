@@ -261,6 +261,33 @@ fn host_part(host: &str) -> Option<&str> {
     (!bare.is_empty() && bare.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':' | b'[' | b']'))).then_some(bare)
 }
 
+/// What the roots form asks for.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RootForm {
+    /// Add the certificate(s) in this PEM text.
+    Add(heapless::String<{ crate::cli::PASTE_MAX }>),
+    /// Remove user root number n (1-based).
+    Remove(usize),
+}
+
+/// Reads the roots form: `pem=<text>` or `remove=<n>`. `None` if neither is usable.
+pub fn parse_root_form(body: &[u8]) -> Option<RootForm> {
+    let body = core::str::from_utf8(body).ok()?;
+    let mut buf = [0u8; crate::cli::PASTE_MAX];
+    for pair in body.split('&') {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        match k {
+            "pem" => {
+                let text = url_decode(v, &mut buf)?;
+                return (!text.trim().is_empty()).then(|| heapless::String::try_from(text).ok().map(RootForm::Add))?;
+            }
+            "remove" => return v.trim().parse::<usize>().ok().filter(|&n| n >= 1).map(RootForm::Remove),
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Why a certificate upload was refused.
 #[derive(Debug, PartialEq, Eq)]
 pub enum CertFormError {
@@ -357,7 +384,7 @@ input,select,textarea{width:100%;box-sizing:border-box;padding:.4rem;font:inheri
 </style></head><body><h1>picoclock</h1>";
 
 /// Renders the status and settings page. Fails (`fmt::Error`) only if `out` is too small.
-pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure: bool, out: &mut impl Write) -> core::fmt::Result {
+pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure: bool, roots: &crate::rootstore::Roots, out: &mut impl Write) -> core::fmt::Result {
     out.write_str(PAGE_HEAD)?;
     if let Some((m, is_err)) = msg {
         write!(out, "<p class=\"msg{}\">{}</p>", if is_err { " err" } else { "" }, Esc(m))?;
@@ -393,6 +420,25 @@ the server's own certificate first, then any intermediates, and the matching pri
 <label>Certificate chain (PEM)<textarea name=cert rows=8 placeholder=\"-----BEGIN CERTIFICATE-----\"></textarea></label>\
 <label>Private key (PEM)<textarea name=key rows=4 placeholder=\"-----BEGIN PRIVATE KEY-----\" autocomplete=off></textarea></label>\
 <button>Replace certificate</button></form>",
+        )?;
+        // Trusting a certificate authority changes who the clock believes when it asks the time over NTS, so this is offered
+        // only over TLS too (a plain-HTTP form could be rewritten by anyone on the LAN).
+        out.write_str("<h2>Trusted authorities for NTS</h2><p>The clock trusts the built-in authorities (ISRG Root X2 and X1, SSL.com ECC) plus these:</p><pre>")?;
+        if roots.is_empty() {
+            out.write_str("(none added)")?;
+        }
+        let now = st.utc_unix;
+        for i in 0..roots.len() {
+            match roots.describe(i) {
+                Some(info) => write!(out, "{}\n", Esc(&crate::rootstore::summary(i + 1, &info, now)))?,
+                None => write!(out, "{}  (unreadable)\n", i + 1)?,
+            }
+        }
+        out.write_str(
+            "</pre><form method=post action=/root>\
+<label>Add a certificate authority (PEM; compare its fingerprint with the one your CA publishes)<textarea name=pem rows=6 placeholder=\"-----BEGIN CERTIFICATE-----\"></textarea></label>\
+<button>Add</button></form>\
+<form method=post action=/root><label>Remove number<input name=remove type=number min=1 max=4 required></label><button>Remove</button></form>",
         )?;
     }
     write!(out, "<hr><p><small>picoclock {} is free software under the <a href=\"https://www.gnu.org/licenses/agpl-3.0.html\">GNU AGPL v3 or later</a>. Source code: <a href=\"https://github.com/dc0sk/picoclock\">github.com/dc0sk/picoclock</a></small></p></body></html>", crate::VERSION)
@@ -537,7 +583,7 @@ mod tests {
         c.set("wifi_password", "topsecret1").unwrap();
         c.set("web_password", "adminpw").unwrap();
         let mut page = heapless::String::<12288>::new();
-        render_page(&c, &Status::default(), Some(("a <b> message", true)), false, &mut page).unwrap();
+        render_page(&c, &Status::default(), Some(("a <b> message", true)), false, &crate::rootstore::Roots::new(), &mut page).unwrap();
         assert!(!page.contains("<script>"), "ssid must be escaped");
         assert!(page.contains("&lt;script&gt;&quot;x&quot;&amp;"));
         assert!(page.contains("a &lt;b&gt; message"));
@@ -556,7 +602,7 @@ mod tests {
             c.set(&format!("wifi{n}_password"), &"p".repeat(63)).unwrap();
         }
         let mut page = heapless::String::<12288>::new();
-        render_page(&c, &Status::default(), None, false, &mut page).expect("worst-case page must fit");
+        render_page(&c, &Status::default(), None, false, &crate::rootstore::Roots::new(), &mut page).expect("worst-case page must fit");
         assert!(page.contains("name=wifi8_ssid") && page.contains("name=wifi8_password"));
         assert!(!page.contains(&"p".repeat(63)));
     }
@@ -565,7 +611,7 @@ mod tests {
     #[test]
     fn page_overflow_is_an_error_not_a_panic() {
         let mut tiny = heapless::String::<100>::new();
-        assert!(render_page(&Config::default(), &Status::default(), None, false, &mut tiny).is_err());
+        assert!(render_page(&Config::default(), &Status::default(), None, false, &crate::rootstore::Roots::new(), &mut tiny).is_err());
     }
 
     fn get(host: Option<&'static str>, path: &'static str) -> Request<'static> {
@@ -606,7 +652,7 @@ mod tests {
         let ready = Status { https_state: 2, ..Default::default() };
         let page = |st: &Status, secure| {
             let mut p = heapless::String::<12288>::new();
-            render_page(&c, st, None, secure, &mut p).unwrap();
+            render_page(&c, st, None, secure, &crate::rootstore::Roots::new(), &mut p).unwrap();
             p
         };
         assert!(page(&ready, true).contains("action=/cert") && page(&ready, true).contains("name=key"));
@@ -687,5 +733,57 @@ mod tests {
         for e in [CertFormError::Missing, CertFormError::TooLarge, CertFormError::BadCertificate, CertFormError::BadKey, CertFormError::Mismatch, CertFormError::Expired, CertFormError::NotYetValid] {
             assert!(e.message().len() > 20);
         }
+    }
+
+    // VERIFIES: REQ-NTS-09
+    #[test]
+    fn roots_form_is_parsed_strictly() {
+        let pem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
+        let body = format!("pem={}", enc(pem));
+        assert_eq!(parse_root_form(body.as_bytes()), Some(RootForm::Add(heapless::String::try_from(pem).unwrap())));
+        assert_eq!(parse_root_form(b"remove=2"), Some(RootForm::Remove(2)));
+        assert_eq!(parse_root_form(b"x=1&remove=3"), Some(RootForm::Remove(3)));
+        for bad in ["", "pem=", "pem=%20%0A", "remove=", "remove=0", "remove=-1", "remove=abc", "remove=1.5", "other=1", "pem=%zz", "pem=%"] {
+            assert_eq!(parse_root_form(bad.as_bytes()), None, "{bad:?}");
+        }
+        assert_eq!(parse_root_form(&[0xFF, 0xFE]), None);
+        // more than a certificate can be: refused, not cut short
+        let huge = format!("pem={}", "A".repeat(crate::cli::PASTE_MAX + 100));
+        assert_eq!(parse_root_form(huge.as_bytes()), None);
+    }
+
+    // VERIFIES: REQ-NTS-09
+    #[test]
+    fn roots_section_only_over_tls_and_with_the_list() {
+        let c = Config::default();
+        let ready = Status { https_state: 2, ..Default::default() };
+        let mut roots = crate::rootstore::Roots::new();
+        for seed in 1..=4u8 {
+            let cert = crate::x509::generate_self_signed([seed; 32], [seed; 8], &[&format!("authority-number-{seed}.example")], 1_792_000_000).unwrap();
+            let pem = format!("-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n", b64(&cert));
+            roots.add_pem(&pem, None).unwrap();
+        }
+        let page = |st: &Status, secure| {
+            let mut p = heapless::String::<12288>::new();
+            render_page(&c, st, None, secure, &roots, &mut p).expect("the page with four roots must fit the buffer");
+            p
+        };
+        let p = page(&ready, true);
+        assert!(p.contains("action=/root") && p.contains("name=pem") && p.contains("authority-number-4.example") && p.contains("name=remove"));
+        assert!(!page(&ready, false).contains("action=/root"), "never over plain HTTP");
+        assert!(!page(&Status { https_state: 1, ..Default::default() }, true).contains("action=/root"));
+        assert!(!page(&Status::default(), true).contains("authority-number"), "no list without a running HTTPS server");
+    }
+
+    fn b64(der: &[u8]) -> std::string::String {
+        const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut s = std::string::String::new();
+        for chunk in der.chunks(3) {
+            let n = chunk.iter().enumerate().fold(0u32, |a, (i, &b)| a | (b as u32) << (16 - 8 * i));
+            for i in 0..4 {
+                s.push(if i <= chunk.len() { T[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+            }
+        }
+        s
     }
 }

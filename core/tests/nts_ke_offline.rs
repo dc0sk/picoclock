@@ -40,22 +40,20 @@ async fn no_key_exchange_without_a_valid_time() {
     // before a single byte is sent.
     let mut read_buf = vec![0u8; 16640];
     let mut write_buf = vec![0u8; 4096];
-    let r = nts_ke::key_exchange::<_, NoTime>(Untouchable, "time.cloudflare.com", nts_ke::roots_for("time.cloudflare.com")[0], &mut read_buf, &mut write_buf).await;
+    let r = nts_ke::key_exchange::<_, NoTime>(Untouchable, "time.cloudflare.com", nts_ke::BUILT_IN_ROOTS, &mut read_buf, &mut write_buf).await;
     assert!(matches!(r, Err(KeError::NoTime)), "{:?}", r.err());
 }
 
 // VERIFIES: REQ-NTS-01
 #[test]
-fn roots_cover_the_servers_we_support_and_only_ecdsa_chains() {
-    // Cloudflare is tried with the SSL.com root first, everything else with ISRG Root X2 first; both are always offered
-    let cf = nts_ke::roots_for("time.cloudflare.com");
-    let other = nts_ke::roots_for("nts.time.nl");
-    assert_eq!(cf.len(), 2);
-    assert_eq!(other.len(), 2);
-    assert_ne!(cf[0], other[0]);
-    assert_eq!((cf[0], cf[1]), (other[1], other[0]), "same two roots, other order");
-    assert!(nts_ke::roots_for("TIME.CLOUDFLARE.COM")[0] == cf[0], "host names compare case-insensitively");
-    for r in cf {
+fn built_in_roots_are_the_known_certificates() {
+    // the two ECDSA roots always; the RSA root only in builds that can verify RSA chains
+    let roots = nts_ke::BUILT_IN_ROOTS;
+    assert_eq!(roots.len(), if cfg!(feature = "rsa") { 3 } else { 2 });
+    for r in roots {
         assert!(r.len() > 400 && r[0] == 0x30, "a DER certificate");
     }
+    let mut sorted: Vec<_> = roots.iter().collect();
+    sorted.dedup();
+    assert_eq!(sorted.len(), roots.len(), "no root twice");
 }

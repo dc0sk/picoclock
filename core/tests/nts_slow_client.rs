@@ -29,19 +29,14 @@ impl TlsClock for SlowNow {
 async fn try_with_delay(host: &str, delay_ms: u64) -> String {
     DELAY_MS.store(delay_ms, std::sync::atomic::Ordering::Relaxed);
     let mut out = String::new();
-    for (i, root) in nts_ke::roots_for(host).iter().enumerate() {
-        CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
-        let started = Instant::now();
-        let stream = tokio::net::TcpStream::connect((host, 4460)).await.unwrap();
-        let mut rb = vec![0u8; 16640];
-        let mut wb = vec![0u8; 4096];
-        let r = nts_ke::key_exchange::<_, SlowNow>(FromTokio::new(stream), host, root, &mut rb, &mut wb).await;
-        let calls = CALLS.load(std::sync::atomic::Ordering::Relaxed);
-        out += &format!(" [root {i}: {} after {} ms, now() called {calls}x]", if r.is_ok() { "ok".to_string() } else { format!("{:?}", r.as_ref().err().unwrap()) }, started.elapsed().as_millis());
-        if r.is_ok() {
-            break;
-        }
-    }
+    CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
+    let started = Instant::now();
+    let stream = tokio::net::TcpStream::connect((host, 4460)).await.unwrap();
+    let mut rb = vec![0u8; 16640];
+    let mut wb = vec![0u8; 4096];
+    let r = nts_ke::key_exchange::<_, SlowNow>(FromTokio::new(stream), host, nts_ke::BUILT_IN_ROOTS, &mut rb, &mut wb).await;
+    let calls = CALLS.load(std::sync::atomic::Ordering::Relaxed);
+    out += &format!(" [{} after {} ms, now() called {calls}x]", if r.is_ok() { "ok".to_string() } else { format!("{:?}", r.as_ref().err().unwrap()) }, started.elapsed().as_millis());
     format!("delay {delay_ms:5} ms ->{out}")
 }
 

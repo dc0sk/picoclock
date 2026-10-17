@@ -47,6 +47,13 @@ pub struct Status {
     pub mdns_group: u8,
     pub mdns_seen: u16,
     pub mdns_answered: u16,
+    /// Trust anchors the user added for NTS.
+    pub roots_user: u8,
+    /// The last NTS key exchange: 0 none yet, 1 ok, 2 certificate or TLS refused, 3 no agreement, 4 bad reply, 5 no connection or timeout;
+    /// how long it took (ms), and the server name (first 32 bytes).
+    pub nts_ke: u8,
+    pub nts_ke_ms: u16,
+    pub nts_ke_host: [u8; 32],
     /// HTTPS heap, bytes: in use now, the most ever in use at once, and its size (0 where there is no heap).
     pub heap_used: u32,
     pub heap_peak: u32,
@@ -85,6 +92,71 @@ pub enum Action {
     Geolocate,
     /// Replace the HTTPS certificate with a new self-signed one.
     NewCertificate,
+    /// `root` / `root list`: show the trust anchors for NTS.
+    RootList,
+    /// `root add`: the next lines are a pasted PEM certificate (see [`Paste`]).
+    RootAdd,
+    /// `root remove <n>`: remove your own root number n (1-based, as listed).
+    RootRemove(usize),
+}
+
+/// Longest pasted certificate text (one PEM certificate is about 2.1 KB for the largest we accept).
+pub const PASTE_MAX: usize = 3000;
+
+/// Collects the lines of a pasted PEM certificate after `root add`, so the terminal need not hold a whole certificate on one
+/// line. It ends at the `-----END CERTIFICATE-----` line; `cancel` (or Ctrl-C in the terminal) gives up.
+#[derive(Default)]
+pub struct Paste {
+    text: heapless::String<PASTE_MAX>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum PasteStep {
+    /// Keep sending lines.
+    More,
+    /// The certificate text is complete.
+    Done(heapless::String<PASTE_MAX>),
+    Cancelled,
+    /// More than [`PASTE_MAX`] bytes: not a certificate we accept.
+    TooLong,
+}
+
+impl Paste {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn feed(&mut self, line: &str) -> PasteStep {
+        let line = line.trim();
+        if line.eq_ignore_ascii_case("cancel") {
+            return PasteStep::Cancelled;
+        }
+        if self.text.push_str(line).is_err() || self.text.push('\n').is_err() {
+            return PasteStep::TooLong;
+        }
+        if line.starts_with("-----END ") {
+            return PasteStep::Done(core::mem::take(&mut self.text));
+        }
+        PasteStep::More
+    }
+}
+
+/// The `root` listing: the built-in authorities, then the user's own with their numbers.
+pub fn root_listing(roots: &crate::rootstore::Roots, now: Option<i64>, out: &mut impl Write) {
+    let _ = writeln!(out, "built in: {} certificate authorities (ISRG Root X2, SSL.com ECC{})", crate::nts_ke::BUILT_IN_ROOTS.len(), if cfg!(feature = "rsa") { ", ISRG Root X1" } else { "; RSA chains are not supported on this board" });
+    if roots.is_empty() {
+        let _ = out.write_str("your own: none (add one with 'root add')\n");
+    }
+    for i in 0..roots.len() {
+        match roots.describe(i) {
+            Some(info) => {
+                let _ = writeln!(out, "{}", crate::rootstore::summary(i + 1, &info, now));
+            }
+            None => {
+                let _ = writeln!(out, "{}  (unreadable)", i + 1);
+            }
+        }
+    }
 }
 
 const HELP: &str = "\
@@ -99,6 +171,9 @@ commands:
   tz [prefix]           list known timezone names, e.g. 'tz europe/'
   sync                  query NTP now
   geo                   look up the timezone from the public IP now (needs timezone=auto)
+  root                  list the certificate authorities trusted for NTS (built in and your own)
+  root add              paste a CA certificate (PEM) to trust for NTS; then it ends at the END line
+  root remove <n>       remove one of your own roots
   version               show the software version, source repository and license
   cert                  show the HTTPS certificate (fingerprint, validity)
   cert new              replace the HTTPS certificate with a new self-signed one
@@ -300,6 +375,18 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                 };
                 let _ = write!(out, "\nmdns    : {}, {group}, {} queries seen, {} answered", if cfg.mdns { "on" } else { "off" }, st.mdns_seen, st.mdns_answered);
             }
+            if st.nts_ke != 0 {
+                let host = core::str::from_utf8(&st.nts_ke_host).unwrap_or("?").trim_end_matches('\0');
+                let what = match st.nts_ke {
+                    1 => "ok",
+                    2 => "refused: TLS or the certificate (no trusted root, wrong name or dates)",
+                    3 => "refused: the server does not offer NTPv4 with AES-SIV-CMAC-256",
+                    4 => "refused: bad or incomplete reply",
+                    _ => "no connection, or timed out",
+                };
+                let _ = write!(out, "\nnts ke  : {host}: {what} ({} ms)", st.nts_ke_ms);
+            }
+            let _ = write!(out, "\nnts roots: {} built in, {} of your own", crate::nts_ke::BUILT_IN_ROOTS.len(), st.roots_user);
             let _ = write!(out, "\nrandom  : {}", if st.rng_hardware { "hardware TRNG" } else { "ring-oscillator jitter (no hardware TRNG on this chip)" });
             if st.heap_size > 0 {
                 let _ = write!(out, "\nheap    : {} of {} bytes in use, peak {} ({}%)", st.heap_used, st.heap_size, st.heap_peak, st.heap_peak as u64 * 100 / st.heap_size as u64);
@@ -319,6 +406,21 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             }
             Action::None
         }
+        "root" => match rest.split_once(char::is_whitespace).map_or((rest, ""), |(a, b)| (a, b.trim())) {
+            ("" | "list", "") => Action::RootList,
+            ("add", "") => Action::RootAdd,
+            ("remove", n) => match n.parse::<usize>() {
+                Ok(n) if n >= 1 => Action::RootRemove(n),
+                _ => {
+                    let _ = out.write_str("usage: root remove <number from 'root'>\n");
+                    Action::None
+                }
+            },
+            _ => {
+                let _ = out.write_str("usage: root | root add | root remove <n>\n");
+                Action::None
+            }
+        },
         "version" | "about" => {
             let _ = writeln!(out, "picoclock {}\nsource : {}\nlicense: {}", crate::VERSION, crate::REPOSITORY, crate::LICENSE);
             Action::None
@@ -634,5 +736,72 @@ mod tests {
         let mut out = String::new();
         execute("status", &mut c, &up, &mut out);
         assert!(out.contains("mdns    : off,"), "{out}");
+    }
+
+    // VERIFIES: REQ-NTS-09
+    #[test]
+    fn root_commands_and_pasting() {
+        let run = |line: &str| {
+            let mut out = String::new();
+            let a = execute(line, &mut Config::default(), &Status::default(), &mut out);
+            (a, out)
+        };
+        assert_eq!(run("root").0, Action::RootList);
+        assert_eq!(run("root list").0, Action::RootList);
+        assert_eq!(run("root add").0, Action::RootAdd);
+        assert_eq!(run("root remove 2").0, Action::RootRemove(2));
+        assert_eq!(run("root remove  3 ").0, Action::RootRemove(3));
+        for bad in ["root remove", "root remove 0", "root remove x", "root remove -1", "root remove 1 2", "root bogus", "root add now", "root list all"] {
+            let (a, out) = run(bad);
+            assert_eq!(a, Action::None, "{bad}");
+            assert!(out.contains("usage"), "{bad}: {out}");
+        }
+        assert!(run("help").1.contains("root add"));
+        let st = Status { roots_user: 2, ..Default::default() };
+        let mut out = String::new();
+        execute("status", &mut Config::default(), &st, &mut out);
+        assert!(out.contains(&format!("nts roots: {} built in, 2 of your own", crate::nts_ke::BUILT_IN_ROOTS.len())), "{out}");
+
+        // pasting: ends at the END line, keeps the text, can be cancelled, and cannot grow without limit
+        let mut p = Paste::new();
+        assert_eq!(p.feed("-----BEGIN CERTIFICATE-----"), PasteStep::More);
+        assert_eq!(p.feed("  MIIBabc=  "), PasteStep::More);
+        let PasteStep::Done(text) = p.feed("-----END CERTIFICATE-----") else { panic!("not done") };
+        assert_eq!(text.as_str(), "-----BEGIN CERTIFICATE-----\nMIIBabc=\n-----END CERTIFICATE-----\n");
+        let mut p = Paste::new();
+        p.feed("-----BEGIN CERTIFICATE-----");
+        assert_eq!(p.feed("CANCEL"), PasteStep::Cancelled);
+        let mut p = Paste::new();
+        let line = "A".repeat(64);
+        let mut steps = 0;
+        while p.feed(&line) == PasteStep::More {
+            steps += 1;
+            assert!(steps < 100, "must end");
+        }
+        assert!(steps * 65 <= PASTE_MAX && steps > 30);
+        // the listing
+        let mut out = String::new();
+        root_listing(&crate::rootstore::Roots::new(), None, &mut out);
+        assert!(out.contains("built in:") && out.contains("your own: none"), "{out}");
+    }
+
+    // VERIFIES: REQ-NTS-10
+    #[test]
+    fn status_shows_the_last_nts_key_exchange() {
+        let run = |st: &Status| {
+            let mut out = String::new();
+            execute("status", &mut Config::default(), st, &mut out);
+            out
+        };
+        assert!(!run(&Status::default()).contains("nts ke"), "nothing before the first key exchange");
+        let mut host = [0u8; 32];
+        host[..13].copy_from_slice(b"nts.example.n");
+        for (code, text) in [(1, "ok (450 ms)"), (2, "refused: TLS or the certificate"), (3, "refused: the server does not offer NTPv4"), (4, "refused: bad or incomplete reply"), (5, "no connection, or timed out")] {
+            let s = run(&Status { nts_ke: code, nts_ke_ms: 450, nts_ke_host: host, ..Default::default() });
+            assert!(s.contains("nts ke  : nts.example.n: ") && s.contains(text), "{code}: {s}");
+        }
+        let long = [b'a'; 32];
+        assert!(run(&Status { nts_ke: 1, nts_ke_host: long, ..Default::default() }).contains(&format!("nts ke  : {}: ok", "a".repeat(32))));
+        assert!(run(&Status { roots_user: 2, ..Default::default() }).contains("of your own"));
     }
 }

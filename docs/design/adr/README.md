@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/design/adr/README.md
 status: ledger
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # Architecture decision records
@@ -15,3 +15,4 @@ evidence tier and date, and every rejection is labelled measured or assumed.
 |-----------------------------------------------|-------------------------------------------------------|-------------------------|------------|
 | [0001](0001-tls-client-for-nts.md)            | TLS 1.3 client for NTS: vendored embedded-tls, exporter patch, deferred checks | Accepted | 2026-10-16 |
 | [0002](0002-https-server-stack.md)            | HTTPS server for the web page                         | Accepted | 2026-10-16 |
+| [0003](0003-nts-rsa-chains-and-user-roots.md) | NTS: RSA chains on the Pico 2 W, user-added trust anchors | Accepted | 2026-10-17 |

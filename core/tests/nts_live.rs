@@ -24,17 +24,13 @@ impl TlsClock for Now {
 }
 
 async fn session_for(host: &str) -> Session {
-    let mut last = None;
-    for root in nts_ke::roots_for(host) {
-        let stream = tokio::net::TcpStream::connect((host, 4460)).await.expect("TCP connect to the NTS-KE port");
-        let mut read_buf = vec![0u8; 16640];
-        let mut write_buf = vec![0u8; 4096];
-        match nts_ke::key_exchange::<_, Now>(FromTokio::new(stream), host, root, &mut read_buf, &mut write_buf).await {
-            Ok(s) => return s,
-            Err(e) => last = Some(e),
-        }
+    let stream = tokio::net::TcpStream::connect((host, 4460)).await.expect("TCP connect to the NTS-KE port");
+    let mut read_buf = vec![0u8; 16640];
+    let mut write_buf = vec![0u8; 4096];
+    match nts_ke::key_exchange::<_, Now>(FromTokio::new(stream), host, nts_ke::BUILT_IN_ROOTS, &mut read_buf, &mut write_buf).await {
+        Ok(s) => s,
+        Err(e) => panic!("NTS-KE with {host} failed: {e:?}"),
     }
-    panic!("NTS-KE with {host} failed with every root: {:?}", last.unwrap());
 }
 
 async fn exchange(host: &str) {
@@ -74,13 +70,32 @@ async fn time_nl() {
     exchange("nts.time.nl").await;
 }
 
+// RSA chains need the `rsa` feature (cargo test --features rsa), as on the Pico 2 W.
+#[cfg(feature = "rsa")]
+#[tokio::test]
+#[ignore = "needs internet access"]
+async fn netnod_rsa_chain() {
+    // Its NTP server is IPv6-only (the clock has no IPv6), so only the key exchange with the RSA chain is checked here.
+    let session = session_for("nts.netnod.se").await;
+    println!("nts.netnod.se: NTS-KE ok, NTP server {}:{}, {} cookies", session.server, session.port, session.cookies_left());
+    assert!(session.cookies_left() >= 1);
+}
+
+#[cfg(feature = "rsa")]
+#[tokio::test]
+#[ignore = "needs internet access"]
+async fn ptb_rsa_chain() {
+    exchange("ptbtime1.ptb.de").await;
+}
+
+#[cfg(not(feature = "rsa"))]
 #[tokio::test]
 #[ignore = "needs internet access"]
 async fn an_rsa_server_is_refused_cleanly_not_trusted() {
-    // The built-in verifier has no RSA: a server with an RSA certificate must fail with a TLS error, never connect.
+    // Without the `rsa` feature (the Pico W) a server with an RSA certificate must fail with a TLS error, never connect.
     let stream = tokio::net::TcpStream::connect(("ptbtime1.ptb.de", 4460)).await.unwrap();
     let mut read_buf = vec![0u8; 16640];
     let mut write_buf = vec![0u8; 4096];
-    let r = nts_ke::key_exchange::<_, Now>(FromTokio::new(stream), "ptbtime1.ptb.de", nts_ke::roots_for("ptbtime1.ptb.de")[0], &mut read_buf, &mut write_buf).await;
+    let r = nts_ke::key_exchange::<_, Now>(FromTokio::new(stream), "ptbtime1.ptb.de", nts_ke::BUILT_IN_ROOTS, &mut read_buf, &mut write_buf).await;
     assert!(matches!(r, Err(KeError::Tls(_))), "{:?}", r.err());
 }

@@ -1,7 +1,7 @@
 //! NTS-KE client (RFC 8915 section 4): the TLS 1.3 exchange that gives cookies and the two keys. Generic over the
 //! socket, so the same code runs on the clock (an embassy-net TCP socket) and in the host tests (tokio).
 //!
-//! Certificates are checked against a built-in root ([`roots_for`]) and the host name; the dates are checked with the
+//! Certificates are checked against the roots the caller passes ([`BUILT_IN_ROOTS`] plus any the user added) and the host name; the dates are checked with the
 //! clock the caller supplies and the exchange is refused when that clock has no valid time ([`TlsClock::now`] is `None`),
 //! because embedded-tls would then skip the date check silently.
 
@@ -22,15 +22,19 @@ const ISRG_ROOT_X2: &[u8] = include_bytes!("../roots/isrg-root-x2.der");
 /// SHA-256 fingerprint 34:17:BB:06:CC:60:07:DA:1B:96:1C:92:0B:8A:B4:CE:3F:AD:82:0E:4A:A3:0B:9A:CB:C4:A7:4E:BD:CE:BC:65.
 const SSL_COM_ROOT_ECC: &[u8] = include_bytes!("../roots/ssl-com-root-ecc.der");
 
-/// The roots to try for `host`, best guess first. Only ECDSA chains can be verified (no RSA support is built in), so a
-/// server with an RSA certificate fails with a certificate error whichever root is used.
-pub fn roots_for(host: &str) -> &'static [&'static [u8]] {
-    if host.eq_ignore_ascii_case("time.cloudflare.com") {
-        &[SSL_COM_ROOT_ECC, ISRG_ROOT_X2]
-    } else {
-        &[ISRG_ROOT_X2, SSL_COM_ROOT_ECC]
-    }
-}
+/// ISRG Root X1 (RSA 4096): the root of Let's Encrypt's RSA chains, which Netnod, PTB and others use. Only built in with the
+/// `rsa` feature (the Pico 2 W): verifying an RSA chain needs an allocator.
+/// SHA-256 fingerprint 96:BC:EC:06:26:49:76:F3:74:60:77:9A:CF:28:C5:A7:CF:E8:A3:C0:AA:E1:1A:8F:FC:EE:05:C0:BD:DF:08:C6.
+#[cfg(feature = "rsa")]
+const ISRG_ROOT_X1: &[u8] = include_bytes!("../roots/isrg-root-x1.der");
+
+/// The built-in roots. A server is trusted if its chain ends at any of them (and the host name and dates match). ECDSA chains
+/// can always be verified; RSA chains only in builds with the `rsa` feature (Pico 2 W), so on the Pico W a server with an
+/// RSA certificate fails with a certificate error.
+#[cfg(feature = "rsa")]
+pub const BUILT_IN_ROOTS: &[&[u8]] = &[ISRG_ROOT_X2, SSL_COM_ROOT_ECC, ISRG_ROOT_X1];
+#[cfg(not(feature = "rsa"))]
+pub const BUILT_IN_ROOTS: &[&[u8]] = &[ISRG_ROOT_X2, SSL_COM_ROOT_ECC];
 
 #[derive(Debug)]
 pub enum KeError {
@@ -53,6 +57,8 @@ const CERT_SIZE: usize = 2048;
 /// Room for the whole certificate chain the server sends (leaf and intermediates), kept until it is verified.
 const CHAIN_BYTES: usize = 6144;
 const MAX_CHAIN: usize = 6;
+/// Largest `CertificateVerify` signature kept: 512 bytes is an RSA-4096 signature (ECDSA ones are under 110).
+const MAX_SIGNATURE: usize = 512;
 type Hash = <Aes128GcmSha256 as TlsCipherSuite>::Hash;
 
 /// Verifies the server certificate *after* the key exchange instead of during the TLS handshake.
@@ -67,38 +73,53 @@ type Hash = <Aes128GcmSha256 as TlsCipherSuite>::Hash;
 /// certificate, but then `finish` fails and the cookies and keys are thrown away. Do not use this for a protocol in
 /// which the client sends secrets (a login, a password) before it knows who the server is.
 pub struct DeferredVerifier<'a, C: TlsClock> {
-    inner: CertVerifier<'a, Aes128GcmSha256, C, CERT_SIZE>,
+    roots: &'a [&'a [u8]],
+    clock: core::marker::PhantomData<C>,
+    hostname: Option<heapless::String<64>>,
     transcript: Option<Hash>,
     chain: Vec<u8, CHAIN_BYTES>,
     lens: Vec<u16, MAX_CHAIN>,
-    signature: Option<(SignatureScheme, Vec<u8, 160>)>,
+    signature: Option<(SignatureScheme, Vec<u8, MAX_SIGNATURE>)>,
 }
 
 impl<'a, C: TlsClock> DeferredVerifier<'a, C> {
-    pub fn new(root: &'a [u8]) -> Self {
-        Self { inner: CertVerifier::new(Certificate::X509(root)), transcript: None, chain: Vec::new(), lens: Vec::new(), signature: None }
+    pub fn new(roots: &'a [&'a [u8]]) -> Self {
+        Self { roots, clock: core::marker::PhantomData, hostname: None, transcript: None, chain: Vec::new(), lens: Vec::new(), signature: None }
     }
 
     /// Runs the checks that were skipped during the handshake. Fails unless the handshake delivered a chain and a
-    /// `CertificateVerify`, so a handshake that never presented a certificate cannot pass.
+    /// `CertificateVerify`, so a handshake that never presented a certificate cannot pass. The recorded chain is tried
+    /// against each root in turn (no new connection needed); the first root it chains to decides, and if none does the
+    /// error of the last attempt is returned.
     pub fn finish(&mut self) -> Result<(), TlsError> {
         let transcript = self.transcript.take().ok_or(TlsError::MissingHandshake)?;
         let (scheme, sig) = self.signature.take().ok_or(TlsError::MissingHandshake)?;
-        let mut cert = CertificateRef::with_context(&[]);
-        let mut at = 0;
-        for &len in self.lens.iter() {
-            let der = self.chain.get(at..at + len as usize).ok_or(TlsError::InternalError)?;
-            cert.add(CertificateEntryRef::X509(der))?;
-            at += len as usize;
+        let mut last = TlsError::InvalidCertificate;
+        for root in self.roots {
+            let mut cert = CertificateRef::with_context(&[]);
+            let mut at = 0;
+            for &len in self.lens.iter() {
+                let der = self.chain.get(at..at + len as usize).ok_or(TlsError::InternalError)?;
+                cert.add(CertificateEntryRef::X509(der))?;
+                at += len as usize;
+            }
+            let mut inner = CertVerifier::<Aes128GcmSha256, C, CERT_SIZE>::new(Certificate::X509(root));
+            if let Some(host) = &self.hostname {
+                TlsVerifier::<Aes128GcmSha256>::set_hostname_verification(&mut inner, host)?;
+            }
+            match TlsVerifier::<Aes128GcmSha256>::verify_certificate(&mut inner, &transcript, cert) {
+                Ok(()) => return TlsVerifier::<Aes128GcmSha256>::verify_signature(&mut inner, CertificateVerifyRef { signature_scheme: scheme, signature: &sig }),
+                Err(e) => last = e,
+            }
         }
-        TlsVerifier::<Aes128GcmSha256>::verify_certificate(&mut self.inner, &transcript, cert)?;
-        TlsVerifier::<Aes128GcmSha256>::verify_signature(&mut self.inner, CertificateVerifyRef { signature_scheme: scheme, signature: &sig })
+        Err(last)
     }
 }
 
 impl<C: TlsClock> TlsVerifier<Aes128GcmSha256> for &mut DeferredVerifier<'_, C> {
     fn set_hostname_verification(&mut self, hostname: &str) -> Result<(), TlsError> {
-        TlsVerifier::<Aes128GcmSha256>::set_hostname_verification(&mut self.inner, hostname)
+        self.hostname = Some(heapless::String::try_from(hostname).map_err(|_| TlsError::InvalidCertificate)?);
+        Ok(())
     }
 
     fn verify_certificate(&mut self, transcript: &Hash, cert: CertificateRef) -> Result<(), TlsError> {
@@ -122,10 +143,10 @@ impl<C: TlsClock> TlsVerifier<Aes128GcmSha256> for &mut DeferredVerifier<'_, C> 
     }
 }
 
-/// Runs NTS-KE on `socket` (a connected TCP stream to port 4460 of `host`) against one `root` (DER) and returns the
-/// session. `read_buf` must hold one TLS record from the server (16640 bytes is always enough, a few KiB is usually
+/// Runs NTS-KE on `socket` (a connected TCP stream to port 4460 of `host`) and trusts a server whose chain ends at any of
+/// `roots` (DER), and returns the session. `read_buf` must hold one TLS record from the server (16640 bytes is always enough, a few KiB is usually
 /// enough); `write_buf` only needs to hold the ClientHello and the 16-byte request.
-pub async fn key_exchange<S, C>(socket: S, host: &str, root: &[u8], read_buf: &mut [u8], write_buf: &mut [u8]) -> Result<Session, KeError>
+pub async fn key_exchange<S, C>(socket: S, host: &str, roots: &[&[u8]], read_buf: &mut [u8], write_buf: &mut [u8]) -> Result<Session, KeError>
 where
     S: Read + Write,
     C: TlsClock,
@@ -136,7 +157,7 @@ where
     let alpn: [&[u8]; 1] = [nts::ALPN];
     let config = TlsConfig::new().with_server_name(host).with_alpn(&alpn);
     let mut tls = TlsConnection::<_, Aes128GcmSha256>::new(socket, read_buf, write_buf);
-    let mut verifier = DeferredVerifier::<C>::new(root);
+    let mut verifier = DeferredVerifier::<C>::new(roots);
     tls.open(TlsContext::new(&config, &mut verifier)).await.map_err(KeError::Tls)?;
 
     let request = nts::ke_request();

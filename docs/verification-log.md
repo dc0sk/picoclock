@@ -325,7 +325,8 @@ got an intermediate, because a one-certificate chain cannot show them). Tolerati
 is not caught by any test, because the later checks fail anyway; there is no observable difference. The test first failed intermittently
 because `openssl s_server` quits when its stdin is closed; the harness now keeps a pipe open.
 
-Verifies: REQ-NTS-06, REQ-NTS-07
+Verifies: REQ-NTS-06, REQ-NTS-11
+(Re-pointed from REQ-NTS-07 to its successor REQ-NTS-11 on 2026-10-17; the behaviour recorded here is unchanged.)
 
 ### VR-33 · 2026-10-16 · host · How long NTS-KE servers wait for the client
 
@@ -338,7 +339,8 @@ so a normal handshake cannot work against most servers. With the checks deferred
 servers tested completed with a 5 s check. An earlier run of this experiment was wrong (the first clock call fell before
 the handshake and delayed an idle connection) and was repeated with that call excluded.
 
-Verifies: REQ-NTS-07
+Verifies: REQ-NTS-11
+(Re-pointed from REQ-NTS-07 to its successor REQ-NTS-11 on 2026-10-17; the behaviour recorded here is unchanged.)
 
 ### VR-34 · 2026-10-16 · hardware · NTS on the clock
 
@@ -537,3 +539,36 @@ multicast group as its source address and nothing arrived; fixed by building the
 changed for the tests were set back (`wifi_select order`, `ntp_servers gateway,pool.ntp.org`), and saved once.
 
 Verifies: REQ-NET-04, REQ-NET-05, REQ-NET-07
+
+### VR-49 · 2026-10-17 · host and hardware · NTS with RSA certificate chains
+
+**Host (live, this PC, `cargo test -p picoclock-core --features rsa --test nts_live -- --ignored`):** the key exchange with
+`ptbtime1.ptb.de` and `nts.netnod.se` (Let's Encrypt RSA chains ending at ISRG Root X1) succeeded, and PTB's NTP exchange
+with three authenticated rounds gave offsets under 1 s; Cloudflare and `nts.time.nl` (ECDSA) still pass. Netnod's NTP server is
+IPv6-only, so the clock could not use it; only its key exchange was checked. Without the feature the same PTB server is
+refused with a TLS error (the Pico W behaviour). **Hardware (Pico 2 W):** `ntp_servers nts:ptbtime1.ptb.de` gave
+`synced ... (NTS, authenticated)`; the console stalled 0.45 s during the RSA key exchange (0.55 s for Cloudflare's ECDSA one,
+measured by polling `time` every 50 ms after a reboot); the heap peaked at 23 KB of 144 KiB with RSA against 1 KB with ECDSA.
+**Not verified:** a Pico W (none attached; the refusal is checked on the host with the same code path, `rsa` feature off), a
+chain with an RSA root signed by another RSA root, and System76 servers (`time.system76.com` did not answer).
+
+Verifies: REQ-NTS-08
+
+### VR-50 · 2026-10-17 · hardware · Pico 2 W: trust anchors added by the user
+
+On the Pico 2 W, against a test NTS-KE server on this PC (`openssl s_server`, TCP 4460, reached by the router name
+`index-s2.fritz.box`; certificates made for the test: a root, an intermediate and a leaf, ECDSA P-256 and RSA 2048; a
+temporary firewall rule for the clock's address on the PC was added and removed afterwards). The clock's own `status` line
+reported each result. **ECDSA:** untrusted root -> `refused: TLS or the certificate`; pasting the root's PEM into `root add`
+over USB -> `added` with the same SHA-256 fingerprint OpenSSL gives; the next key exchange -> `ok (514 ms)`; `root remove 1`
+followed by a reboot -> refused again (without the reboot the clock reuses its cookies and shows no new exchange); the root
+added again and a reboot -> still listed and trusted. **RSA:** the RSA test root added, key exchange `ok (448 ms)`, heap peak
+12 KB. **HTTPS page:** the list shows the roots; adding a PEM, a duplicate (refused), junk and a damaged certificate (refused
+with the message), remove by number, remove 9 and 0 (refused); a POST with a foreign Origin gave 403; over plain HTTP a POST
+gave 403 whether the redirect was on or off, and the plain page has no roots form. **Not verified:** the Pico W (no board
+attached; the terminal path is the same code, the RSA refusal is covered on the host), a browser using the form, and a real
+public CA that is not built in. I restored the clock afterwards (`ntp_servers`, `http_redirect`, a new self-signed
+certificate) and saved.
+
+Verifies: REQ-NTS-09, REQ-NTS-10, REQ-NTS-11
+
