@@ -88,6 +88,11 @@ name = "Buzzer driver"
 code = ["firmware/src/buzzer.rs"]
 
 [[cap]]
+id = "CAP-NETUTIL"
+name = "WiFi order, DHCP option 42 and mDNS packet logic"
+code = ["core/src/netutil.rs"]
+
+[[cap]]
 id = "CAP-RTC"
 name = "DS3231 driver"
 code = ["firmware/src/rtc.rs"]
@@ -358,20 +363,29 @@ cap = ["CAP-NET"]
 [[req]]
 id = "REQ-NET-04"
 area = "Network"
-status = "draft"
-criticality = "low"
-statement = "The clock shall scan and prefer the strongest known network instead of trying slots in order."
-rationale = "Roadmap."
-cap = []
+status = "ratified"
+criticality = "medium"
+statement = "With the setting `wifi_select strongest` the clock shall scan before joining and try the stored networks that are in range from the strongest signal down, then the stored networks it did not see in slot order; with `order` (the default) it shall use slot order as before."
+rationale = "Roadmap item, now built. A clock moved between rooms or access points should use the best network, without changing the default behaviour; a hidden network must not become unreachable."
+cap = ["CAP-NET", "CAP-NETUTIL", "CAP-CONFIG", "CAP-CLI"]
 
 [[req]]
 id = "REQ-NET-05"
 area = "Network"
-status = "draft"
-criticality = "low"
-statement = "The clock shall accept NTP servers from DHCP option 42 and shall be reachable as picoclock.local over mDNS."
-rationale = "Roadmap."
-cap = []
+status = "ratified"
+criticality = "medium"
+statement = "The clock shall request DHCP option 42 and accept the NTP servers the router offers as the `dhcp` entry of `ntp_servers`; only usable unicast addresses are taken (not 0.0.0.0, loopback, multicast or broadcast), at most four, and `status` shall list them or say that none were offered."
+rationale = "Roadmap item, now built. Part of the original draft that also named mDNS, which moved to REQ-NET-07."
+cap = ["CAP-NET", "CAP-NETUTIL", "CAP-CONFIG", "CAP-CLI"]
+
+[[req]]
+id = "REQ-NET-07"
+area = "Network"
+status = "ratified"
+criticality = "medium"
+statement = "The clock shall answer multicast DNS queries (type A or ANY) for `<device name>.local` with its IPv4 address, and for no other name, unless the setting `mdns` is off; replies shall go to the querier if it did not use port 5353 and to the multicast group otherwise."
+rationale = "Roadmap item, now built; the HTTPS certificate already names `<device name>.local`, so the name should resolve. The device name is used rather than a fixed `picoclock.local` because two clocks on one LAN would collide."
+cap = ["CAP-NET", "CAP-NETUTIL", "CAP-CONFIG", "CAP-CLI"]
 
 # ---------------------------------------------------------------------------------------------------- configuration
 

@@ -197,15 +197,20 @@ A WiFi join attempt that does not finish within 15 seconds shall be abandoned, a
 *Why:* Found on the hardware: the radio driver waits for an event that can be lost, so one lost event left the clock offline until reset, and an access point sometimes rejects the first authentication.  
 *Implemented by:* WiFi, hourly sync, geolocation request and NTP server
 
-**REQ-NET-04** (draft, low)  
-The clock shall scan and prefer the strongest known network instead of trying slots in order.  
-*Why:* Roadmap.  
-*Implemented by:* none yet
+**REQ-NET-04** (ratified, medium)  
+With the setting `wifi_select strongest` the clock shall scan before joining and try the stored networks that are in range from the strongest signal down, then the stored networks it did not see in slot order; with `order` (the default) it shall use slot order as before.  
+*Why:* Roadmap item, now built. A clock moved between rooms or access points should use the best network, without changing the default behaviour; a hidden network must not become unreachable.  
+*Implemented by:* WiFi, hourly sync, geolocation request and NTP server, WiFi order, DHCP option 42 and mDNS packet logic, Configuration model and flash storage, Terminal commands and USB serial console
 
-**REQ-NET-05** (draft, low)  
-The clock shall accept NTP servers from DHCP option 42 and shall be reachable as picoclock.local over mDNS.  
-*Why:* Roadmap.  
-*Implemented by:* none yet
+**REQ-NET-05** (ratified, medium)  
+The clock shall request DHCP option 42 and accept the NTP servers the router offers as the `dhcp` entry of `ntp_servers`; only usable unicast addresses are taken (not 0.0.0.0, loopback, multicast or broadcast), at most four, and `status` shall list them or say that none were offered.  
+*Why:* Roadmap item, now built. Part of the original draft that also named mDNS, which moved to REQ-NET-07.  
+*Implemented by:* WiFi, hourly sync, geolocation request and NTP server, WiFi order, DHCP option 42 and mDNS packet logic, Configuration model and flash storage, Terminal commands and USB serial console
+
+**REQ-NET-07** (ratified, medium)  
+The clock shall answer multicast DNS queries (type A or ANY) for `<device name>.local` with its IPv4 address, and for no other name, unless the setting `mdns` is off; replies shall go to the querier if it did not use port 5353 and to the multicast group otherwise.  
+*Why:* Roadmap item, now built; the HTTPS certificate already names `<device name>.local`, so the name should resolve. The device name is used rather than a fixed `picoclock.local` because two clocks on one LAN would collide.  
+*Implemented by:* WiFi, hourly sync, geolocation request and NTP server, WiFi order, DHCP option 42 and mDNS packet logic, Configuration model and flash storage, Terminal commands and USB serial console
 
 
 ### 4.7 Configuration

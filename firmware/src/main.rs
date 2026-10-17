@@ -301,10 +301,16 @@ async fn main(spawner: Spawner) {
     let (stack, net_runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, crypto::next_u64());
     static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(net_device)));
-    unwrap!(iface.set_dhcpv4(Some(Default::default())));
+    {
+        // Ask for the NTP servers too (option 42), besides the subnet mask, router and DNS servers.
+        let mut dhcp = embassy_net::iface::dhcpv4::DhcpConfig::default();
+        dhcp.parameter_request_list = Some(&[1, 3, 6, 42]);
+        unwrap!(iface.set_dhcpv4(Some(dhcp)));
+    }
     spawner.spawn(unwrap!(net_task(net_runner)));
     spawner.spawn(unwrap!(net::wifi_task(control, stack, iface)));
     spawner.spawn(unwrap!(net::ntp_server_task(stack)));
+    spawner.spawn(unwrap!(net::mdns_task(stack)));
     spawner.spawn(unwrap!(web::web_task(stack)));
     #[cfg(feature = "https")]
     spawner.spawn(unwrap!(https::https_task(stack)));

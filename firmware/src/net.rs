@@ -14,6 +14,7 @@ use embedded_io_async::Write as _;
 use picoclock_core::config::Config;
 use picoclock_core::cli::GeoTry;
 use picoclock_core::geo;
+use picoclock_core::netutil::{self, Seen};
 
 use crate::nts::Nts;
 use crate::{ntp, state};
@@ -32,6 +33,8 @@ const JOIN_GAP: Duration = Duration::from_secs(1);
 const JOIN_RETRY: Duration = Duration::from_secs(10);
 /// After joining, the link and a DHCP lease must arrive within this time.
 const CONFIG_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long the scan for `wifi_select strongest` may take.
+const SCAN_TIME: Duration = Duration::from_secs(8);
 
 type Creds = (heapless::String<64>, heapless::String<64>);
 
@@ -57,9 +60,16 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
             state::CONFIG_CHANGED.wait().await;
             continue;
         }
-        // Try the stored networks in slot order; the first one that joins wins.
+        // Try the stored networks in slot order, or strongest first (`wifi_select`); the first one that joins wins.
+        let mut seen: heapless::Vec<Seen, 24> = heapless::Vec::new();
+        if cfg.wifi_strongest {
+            scan(&mut control, &mut seen).await;
+        }
+        state::with_runtime(|r| r.wifi_scanned = cfg.wifi_strongest.then_some(seen.len() as u8));
+        let ssids: [&str; picoclock_core::config::WIFI_SLOTS] = core::array::from_fn(|i| cfg.wifi[i].ssid.as_str());
+        let order = netutil::wifi_order(&ssids, &seen, cfg.wifi_strongest);
         let mut joined = None;
-        'slots: for (slot, net) in cfg.wifi.iter().enumerate().filter(|(_, n)| !n.ssid.is_empty()) {
+        'slots: for (slot, net) in order.iter().map(|&s| (s, &cfg.wifi[s])) {
             for attempt in 1..=JOIN_ATTEMPTS {
                 info!("wifi: joining slot {} ({}), attempt {}", slot + 1, net.ssid.as_str(), attempt);
                 let opts = if net.password.is_empty() { JoinOptions::new_open() } else { JoinOptions::new(net.password.as_bytes()) };
@@ -98,6 +108,12 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
             continue;
         }
         info!("wifi: up on slot {}", slot + 1);
+        // mDNS: listen for queries to the multicast group (the radio's filter follows the stack's memberships)
+        let joined_group = iface.join_multicast_group(embassy_net::wire::Ipv4Addr::new(224, 0, 0, 251));
+        state::with_runtime(|r| r.mdns_group = if joined_group.is_ok() { 1 } else { 2 });
+        if let Err(e) = joined_group {
+            warn!("mdns: joining the multicast group failed: {:?}", defmt::Debug2Format(&e));
+        }
         control.gpio_set(0, true).await; // onboard LED = connected
         online(stack, &iface, slot, &creds(&cfg, slot), &mut nts).await;
         warn!("wifi: leaving network");
@@ -112,6 +128,25 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
     }
 }
 
+/// Collects the networks in range (name and signal) with one passive scan, at most `SCAN_TIME` long.
+async fn scan(control: &mut Control<'static>, seen: &mut heapless::Vec<Seen, 24>) {
+    let mut scanner = control.scan(Default::default()).await;
+    let _ = with_timeout(SCAN_TIME, async {
+        while let Some(bss) = scanner.next().await {
+            let Ok(ssid) = core::str::from_utf8(&bss.ssid[..(bss.ssid_len as usize).min(32)]) else { continue };
+            if ssid.is_empty() {
+                continue; // hidden network
+            }
+            if let (Ok(ssid), true) = (heapless::String::try_from(ssid), !seen.is_full()) {
+                let _ = seen.push(Seen { ssid, rssi: bss.rssi });
+            }
+        }
+    })
+    .await;
+    drop(scanner);
+    info!("wifi: scan saw {} access points", seen.len());
+}
+
 /// Runs while connected; returns when the link drops or the credentials change.
 async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, joined_with: &Creds, nts: &mut Nts) {
     let mut next_sync = Instant::now();
@@ -122,7 +157,12 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
             return;
         }
         if let Some(lease) = iface.dhcpv4_lease() {
+            let ntp = lease.options.get(42).map(netutil::dhcp_ntp_servers).unwrap_or_default();
             state::with_runtime(|r| {
+                r.dhcp_ntp_n = ntp.len() as u8;
+                for (slot, a) in r.dhcp_ntp.iter_mut().zip(ntp.iter()) {
+                    *slot = *a;
+                }
                 r.wifi_up = true;
                 r.wifi_slot = Some(slot as u8 + 1);
                 r.ip = Some(octets(lease.address.address()));
@@ -244,6 +284,59 @@ async fn geolocate_with(stack: Stack<'static>, provider: &geo::Provider, slot: u
         warn!("geo: reply was {=[u8]:a}", &buf[..len.min(120)]);
     }
     found
+}
+
+/// Answers multicast DNS queries for `<device name>.local` (setting `mdns`) with the device's address.
+#[embassy_executor::task]
+pub async fn mdns_task(stack: Stack<'static>) -> ! {
+    use embassy_net::udp::{UdpMetadata, UdpSocket};
+    use embassy_net::wire::{Ipv4Addr, ListenSocketAddr};
+    const GROUP: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 251);
+    const PORT: u16 = 5353;
+    loop {
+        let st = state::status();
+        let (Some(ip), Some(mac_last), true) = (st.ip, st.mac_last, state::with_config(|c| c.mdns) && st.wifi_up) else {
+            Timer::after_secs(2).await;
+            continue;
+        };
+        let Ok(mut socket) = UdpSocket::new(stack) else {
+            Timer::after_secs(5).await;
+            continue;
+        };
+        if socket.bind(PORT, ListenSocketAddr::UNSPECIFIED).is_err() {
+            warn!("mdns: cannot bind UDP 5353");
+            Timer::after_secs(5).await;
+            continue;
+        }
+        let host = picoclock_core::config::hostname([0, 0, 0, 0, 0, mac_last]);
+        info!("mdns: answering for {}.local", host.as_str());
+        let mut buf = [0u8; 512];
+        let mut reply = [0u8; 96];
+        loop {
+            let st = state::status();
+            if !state::with_config(|c| c.mdns) || !st.wifi_up || st.ip != Some(ip) {
+                break;
+            }
+            let Ok(Ok((n, from))) = with_timeout(Duration::from_secs(2), socket.recv_from(&mut buf)).await else { continue };
+            state::with_runtime(|r| r.mdns_seen = r.mdns_seen.wrapping_add(1));
+            if let Some(len) = netutil::mdns_answer(&buf[..n], &host, ip, &mut reply) {
+                state::with_runtime(|r| r.mdns_answered = r.mdns_answered.wrapping_add(1));
+                // a resolver on another port asked as a plain unicast DNS client: answer it directly; otherwise to the group
+                // (built fresh: the received metadata names the multicast group as our local address, which is no valid source)
+                let to: UdpMetadata = if from.remote_addr.port == PORT {
+                    SocketAddr::new(IpAddr::V4(GROUP), PORT).into()
+                } else {
+                    SocketAddr::new(from.remote_addr.addr, from.remote_addr.port).into()
+                };
+                let sent = socket.send_to(&reply[..len], to).await;
+                if sent.is_err() {
+                    warn!("mdns: sending the answer failed");
+                    state::with_runtime(|r| r.mdns_answered = r.mdns_answered.wrapping_sub(1)); // only answers that went out count
+                }
+            }
+        }
+        info!("mdns: stopped");
+    }
 }
 
 /// Optional NTP server (`ntp_serve=on`): answers client requests on UDP 123 from the RTC. Accuracy is about +-1 s

@@ -58,6 +58,10 @@ pub struct Config {
     pub https: bool,
     /// While HTTPS is available, answer plain-HTTP page requests with a redirect to it.
     pub http_redirect: bool,
+    /// Join the strongest stored network that is in range (true) rather than the first in slot order (false).
+    pub wifi_strongest: bool,
+    /// Answer mDNS queries for `<device name>.local`.
+    pub mdns: bool,
 }
 
 impl Default for Config {
@@ -80,6 +84,8 @@ impl Default for Config {
             ntp_serve: false,
             https: true,
             http_redirect: true,
+            wifi_strongest: false,
+            mdns: true,
         }
     }
 }
@@ -107,7 +113,7 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { name: "wifi7_password", help: "slot 7 passphrase (empty = open network)", secret: true },
     KeyInfo { name: "wifi8_ssid", help: "slot 8 network name (empty = unused)", secret: false },
     KeyInfo { name: "wifi8_password", help: "slot 8 passphrase (empty = open network)", secret: true },
-    KeyInfo { name: "ntp_servers", help: "comma-separated, tried in order; 'gateway' = DHCP router; 'nts:host' = authenticated NTS (default gateway,pool.ntp.org)", secret: false },
+    KeyInfo { name: "ntp_servers", help: "comma-separated, tried in order; 'gateway' = DHCP router; 'dhcp' = the NTP servers the router hands out (DHCP option 42); 'nts:host' = authenticated NTS (default gateway,pool.ntp.org)", secret: false },
     KeyInfo { name: "timezone", help: "utc | auto | IANA name (Europe/Berlin) | POSIX rule (CET-1CEST,M3.5.0,M10.5.0/3)", secret: false },
     KeyInfo { name: "dst", help: "on|off: apply daylight saving time (default on); off = standard time all year", secret: false },
     KeyInfo { name: "geo_rule", help: "POSIX rule from the last 'auto' lookup (read-only cache)", secret: false },
@@ -122,6 +128,8 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { name: "web_enabled", help: "on|off: web interface", secret: false },
     KeyInfo { name: "https", help: "on|off: serve the web page over HTTPS with a self-signed or uploaded certificate (Pico 2 W only)", secret: false },
     KeyInfo { name: "http_redirect", help: "on|off: while HTTPS is available, redirect plain-HTTP page requests to it", secret: false },
+    KeyInfo { name: "wifi_select", help: "order|strongest: join the first stored network in slot order, or the strongest one in range (default order)", secret: false },
+    KeyInfo { name: "mdns", help: "on|off: answer for <device name>.local on the LAN (multicast DNS, default on)", secret: false },
     KeyInfo { name: "ntp_serve", help: "on|off: answer NTP requests from the LAN (accuracy about +-1 s)", secret: false },
 ];
 
@@ -260,6 +268,14 @@ impl Config {
             "web_enabled" => self.web_enabled = parse_bool(value)?,
             "ntp_serve" => self.ntp_serve = parse_bool(value)?,
             "https" => self.https = parse_bool(value)?,
+            "wifi_select" => {
+                self.wifi_strongest = match value {
+                    "order" => false,
+                    "strongest" => true,
+                    _ => return Err(ConfigError::InvalidValue),
+                }
+            }
+            "mdns" => self.mdns = parse_bool(value)?,
             "http_redirect" => self.http_redirect = parse_bool(value)?,
             _ => return Err(ConfigError::UnknownKey),
         }
@@ -291,6 +307,8 @@ impl Config {
             "web_enabled" => out.write_str(on_off(self.web_enabled)),
             "ntp_serve" => out.write_str(on_off(self.ntp_serve)),
             "https" => out.write_str(on_off(self.https)),
+            "wifi_select" => out.write_str(if self.wifi_strongest { "strongest" } else { "order" }),
+            "mdns" => out.write_str(on_off(self.mdns)),
             "http_redirect" => out.write_str(on_off(self.http_redirect)),
             _ => return Err(ConfigError::UnknownKey),
         };
@@ -640,5 +658,24 @@ mod tests {
         let mut buf = [0u8; 2048];
         let n = c.to_bytes(&mut buf).unwrap();
         assert_eq!(val(&Config::from_bytes(&buf[..n]).unwrap(), "ntp_servers"), "nts:time.cloudflare.com,pool.ntp.org", "survives storage");
+    }
+
+    // VERIFIES: REQ-NET-04 REQ-NET-07
+    #[test]
+    fn wifi_select_and_mdns_settings() {
+        let mut c = Config::default();
+        assert_eq!((val(&c, "wifi_select"), val(&c, "mdns")), ("order".to_string(), "on".to_string()), "defaults keep today's behaviour");
+        c.set("wifi_select", "strongest").unwrap();
+        c.set("mdns", "off").unwrap();
+        assert!(c.wifi_strongest && !c.mdns);
+        for bad in ["best", "", "Strongest ", "on"] {
+            assert!(c.set("wifi_select", bad).is_err(), "{bad:?}");
+        }
+        assert!(c.set("mdns", "maybe").is_err());
+        let mut buf = [0u8; 2048];
+        let n = c.to_bytes(&mut buf).unwrap();
+        let back = Config::from_bytes(&buf[..n]).unwrap();
+        assert!(back.wifi_strongest && !back.mdns, "both survive the flash record");
+        c.set("ntp_servers", "dhcp,gateway,pool.ntp.org").unwrap();
     }
 }

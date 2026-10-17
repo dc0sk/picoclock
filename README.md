@@ -27,8 +27,9 @@ serves the web page, the web password and the WiFi passphrases over plain HTTP. 
 - **Secure NTP (NTS, RFC 8915):** an `nts:<host>` entry in `ntp_servers` (for example `nts:time.cloudflare.com`)
   authenticates the time with TLS 1.3 and AES-SIV; see *Secure NTP* below.
 - **NTP server (optional):** `ntp_serve on` lets other devices on the LAN use the clock as a time source. Off by default.
-- **WiFi:** up to 8 stored networks, tried in slot order. The device name on the network is
-  `picoclock-<last MAC octet>`.
+- **WiFi:** up to 8 stored networks, tried in slot order, or with `set wifi_select strongest` the strongest one in range
+  first (stored networks the scan did not see, such as hidden ones, still get their turn). The device name on the network is
+  `picoclock-<last MAC octet>`, and the clock answers mDNS for `picoclock-<xx>.local` (`set mdns off` to stop).
 - **Configuration** in three ways, all validated by the same code and stored in flash:
   USB serial terminal, web page (HTTPS on the Pico 2 W, plain HTTP on the Pico W), and the buttons for the everyday settings.
 - **Hardware:** RTC with its temperature sensor plus the RP2040/RP2350 die sensor (`chip` in `status`; it reads warmer
@@ -138,6 +139,20 @@ What you need to know:
 
 The clock registers itself on the network as `picoclock-<last MAC octet>` (for example `picoclock-54`), via the
 DHCP hostname; `status` shows it. Routers such as a FRITZ!Box then resolve `picoclock-54.fritz.box`.
+
+The clock also answers multicast DNS (mDNS) for `picoclock-54.local` with its address, so `https://picoclock-54.local/`
+works from machines that resolve `.local` names (the HTTPS certificate names it too). The name carries the MAC octet on
+purpose: a fixed `picoclock.local` would collide when two clocks share a LAN. `status` shows whether the multicast group
+was joined and how many queries were seen and answered; `set mdns off` turns it off. It answers only for its own name, and
+only with an IPv4 address.
+
+**NTP servers from the router (DHCP option 42).** The clock asks the router for NTP servers; `status` lists what it
+offered (`dhcp ntp:`). Put `dhcp` in `ntp_servers` to use them, for example `set ntp_servers dhcp,pool.ntp.org`. The default
+list (`gateway,pool.ntp.org`) is unchanged. Only usable unicast addresses are taken, at most four.
+
+**Choosing the strongest network.** `set wifi_select strongest` makes the clock scan before it joins and try the stored
+networks in range from the strongest signal down; `status` then says how many access points the scan saw. `order` (the
+default) keeps slot order. A network with the same name on several access points counts with its best signal.
 
 With `ntp_serve on` the clock answers NTP client requests (SNTP, UDP 123), so other devices can use it as a time
 source. It is off by default. The RTC is set exactly on a UTC second boundary after each sync and then a software
@@ -314,8 +329,6 @@ Planned for future releases (requirements, not implemented):
   accuracy), which would also let the NTP server claim a low stratum. Delivering it bumps the software version again, after
   another full-code review.
 - Pico 2 W: run it for days; press the buttons and cover the light sensor on it.
-- Scan for the strongest known WiFi network instead of trying slots in order.
-- DHCP option 42 (NTP server from the router) and mDNS (`picoclock.local`).
 
 ## Provisioning from a local file
 

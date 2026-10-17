@@ -23,6 +23,7 @@ pub mod config;
 pub mod font;
 pub mod geo;
 pub mod http;
+pub mod netutil;
 pub mod nts;
 pub mod nts_ke;
 pub mod frame;

@@ -38,6 +38,15 @@ pub struct Status {
     pub https_state: u8,
     /// Random numbers come from a hardware TRNG (RP2350) rather than ring-oscillator jitter (RP2040).
     pub rng_hardware: bool,
+    /// NTP servers named by the DHCP lease (option 42); `dhcp_ntp_n` of the four entries are set.
+    pub dhcp_ntp: [[u8; 4]; 4],
+    pub dhcp_ntp_n: u8,
+    /// Access points the last scan for `wifi_select strongest` saw (`None` = no scan was made).
+    pub wifi_scanned: Option<u8>,
+    /// mDNS: 0 multicast group not joined yet, 1 joined, 2 join failed; packets received on UDP 5353 and answers sent.
+    pub mdns_group: u8,
+    pub mdns_seen: u16,
+    pub mdns_answered: u16,
     /// HTTPS heap, bytes: in use now, the most ever in use at once, and its size (0 where there is no heap).
     pub heap_used: u32,
     pub heap_peak: u32,
@@ -230,6 +239,9 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             if let (true, Some(n)) = (st.wifi_up, st.wifi_slot) {
                 let _ = write!(out, " (slot {n})");
             }
+            if let (true, Some(seen)) = (st.wifi_up, st.wifi_scanned) {
+                let _ = write!(out, ", chosen by signal from {seen} access points seen");
+            }
             if let Some(m) = st.mac_last {
                 let _ = write!(out, "\nname    : {}", crate::config::hostname([0, 0, 0, 0, 0, m]));
             }
@@ -270,6 +282,23 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                     _ => "read error",
                 };
                 let _ = write!(out, "\ngeo     : {}: {what} ({} bytes, {end}, server {}.{}.{}.{})", p.host, t.bytes, t.addr[0], t.addr[1], t.addr[2], t.addr[3]);
+            }
+            if st.wifi_up {
+                let _ = out.write_str("\ndhcp ntp: ");
+                if st.dhcp_ntp_n == 0 {
+                    let _ = out.write_str("none offered by the router (option 42)");
+                }
+                for (i, a) in st.dhcp_ntp.iter().take(st.dhcp_ntp_n as usize).enumerate() {
+                    let _ = write!(out, "{}{}.{}.{}.{}", if i > 0 { ", " } else { "" }, a[0], a[1], a[2], a[3]);
+                }
+            }
+            if st.wifi_up {
+                let group = match st.mdns_group {
+                    0 => "group not joined",
+                    1 => "group joined",
+                    _ => "group join failed",
+                };
+                let _ = write!(out, "\nmdns    : {}, {group}, {} queries seen, {} answered", if cfg.mdns { "on" } else { "off" }, st.mdns_seen, st.mdns_answered);
             }
             let _ = write!(out, "\nrandom  : {}", if st.rng_hardware { "hardware TRNG" } else { "ring-oscillator jitter (no hardware TRNG on this chip)" });
             if st.heap_size > 0 {
@@ -579,5 +608,31 @@ mod tests {
         let mut out = String::new();
         execute("status", &mut Config::default(), &Status { rng_hardware: true, ..Default::default() }, &mut out);
         assert!(out.contains("random  : hardware TRNG\n") || out.contains("random  : hardware TRNG"), "{out}");
+    }
+
+    // VERIFIES: REQ-NET-04 REQ-NET-05 REQ-NET-07
+    #[test]
+    fn status_shows_scan_dhcp_ntp_and_mdns() {
+        let run = |st: &Status| {
+            let mut out = String::new();
+            execute("status", &mut Config::default(), st, &mut out);
+            out
+        };
+        let off = run(&Status::default());
+        assert!(!off.contains("dhcp ntp") && !off.contains("mdns") && !off.contains("by signal"), "nothing while offline: {off}");
+        let up = Status { wifi_up: true, wifi_slot: Some(2), wifi_scanned: Some(24), ..Default::default() };
+        let s = run(&up);
+        assert!(s.contains("connected (slot 2), chosen by signal from 24 access points seen"), "{s}");
+        assert!(s.contains("dhcp ntp: none offered by the router (option 42)"), "{s}");
+        assert!(s.contains("mdns    : on, group not joined, 0 queries seen, 0 answered"), "{s}");
+        let s = run(&Status { dhcp_ntp: [[192, 168, 1, 1], [10, 0, 0, 5], [0; 4], [0; 4]], dhcp_ntp_n: 2, mdns_group: 1, mdns_seen: 9, mdns_answered: 2, wifi_scanned: None, ..up });
+        assert!(s.contains("dhcp ntp: 192.168.1.1, 10.0.0.5\n"), "{s}");
+        assert!(s.contains("mdns    : on, group joined, 9 queries seen, 2 answered") && !s.contains("by signal"), "{s}");
+        assert!(run(&Status { mdns_group: 2, ..up }).contains("group join failed"));
+        let mut c = Config::default();
+        c.set("mdns", "off").unwrap();
+        let mut out = String::new();
+        execute("status", &mut c, &up, &mut out);
+        assert!(out.contains("mdns    : off,"), "{out}");
     }
 }

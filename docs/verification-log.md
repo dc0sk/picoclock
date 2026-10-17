@@ -519,3 +519,21 @@ The clock's owner tried the buttons, the beeper and the light sensor on the Pico
 user's word, not a measurement; the key-beep setting and the light-sensor thresholds were not singled out.
 
 Verifies: REQ-HW-06
+
+### VR-48 · 2026-10-17 · hardware · Pico 2 W: strongest-network scan, DHCP option 42, mDNS
+
+On the Pico 2 W in the clock, on the owner's network (one stored WiFi slot). **Scan:** with `wifi_select strongest` (saved, then
+reboot) the clock scanned, saw 24 access points and joined slot 1; `status` says so. **Not seen on hardware:** a choice between
+two stored networks (only one slot is configured, and no credentials for a second network exist), so the ordering is checked by
+the host test only. **Option 42:** the router (192.168.121.1) offers itself as NTP server; `status` lists it, and with
+`ntp_servers dhcp` alone the clock synced ("plain NTP", 8 s after `sync`); with `nosuchhost.invalid,dhcp` the first entry failed
+and the second answered. **mDNS:** the clock joined the group (`group joined`) and counted LAN queries; for a query to
+`picoclock-d6.local` sent as unicast, as a multicast query from an ephemeral port, and as a multicast query from port 5353,
+it answered every time (counter and a raw capture on the Pi show the reply: name `picoclock-d6`, address 192.168.121.41);
+`other.local` got no answer. **Limit of my test:** the Raspberry Pi's firewall (INPUT policy DROP) discards the reply to a
+multicast query before an application sees it, so I could only confirm it on the wire, not with a resolver on the Pi; no
+real resolver (macOS, Windows, Android, avahi) has been tried. A bug found on the way: the first version replied with the
+multicast group as its source address and nothing arrived; fixed by building the reply destination fresh. The settings I
+changed for the tests were set back (`wifi_select order`, `ntp_servers gateway,pool.ntp.org`), and saved once.
+
+Verifies: REQ-NET-04, REQ-NET-05, REQ-NET-07

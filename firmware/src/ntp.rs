@@ -28,18 +28,36 @@ pub async fn query(stack: Stack<'static>, iface: &Iface<'static>, servers: &str,
             }
             continue;
         }
+        if name.eq_ignore_ascii_case("dhcp") {
+            // the servers the router handed out (option 42); none offered = nothing to try
+            let offered = iface.dhcpv4_lease().and_then(|l| l.options.get(42).map(picoclock_core::netutil::dhcp_ntp_servers)).unwrap_or_default();
+            for a in offered {
+                if let Some(t) = ask(stack, name, IpAddr::V4(a.into())).await {
+                    return Some((t.0, t.1, false));
+                }
+            }
+            continue;
+        }
         let Some(addr) = resolve(stack, iface, name).await else {
             warn!("ntp: cannot resolve {}", name);
             continue;
         };
-        for _ in 0..ATTEMPTS_PER_SERVER {
-            match exchange(stack, addr).await {
-                Ok(t) => {
-                    info!("ntp: {} ({}) answered, unix {}", name, addr, t.0);
-                    return Some((t.0, t.1, false));
-                }
-                Err(()) => warn!("ntp: no valid reply from {} ({})", name, addr),
+        if let Some(t) = ask(stack, name, addr).await {
+            return Some((t.0, t.1, false));
+        }
+    }
+    None
+}
+
+/// Up to `ATTEMPTS_PER_SERVER` requests to one address.
+async fn ask(stack: Stack<'static>, name: &str, addr: IpAddr) -> Option<(u64, u16)> {
+    for _ in 0..ATTEMPTS_PER_SERVER {
+        match exchange(stack, addr).await {
+            Ok(t) => {
+                info!("ntp: {} ({}) answered, unix {}", name, addr, t.0);
+                return Some(t);
             }
+            Err(()) => warn!("ntp: no valid reply from {} ({})", name, addr),
         }
     }
     None
