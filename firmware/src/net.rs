@@ -14,7 +14,7 @@ use embedded_io_async::Write as _;
 use picoclock_core::config::Config;
 use picoclock_core::cli::GeoTry;
 use picoclock_core::geo;
-use picoclock_core::netutil::{self, Seen};
+use picoclock_core::netutil::{self, JoinPlan, Seen};
 
 use crate::nts::Nts;
 use crate::{ntp, state};
@@ -48,13 +48,15 @@ fn octets(a: embassy_net::wire::Ipv4Addr) -> [u8; 4] {
 
 #[embassy_executor::task]
 pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, iface: Iface<'static>) -> ! {
-    // Name on the network: picoclock-<last MAC octet>. Must be set before DHCP runs so the router sees it.
     let mac = control.address().await;
-    let _ = stack.set_hostname(&picoclock_core::config::hostname(mac));
-    state::with_runtime(|r| r.mac_last = Some(mac[5]));
+    state::with_runtime(|r| r.mac = Some(mac));
     let mut nts = Nts::new();
     loop {
         let cfg = state::config_snapshot();
+        // Name on the network: the `hostname` setting, or picoclock-<last MAC octet>. Set before DHCP runs so the router sees
+        // it; a change is picked up by `online` returning, which brings us back here to join (and ask DHCP) again.
+        let name = cfg.device_name(mac[5]);
+        let _ = stack.set_hostname(&name);
         if cfg.wifi.iter().all(|n| n.ssid.is_empty()) {
             info!("wifi: no SSID configured; waiting (set one on the USB terminal or the web page)");
             state::CONFIG_CHANGED.wait().await;
@@ -69,28 +71,34 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
         let ssids: [&str; picoclock_core::config::WIFI_SLOTS] = core::array::from_fn(|i| cfg.wifi[i].ssid.as_str());
         let order = netutil::wifi_order(&ssids, &seen, cfg.wifi_strongest);
         let mut joined = None;
-        'slots: for (slot, net) in order.iter().map(|&s| (s, &cfg.wifi[s])) {
-            for attempt in 1..=JOIN_ATTEMPTS {
-                info!("wifi: joining slot {} ({}), attempt {}", slot + 1, net.ssid.as_str(), attempt);
-                let opts = if net.password.is_empty() { JoinOptions::new_open() } else { JoinOptions::new(net.password.as_bytes()) };
-                match with_timeout(JOIN_TIMEOUT, control.join(&net.ssid, opts)).await {
-                    Ok(Ok(())) => {
-                        joined = Some(slot);
-                        break 'slots;
-                    }
-                    // A wrong passphrase or a network that is not there will not get better in a second.
-                    Ok(Err(e @ (JoinError::InvalidPassphrase | JoinError::NetworkNotFound))) => {
-                        warn!("wifi: slot {} join failed: {:?}", slot + 1, e);
-                        break;
-                    }
-                    Ok(Err(e)) => warn!("wifi: slot {} join failed: {:?}", slot + 1, e),
-                    Err(_) => {
-                        warn!("wifi: slot {} join timed out", slot + 1);
-                        let _ = control.leave().await;
-                    }
+        // Every stored network is tried once before any is retried (`JoinPlan`), so a network with a wrong passphrase,
+        // which costs a handshake timeout of about 10 s per attempt, does not hold up the next one.
+        let mut plan = JoinPlan::new(&order, JOIN_ATTEMPTS);
+        while let Some((slot, attempt)) = plan.next() {
+            let net = &cfg.wifi[slot];
+            info!("wifi: joining slot {} ({}), attempt {}", slot + 1, net.ssid.as_str(), attempt);
+            let opts = if net.password.is_empty() { JoinOptions::new_open() } else { JoinOptions::new(net.password.as_bytes()) };
+            match with_timeout(JOIN_TIMEOUT, control.join(&net.ssid, opts)).await {
+                Ok(Ok(())) => {
+                    joined = Some(slot);
+                    break;
                 }
-                Timer::after(JOIN_GAP).await;
+                // A wrong passphrase or a network that is not there will not get better in a second.
+                Ok(Err(e @ (JoinError::InvalidPassphrase | JoinError::NetworkNotFound))) => {
+                    warn!("wifi: slot {} join failed: {:?}", slot + 1, e);
+                    plan.failed(slot, true);
+                }
+                Ok(Err(e)) => {
+                    warn!("wifi: slot {} join failed: {:?}", slot + 1, e);
+                    plan.failed(slot, false);
+                }
+                Err(_) => {
+                    warn!("wifi: slot {} join timed out", slot + 1);
+                    let _ = control.leave().await;
+                    plan.failed(slot, false);
+                }
             }
+            Timer::after(JOIN_GAP).await;
         }
         let Some(slot) = joined else {
             // Nothing in range: retry later, but sooner if the user changes something.
@@ -115,7 +123,7 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
             warn!("mdns: joining the multicast group failed: {:?}", defmt::Debug2Format(&e));
         }
         control.gpio_set(0, true).await; // onboard LED = connected
-        online(stack, &iface, slot, &creds(&cfg, slot), &mut nts).await;
+        online(stack, &iface, slot, &creds(&cfg, slot), &name, &mut nts).await;
         warn!("wifi: leaving network");
         state::with_runtime(|r| {
             r.wifi_up = false;
@@ -148,12 +156,13 @@ async fn scan(control: &mut Control<'static>, seen: &mut heapless::Vec<Seen, 24>
 }
 
 /// Runs while connected; returns when the link drops or the credentials change.
-async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, joined_with: &Creds, nts: &mut Nts) {
+async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, joined_with: &Creds, name: &str, nts: &mut Nts) {
     let mut next_sync = Instant::now();
     let mut next_geo = Instant::now();
     loop {
         let cfg = state::config_snapshot();
-        if !iface.is_link_up() || creds(&cfg, slot) != *joined_with {
+        let mac_last = state::status().mac.map_or(0, |m| m[5]);
+        if !iface.is_link_up() || creds(&cfg, slot) != *joined_with || cfg.device_name(mac_last).as_str() != name {
             return;
         }
         if let Some(lease) = iface.dhcpv4_lease() {
@@ -295,7 +304,7 @@ pub async fn mdns_task(stack: Stack<'static>) -> ! {
     const PORT: u16 = 5353;
     loop {
         let st = state::status();
-        let (Some(ip), Some(mac_last), true) = (st.ip, st.mac_last, state::with_config(|c| c.mdns) && st.wifi_up) else {
+        let (Some(ip), Some(mac), true) = (st.ip, st.mac, state::with_config(|c| c.mdns) && st.wifi_up) else {
             Timer::after_secs(2).await;
             continue;
         };
@@ -308,13 +317,13 @@ pub async fn mdns_task(stack: Stack<'static>) -> ! {
             Timer::after_secs(5).await;
             continue;
         }
-        let host = picoclock_core::config::hostname([0, 0, 0, 0, 0, mac_last]);
+        let host = state::with_config(|c| c.device_name(mac[5]));
         info!("mdns: answering for {}.local", host.as_str());
         let mut buf = [0u8; 512];
         let mut reply = [0u8; 96];
         loop {
             let st = state::status();
-            if !state::with_config(|c| c.mdns) || !st.wifi_up || st.ip != Some(ip) {
+            if !state::with_config(|c| c.mdns) || !st.wifi_up || st.ip != Some(ip) || state::with_config(|c| c.device_name(mac[5])) != host {
                 break;
             }
             let Ok(Ok((n, from))) = with_timeout(Duration::from_secs(2), socket.recv_from(&mut buf)).await else { continue };

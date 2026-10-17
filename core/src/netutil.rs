@@ -46,6 +46,57 @@ pub fn wifi_order(ssids: &[&str; WIFI_SLOTS], seen: &[Seen], strongest: bool) ->
     out
 }
 
+/// The order in which join attempts are made over the stored networks: every network once, then those that failed in a
+/// way that may be transient once more, and so on up to `attempts` passes. A wrong passphrase costs one slow handshake
+/// timeout (about 10 s); trying each stored network once before retrying any keeps a bad slot from delaying a good one.
+pub struct JoinPlan {
+    order: Vec<usize, WIFI_SLOTS>,
+    hopeless: [bool; WIFI_SLOTS],
+    attempts: u8,
+    pass: u8,
+    pos: usize,
+}
+
+impl JoinPlan {
+    pub fn new(order: &[usize], attempts: u8) -> Self {
+        let mut o = Vec::new();
+        for &s in order.iter().filter(|&&s| s < WIFI_SLOTS) {
+            let _ = o.push(s);
+        }
+        Self { order: o, hopeless: [false; WIFI_SLOTS], attempts, pass: 1, pos: 0 }
+    }
+
+    /// The next `(slot, attempt number)` to try, or `None` when the plan is used up.
+    pub fn next(&mut self) -> Option<(usize, u8)> {
+        loop {
+            if self.pass > self.attempts {
+                return None;
+            }
+            if self.pos >= self.order.len() {
+                // nothing left in this pass; stop early when no slot can be retried
+                if self.order.iter().all(|&s| self.hopeless[s]) {
+                    return None;
+                }
+                self.pass += 1;
+                self.pos = 0;
+                continue;
+            }
+            let slot = self.order[self.pos];
+            self.pos += 1;
+            if !self.hopeless[slot] {
+                return Some((slot, self.pass));
+            }
+        }
+    }
+
+    /// The attempt just made on `slot` failed; `hopeless` means a retry cannot help (no such network, invalid passphrase).
+    pub fn failed(&mut self, slot: usize, hopeless: bool) {
+        if hopeless && slot < WIFI_SLOTS {
+            self.hopeless[slot] = true;
+        }
+    }
+}
+
 /// The unicast IPv4 addresses in a DHCP "NTP servers" option (42): a list of 4-byte addresses. Entries that cannot be a
 /// time server (0.0.0.0, loopback, multicast, broadcast) are dropped; a length that is not a multiple of 4 gives nothing.
 pub fn dhcp_ntp_servers(option: &[u8]) -> Vec<[u8; 4], 4> {
@@ -150,6 +201,43 @@ mod tests {
         assert_eq!(wifi_order(&slots(&[]), &heard, true).as_slice(), &[] as &[usize]);
         // a network that is not stored never appears
         assert!(!wifi_order(&s, &heard, true).contains(&1));
+    }
+
+    // VERIFIES: REQ-NET-08
+    #[test]
+    fn join_plan_tries_every_network_before_retrying_any() {
+        let mut p = JoinPlan::new(&[0, 1], 3);
+        assert_eq!(p.next(), Some((0, 1)));
+        p.failed(0, false);
+        assert_eq!(p.next(), Some((1, 1)), "the second network is tried before the first is retried");
+        p.failed(1, false);
+        assert_eq!(p.next(), Some((0, 2)));
+        assert_eq!(p.next(), Some((1, 2)));
+        assert_eq!(p.next(), Some((0, 3)));
+        assert_eq!(p.next(), Some((1, 3)));
+        assert_eq!(p.next(), None, "the plan is used up after the last pass");
+        // a single network keeps all its attempts
+        let mut one = JoinPlan::new(&[2], 3);
+        let n = core::iter::from_fn(|| one.next()).count();
+        assert_eq!(n, 3);
+        // a hopeless failure drops the slot from later passes; when all are hopeless the plan ends at once
+        let mut p = JoinPlan::new(&[0, 1], 3);
+        assert_eq!(p.next(), Some((0, 1)));
+        p.failed(0, true);
+        assert_eq!(p.next(), Some((1, 1)));
+        p.failed(1, false);
+        assert_eq!(p.next(), Some((1, 2)));
+        assert_eq!(p.next(), Some((1, 3)));
+        assert_eq!(p.next(), None);
+        let mut all = JoinPlan::new(&[0, 1], 3);
+        all.next();
+        all.failed(0, true);
+        all.next();
+        all.failed(1, true);
+        assert_eq!(all.next(), None);
+        assert_eq!(JoinPlan::new(&[], 3).next(), None, "no networks, nothing to try");
+        // slots outside the table are ignored
+        assert_eq!(JoinPlan::new(&[WIFI_SLOTS], 3).next(), None);
     }
 
     // VERIFIES: REQ-NET-05

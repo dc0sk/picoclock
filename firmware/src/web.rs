@@ -97,6 +97,23 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             let _ = write!(msg, "{changed} setting(s) changed and saved. {errors}");
             page(io, Some((&msg, !errors.is_empty())), secure).await
         }
+        (Method::Post, "/reset") => {
+            if !http::same_origin(req, secure) {
+                return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
+            }
+            let form = http::parse_reset_form(req.body);
+            if form == http::ResetForm::Confirmed {
+                respond(io, "200 OK", "text/html; charset=utf-8", "", http::RESET_DONE_PAGE).await?;
+                state::FACTORY_RESET.signal(());
+                return Ok(());
+            }
+            let mut body = heapless::String::<4096>::new();
+            let msg = (form == http::ResetForm::Refused).then_some("That was not the confirmation word, so nothing was erased.");
+            if http::render_reset_confirm(msg, &mut body).is_err() {
+                return respond(io, "500 Internal Server Error", "text/plain", "", "page too large\n").await;
+            }
+            respond(io, "200 OK", "text/html; charset=utf-8", "", &body).await
+        }
         #[cfg(feature = "https")]
         (Method::Post, "/cert") => {
             if !secure {

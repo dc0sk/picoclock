@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/verification-log.md
 status: ledger
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # Verification log
@@ -572,3 +572,63 @@ certificate) and saved.
 
 Verifies: REQ-NTS-09, REQ-NTS-10, REQ-NTS-11
 
+
+### VR-51 · 2026-10-17 · hardware · Ping and a real mDNS resolver
+
+On the Pico 2 W (`picoclock-d6`) with the network stack's `icmp-ping-reply` feature enabled: `ping 192.168.121.41` from the
+Raspberry Pi 5 gave 3 of 3 replies (2 to 44 ms); before the change the same ping gave 0 of 3 and the owner could not ping
+it either. `ping picoclock-d6.local` gave 2 of 2 replies, so the Pi's resolver found the clock through mDNS (this is the
+first check of the mDNS answer by a real resolver; the earlier one was a packet capture). The owner also reported that
+`picoclock-d6.local` resolves and the web page opens over HTTP and HTTPS.
+
+Verifies: REQ-NET-07, REQ-NET-09
+
+### VR-52 · 2026-10-17 · hardware · Faster switch to the next WiFi slot
+
+Pico 2 W. Slot 1 set to the real network's name with a wrong passphrase, slot 2 the real credentials, `save`; the time from
+`save` until the clock's web port answered again was measured from the Raspberry Pi 5. Before (every network retried up to
+three times in turn): back after 32.5 s. After (`JoinPlan`: every network once before any is retried): back after 12.6 s,
+twice, identical. The remaining ten seconds are the radio chip's handshake timeout for one wrong passphrase, which the
+driver does not let us shorten. The settings were restored afterwards. A host test covers the plan: all networks before a
+retry, no retry after a hopeless failure, all attempts for a single network.
+
+Verifies: REQ-NET-08
+
+### VR-53 · 2026-10-17 · hardware · Pinned self-signed NTS server certificate
+
+Pico 2 W against an `openssl s_server` NTS-KE test server on the Raspberry Pi 5 that sends only its own self-signed P-256
+certificate (no chain). Certificate with `basicConstraints CA:TRUE` (the `openssl req -x509` default): refused before and
+after `root add` of that same certificate (`refused: TLS or the certificate ...`). The same key with `CA:FALSE`: `root add`
+accepted it and the key exchange gave `ok (426 ms)`. The reason for the `CA:TRUE` refusal was not read from the clock (the
+status line does not distinguish certificate errors); it is recorded as observed. Also checked from the Pi: of 27 public NTS
+servers probed on port 4460, 18 answered; every one of those chains to ISRG Root X1 or the SSL.com ECC root, both built in.
+The root was removed and the clock restored afterwards.
+
+Verifies: REQ-NTS-09, REQ-NTS-11
+
+### VR-54 · 2026-10-17 · hardware · MAC address and custom host name
+
+Pico 2 W `picoclock-d6`. `status` on the terminal and the top of the web page (fetched with curl over HTTPS) show
+`mac     : 2c:cf:67:b8:84:d6` under the name. `set hostname Uhr-Test` gave `uhr-test`; `set hostname bad_name` was refused and
+the value stayed. After `save`, without a reboot, the name became `uhr-test` within 20 s: the FRITZ!Box resolved
+`uhr-test.fritz.box` to the clock (DHCP name), `ping uhr-test.local` from the Raspberry Pi 5 gave 2 of 2 replies (mDNS), and
+the HTTPS certificate had a new fingerprint with subject `CN=uhr-test` and names `uhr-test` and `uhr-test.local`. The web
+form (`POST /save`, same origin) changed it to `web-name`; a name with a space was refused with the message. A factory reset
+(VR-55) set it back to the default. **Not verified:** an uploaded certificate staying in place after a name change (the
+code keeps it; no upload was made), and a browser.
+
+Verifies: REQ-CFG-07, REQ-CFG-08
+
+### VR-55 · 2026-10-17 · hardware · Factory reset from both interfaces
+
+Pico 2 W. **Guards:** `POST /reset` with no word showed the second page ("Type RESET to confirm"); `confirm=reset` showed
+"not the confirmation word" and erased nothing; a foreign `Origin` gave 403; the plain-HTTP port gave 403 (it only redirects
+while HTTPS runs). On the terminal `factory-reset` followed by `RESEt` or an empty line printed "cancelled; nothing was
+erased" and the WiFi network was still stored. **Terminal:** with a root added, the timezone changed and a custom name, `factory-reset` then
+`RESET` restarted the clock; afterwards the WiFi network, the name (back to `picoclock-d6`), the root (0 of your own) and
+the HTTPS certificate (new fingerprint) were gone or new, and the clock was `not connected`. **Web:** the same after `POST
+/reset` with `confirm=RESET` (name `x-web` back to the default, WiFi network empty, answer page shown first). The clock was
+then provisioned again with `tools/provision.py` and came back online. **Not verified:** a browser clicking through the two
+pages, and a flash erase failure (the clock then stays up without restarting, by design).
+
+Verifies: REQ-CFG-09

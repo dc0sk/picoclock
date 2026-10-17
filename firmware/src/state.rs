@@ -24,7 +24,7 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     last_sync_unix: None,
     wifi_up: false,
     wifi_slot: None,
-    mac_last: None,
+    mac: None,
     ip: None,
     gateway: None,
     temp_c10: None,
@@ -75,6 +75,8 @@ pub fn anchor() -> Option<(i64, embassy_time::Instant)> {
 pub static SAVE_REQUEST: Signal<Cs, bool> = Signal::new();
 /// Any setting changed (the net task re-checks WiFi credentials and timezone mode).
 pub static CONFIG_CHANGED: Signal<Cs, ()> = Signal::new();
+/// Erase every stored setting, root and certificate, then restart (`factory-reset`, web page). The storage task does it.
+pub static FACTORY_RESET: Signal<Cs, ()> = Signal::new();
 pub static SYNC_NOW: Signal<Cs, ()> = Signal::new();
 pub static GEO_NOW: Signal<Cs, ()> = Signal::new();
 pub static BEEP: Signal<Cs, Beep> = Signal::new();

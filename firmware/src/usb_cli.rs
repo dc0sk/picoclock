@@ -125,6 +125,11 @@ async fn run_line(class: &mut Class, line: &str) -> Result<Action, Disconnected>
             state::GEO_NOW.signal(());
             send(class, "location lookup requested; see 'get geo_rule' in a few seconds\r\n").await?;
         }
+        Action::FactoryReset => {
+            // handled by the session, which takes the next line as the answer
+            send(class, &crlf_of(cli::RESET_WARNING)).await?;
+            send(class, "\r\nType RESET (capitals) to erase everything, anything else cancels: ").await?;
+        }
         Action::Reboot => {
             send(class, "rebooting\r\n").await?;
             Timer::after_millis(200).await;
@@ -147,6 +152,8 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
     let mut last_was_cr = false;
     // after `root add`: the lines of the pasted certificate (not echoed, not run as commands)
     let mut paste: Option<Paste> = None;
+    // after `factory-reset`: the next line is the answer to the second question
+    let mut confirm_reset = false;
     loop {
         let n = class.read_packet(&mut buf).await?;
         for &b in &buf[..n] {
@@ -158,7 +165,14 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
                         send(class, "\r\n").await?;
                     }
                     let l = core::mem::take(&mut line);
-                    if let Some(p) = paste.as_mut() {
+                    if core::mem::take(&mut confirm_reset) {
+                        if cli::reset_confirmed(&l) {
+                            send(class, "erasing everything; the clock restarts\r\n").await?;
+                            state::FACTORY_RESET.signal(());
+                        } else {
+                            send(class, "cancelled; nothing was erased\r\n").await?;
+                        }
+                    } else if let Some(p) = paste.as_mut() {
                         match p.feed(&l) {
                             PasteStep::More => continue,
                             PasteStep::Done(text) => {
@@ -174,9 +188,18 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
                                 send(class, "too long: not a certificate this clock accepts\r\n").await?;
                             }
                         }
-                    } else if run_line(class, &l).await? == Action::RootAdd {
-                        paste = Some(Paste::new());
-                        continue;
+                    } else {
+                        match run_line(class, &l).await? {
+                            Action::RootAdd => {
+                                paste = Some(Paste::new());
+                                continue;
+                            }
+                            Action::FactoryReset => {
+                                confirm_reset = true;
+                                continue;
+                            }
+                            _ => {}
+                        }
                     }
                     send(class, PROMPT).await?;
                 }
@@ -188,6 +211,7 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
                 0x03 => {
                     line.clear();
                     paste = None;
+                    confirm_reset = false;
                     send(class, "^C\r\n").await?;
                     send(class, PROMPT).await?;
                 }

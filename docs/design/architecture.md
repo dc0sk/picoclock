@@ -238,8 +238,10 @@ Design points:
 
 - **Join.** `wifi_task` derives the hostname `picoclock-<last MAC octet>` before DHCP runs, then tries the stored
   networks in order. Each attempt is abandoned after 15 s (the radio driver can wait forever for a lost event),
-  an authentication or join failure is retried up to three times on the same network, and a network that is not
-  there or a wrong passphrase is not. After a full round the task waits 10 s, or until a setting changes, and starts
+  an authentication or join failure is retried (up to three attempts per network), and a network that is not
+  there or a wrong passphrase is not. `netutil::JoinPlan` orders the attempts: every stored network once, then the
+  failed ones again, so a bad slot costs one handshake timeout (about 10 s) instead of three before the next slot is
+  tried. The stack answers ICMP echo requests (embassy-net feature `icmp-ping-reply`). After a full round the task waits 10 s, or until a setting changes, and starts
   over. After joining, the link and a DHCP lease must arrive within 30 s.
 - **NTP client.** `ntp::query` resolves each configured server (`gateway` means the DHCP router, others via DNS), sends
   one request whose transmit timestamp is a nonce (the microsecond uptime), and accepts only a reply that echoes it,
@@ -331,6 +333,13 @@ crates.io releases.
 - **HTTPS.** Needs a TLS *server*; nothing vetted builds for the RP2040. Implemented per ADR-0002: `rustls` on the Pico 2 W only (`firmware/src/{https,tls,heap}.rs`, record format in `core/src/tlsstore.rs`), a per-device certificate generated once the RTC is valid and stored in its own flash sector, uploadable replacement over HTTPS; the Pico W keeps HTTP.
 - **NTS trust.** The key exchange checks the recorded chain against all trusted roots in one connection (`core/src/nts_ke.rs`): the built-in ones (`core/roots/`; ISRG Root X1 only with the `rsa` feature, Pico 2 W) and up to four the user added (`core/src/rootstore.rs`, own flash sector, `root` commands, HTTPS page on the Pico 2 W). RSA chains need the heap, so the Pico W refuses them. See ADR-0003.
 - **DHCP option 42, mDNS, strongest-network selection** touch only `net.rs`.
+- **Device name.** `Config::device_name(mac_last)` is the one place the name is derived (custom `hostname` or
+  `picoclock-<xx>`). `net.rs` sets it as the DHCP host name before every join and `online` returns when it changes, so the
+  clock rejoins; the mDNS task re-reads it; `https.rs` makes a new self-signed certificate when it changes (not when the
+  stored certificate was uploaded). The MAC address is in `Status.mac` and printed by `status`, hence on the web page.
+- **Factory reset.** `factory-reset` (terminal session asks for `RESET` on the next line) and `POST /reset` (two pages,
+  same-origin check) both end in `state::FACTORY_RESET`; the storage task waits 1.5 s, erases the settings, roots and (Pico
+  2 W) certificate sectors, checks they read back empty, and resets the chip. On an erase failure it does not restart.
 
 ## 11. Testing strategy
 

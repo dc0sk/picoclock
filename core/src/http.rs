@@ -288,6 +288,52 @@ pub fn parse_root_form(body: &[u8]) -> Option<RootForm> {
     None
 }
 
+/// What the factory reset form sent.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ResetForm {
+    /// No confirmation word yet (the button on the main page): show the question.
+    Ask,
+    /// The word was entered correctly.
+    Confirmed,
+    /// A word was entered, but not the right one.
+    Refused,
+}
+
+/// Reads the factory reset form: `confirm=<word>`. Anything but the exact word never erases.
+pub fn parse_reset_form(body: &[u8]) -> ResetForm {
+    let Ok(body) = core::str::from_utf8(body) else { return ResetForm::Refused };
+    for pair in body.split('&') {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        if k == "confirm" {
+            let mut buf = [0u8; 32];
+            return match url_decode(v, &mut buf) {
+                Some(word) if crate::cli::reset_confirmed(word) => ResetForm::Confirmed,
+                _ => ResetForm::Refused,
+            };
+        }
+    }
+    ResetForm::Ask
+}
+
+/// The second question of the factory reset: what is erased and a field for the confirmation word.
+pub fn render_reset_confirm(msg: Option<&str>, out: &mut impl Write) -> core::fmt::Result {
+    out.write_str(PAGE_HEAD)?;
+    if let Some(m) = msg {
+        write!(out, "<p class=\"msg err\">{}</p>", Esc(m))?;
+    }
+    write!(
+        out,
+        "<h2>Factory reset</h2><p>{}</p><form method=post action=/reset><label>Type {} to confirm<input name=confirm autocomplete=off required></label>\
+<button>Erase everything</button></form><p><a href=/>Cancel</a></p></body></html>",
+        Esc(crate::cli::RESET_WARNING),
+        crate::cli::RESET_WORD
+    )
+}
+
+/// Shown after a confirmed factory reset, just before the clock restarts.
+pub const RESET_DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>picoclock</title><body style=\"font-family:sans-serif;max-width:40rem;margin:2rem auto\">\
+<h1>picoclock</h1><p>Everything is erased and the clock is restarting. It will not join a WiFi network until you give it one over the USB terminal.</p></body>";
+
 /// Why a certificate upload was refused.
 #[derive(Debug, PartialEq, Eq)]
 pub enum CertFormError {
@@ -412,6 +458,8 @@ pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure:
         out.write_str("</label>")?;
     }
     out.write_str("<button>Save</button></form><p><a href=/zones>List of timezone names</a></p>")?;
+    // The button only asks; the erase needs the confirmation word on the next page.
+    out.write_str("<form method=post action=/reset><h2>Factory reset</h2><p>Erase all settings and start over. You are asked to confirm on the next page.</p><button>Factory reset...</button></form>")?;
     // Replacing the certificate means sending a private key: offered only over TLS, and only once the HTTPS server runs.
     if secure && st.https_state == 2 {
         out.write_str(
@@ -605,6 +653,47 @@ mod tests {
         render_page(&c, &Status::default(), None, false, &crate::rootstore::Roots::new(), &mut page).expect("worst-case page must fit");
         assert!(page.contains("name=wifi8_ssid") && page.contains("name=wifi8_password"));
         assert!(!page.contains(&"p".repeat(63)));
+    }
+
+    // VERIFIES: REQ-CFG-09
+    #[test]
+    fn factory_reset_takes_two_steps_on_the_web_page() {
+        assert_eq!(parse_reset_form(b""), ResetForm::Ask, "the button alone only asks");
+        assert_eq!(parse_reset_form(b"other=1"), ResetForm::Ask);
+        assert_eq!(parse_reset_form(b"confirm=RESET"), ResetForm::Confirmed);
+        assert_eq!(parse_reset_form(b"x=1&confirm=RESET"), ResetForm::Confirmed);
+        for bad in ["confirm=", "confirm=reset", "confirm=YES", "confirm=RESET%20NOW", "confirm=RESE", "confirm=%FF"] {
+            assert_eq!(parse_reset_form(bad.as_bytes()), ResetForm::Refused, "{bad}");
+        }
+        assert_eq!(parse_reset_form(&[0xff, 0xfe]), ResetForm::Refused, "not text");
+        // the main page only has the button; the confirmation word is asked on the second page
+        let mut page = heapless::String::<12288>::new();
+        render_page(&Config::default(), &Status::default(), None, false, &crate::rootstore::Roots::new(), &mut page).unwrap();
+        assert!(page.contains("action=/reset") && !page.contains("name=confirm"));
+        let mut ask = heapless::String::<4096>::new();
+        render_reset_confirm(Some("The word did not match <b>"), &mut ask).unwrap();
+        assert!(ask.contains("name=confirm") && ask.contains("action=/reset") && ask.contains("erases ALL settings"));
+        assert!(ask.contains("&lt;b&gt;") && !ask.contains("<b>"), "the message is escaped");
+    }
+
+    // VERIFIES: REQ-CFG-07
+    #[test]
+    fn page_shows_name_and_mac_address() {
+        let st = Status { mac: Some([0x28, 0xcd, 0xc1, 0x12, 0x34, 0xab]), ..Default::default() };
+        let mut page = heapless::String::<12288>::new();
+        render_page(&Config::default(), &st, None, false, &crate::rootstore::Roots::new(), &mut page).unwrap();
+        assert!(page.contains("mac     : 28:cd:c1:12:34:ab") && page.contains("name    : picoclock-ab"));
+        let mut c = Config::default();
+        c.set("hostname", "uhr").unwrap();
+        let mut page = heapless::String::<12288>::new();
+        render_page(&c, &st, None, false, &crate::rootstore::Roots::new(), &mut page).unwrap();
+        assert!(page.contains("name    : uhr") && page.contains("name=hostname value=\"uhr\""));
+        // the form changes the name like the terminal does, and a bad one is refused
+        let mut errors = heapless::String::<256>::new();
+        assert_eq!(apply_form(b"hostname=Wohnzimmer", &mut c, &mut errors), 1);
+        assert_eq!(c.hostname.as_str(), "wohnzimmer");
+        assert_eq!(apply_form(b"hostname=bad%20name", &mut c, &mut errors), 0);
+        assert!(errors.contains("invalid hostname") && c.hostname.as_str() == "wohnzimmer");
     }
 
     // VERIFIES: REQ-WEB-02 REQ-WEB-01

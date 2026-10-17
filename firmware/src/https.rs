@@ -14,7 +14,7 @@ use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use picoclock_core::nts::DriverRng;
 use picoclock_core::tlsstore::Material;
-use picoclock_core::{config, x509};
+use picoclock_core::x509;
 use rand_core::RngCore;
 use static_cell::StaticCell;
 
@@ -28,6 +28,13 @@ struct Buffers {
     outgoing: [u8; tls::OUTGOING],
     rx: [u8; 4096],
     tx: [u8; 4096],
+}
+
+fn local_name(host: &str) -> heapless::String<32> {
+    let mut local = heapless::String::<32>::new();
+    let _ = local.push_str(host);
+    let _ = local.push_str(".local");
+    local
 }
 
 /// A new self-signed certificate for `names` with a fresh key.
@@ -84,15 +91,14 @@ pub async fn https_task(stack: Stack<'static>) -> ! {
     // a certificate needs the time and the device name
     let (mut now, mac_last) = loop {
         let st = state::status();
-        match (st.utc_unix, st.mac_last) {
-            (Some(t), Some(m)) if t > 1_704_067_200 => break (t, m),
+        match (st.utc_unix, st.mac) {
+            (Some(t), Some(m)) if t > 1_704_067_200 => break (t, m[5]),
             _ => Timer::after_secs(2).await,
         }
     };
-    let host = config::hostname([0, 0, 0, 0, 0, mac_last]);
-    let mut local = heapless::String::<32>::new();
-    let _ = local.push_str(&host);
-    let _ = local.push_str(".local");
+    // the names in a self-signed certificate; a new `hostname` makes a new one (see `names_changed` below)
+    let mut host = state::with_config(|c| c.device_name(mac_last));
+    let mut local = local_name(&host);
 
     static BUFFERS: StaticCell<Buffers> = StaticCell::new();
     let bufs = BUFFERS.init(Buffers { incoming: [0; tls::INCOMING], outgoing: [0; tls::OUTGOING], rx: [0; 4096], tx: [0; 4096] });
@@ -114,7 +120,16 @@ pub async fn https_task(stack: Stack<'static>) -> ! {
             continue;
         }
         publish_heap(); // every pass (at least every 2 s): the NTS key exchange allocates too
-        let new_requested = state::CERT_NEW.try_take().is_some();
+        let mut new_requested = state::CERT_NEW.try_take().is_some();
+        // A new device name needs a certificate that names it. An uploaded certificate belongs to the user and stays.
+        let name_now = state::with_config(|c| c.device_name(mac_last));
+        if name_now != host {
+            host = name_now;
+            local = local_name(&host);
+            if !state::tls_material().is_some_and(|m| m.uploaded) {
+                new_requested = true;
+            }
+        }
         if state::CERT_RELOAD.try_take().is_some() || new_requested {
             rebuild = true;
         }

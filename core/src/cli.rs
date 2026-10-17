@@ -17,8 +17,8 @@ pub struct Status {
     pub wifi_up: bool,
     /// Which stored network (1-based) the clock is connected to.
     pub wifi_slot: Option<u8>,
-    /// Last octet of the WiFi MAC address (names the device on the network).
-    pub mac_last: Option<u8>,
+    /// The WiFi MAC address; its last octet names the device on the network unless `hostname` is set.
+    pub mac: Option<[u8; 6]>,
     pub ip: Option<[u8; 4]>,
     pub gateway: Option<[u8; 4]>,
     /// Tenths of a degree Celsius.
@@ -98,6 +98,21 @@ pub enum Action {
     RootAdd,
     /// `root remove <n>`: remove your own root number n (1-based, as listed).
     RootRemove(usize),
+    /// `factory-reset`: the session asks for confirmation (see [`reset_confirmed`]) before anything is erased.
+    FactoryReset,
+}
+
+/// What the user must type (terminal) or enter (web page) to confirm a factory reset.
+pub const RESET_WORD: &str = "RESET";
+
+/// What a factory reset erases, shown before the confirmation on both interfaces.
+pub const RESET_WARNING: &str = "A factory reset erases ALL settings, every stored WiFi network and password, the web password, \
+the trusted NTS roots you added and the HTTPS certificate and key, then restarts the clock. It will not be on the network \
+again until you give it a WiFi network over the USB terminal.";
+
+/// `true` if `answer` is exactly the confirmation word (surrounding spaces ignored; case matters).
+pub fn reset_confirmed(answer: &str) -> bool {
+    answer.trim() == RESET_WORD
 }
 
 /// Longest pasted certificate text (one PEM certificate is about 2.1 KB for the largest we accept).
@@ -178,6 +193,7 @@ commands:
   cert                  show the HTTPS certificate (fingerprint, validity)
   cert new              replace the HTTPS certificate with a new self-signed one
   reboot | bootsel      restart / enter USB flashing mode
+  factory-reset         erase ALL settings, WiFi networks, trusted roots and the HTTPS certificate (asks again first)
   help                  this text
 ";
 
@@ -317,8 +333,9 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             if let (true, Some(seen)) = (st.wifi_up, st.wifi_scanned) {
                 let _ = write!(out, ", chosen by signal from {seen} access points seen");
             }
-            if let Some(m) = st.mac_last {
-                let _ = write!(out, "\nname    : {}", crate::config::hostname([0, 0, 0, 0, 0, m]));
+            if let Some(m) = st.mac {
+                let _ = write!(out, "\nname    : {}", cfg.device_name(m[5]));
+                let _ = write!(out, "\nmac     : {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m[0], m[1], m[2], m[3], m[4], m[5]);
             }
             let _ = out.write_str("\nip      : ");
             ip(out, st.ip);
@@ -459,6 +476,7 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             }
         }
         "reboot" => Action::Reboot,
+        "factory-reset" => Action::FactoryReset,
         "bootsel" => Action::Bootsel,
         other => {
             let _ = writeln!(out, "unknown command '{other}' (try 'help')");
@@ -584,10 +602,32 @@ mod tests {
         let mut out = String::new();
         execute("status", &mut Config::default(), &st, &mut out);
         assert!(out.contains("chip    : 31.2 C"), "{out}");
-        let st = Status { wifi_up: true, wifi_slot: Some(2), mac_last: Some(0xab), ..Default::default() };
+        let st = Status { wifi_up: true, wifi_slot: Some(2), mac: Some([0x28, 0xcd, 0xc1, 0x12, 0x34, 0xab]), ..Default::default() };
         let mut out = String::new();
         execute("status", &mut Config::default(), &st, &mut out);
-        assert!(out.starts_with("wifi    : connected (slot 2)\nname    : picoclock-ab\n"), "{out}");
+        assert!(out.starts_with("wifi    : connected (slot 2)\nname    : picoclock-ab\nmac     : 28:cd:c1:12:34:ab\n"), "{out}");
+        // a custom hostname replaces the default name; the MAC address stays what it is
+        let mut named = Config::default();
+        named.set("hostname", "Kitchen-Clock").unwrap();
+        let mut out = String::new();
+        execute("status", &mut named, &st, &mut out);
+        assert!(out.contains("name    : kitchen-clock\nmac     : 28:cd:c1:12:34:ab\n"), "{out}");
+    }
+
+    // VERIFIES: REQ-CFG-09
+    #[test]
+    fn factory_reset_is_a_request_and_needs_the_exact_word() {
+        let mut c = Config::default();
+        c.set("hostname", "keepme").unwrap();
+        let before = c.clone();
+        assert_eq!(run(&mut c, "factory-reset").0, Action::FactoryReset);
+        assert_eq!(c, before, "the command itself erases nothing; the session asks again first");
+        assert!(reset_confirmed("RESET") && reset_confirmed("  RESET "));
+        for no in ["", "reset", "Reset", "yes", "y", "RESET now", "RESE", "factory-reset"] {
+            assert!(!reset_confirmed(no), "{no:?}");
+        }
+        assert!(run(&mut c, "help").1.contains("factory-reset"));
+        assert!(RESET_WARNING.contains("WiFi") && RESET_WARNING.contains("certificate"), "the warning names what is lost");
     }
 
     // VERIFIES: REQ-CLI-02

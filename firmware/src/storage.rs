@@ -88,13 +88,40 @@ fn save(flash: &mut Store, cfg: &Config) -> Result<(), embassy_rp::flash::Error>
     flash.blocking_write(OFFSET, &buf)
 }
 
+/// Erases the settings, the user's NTS roots and (Pico 2 W) the HTTPS key and certificate, then restarts. Only the erased
+/// sectors decide what the next boot sees: no record means defaults, no roots, and a new self-signed certificate. If an erase
+/// fails the clock is left running with what it has (`show` and `root` tell), because a restart would hide the failure.
+async fn factory_reset(flash: &mut Store) {
+    // the web page's answer is still on its way out; give it time to leave before the clock goes away
+    embassy_time::Timer::after_millis(1500).await;
+    warn!("storage: factory reset");
+    let mut ok = true;
+    for offset in [OFFSET, ROOTS_OFFSET] {
+        ok &= flash.blocking_erase(offset, offset + ERASE_SIZE as u32).is_ok();
+    }
+    #[cfg(feature = "https")]
+    {
+        ok &= flash.blocking_erase(TLS_OFFSET, TLS_OFFSET + ERASE_SIZE as u32).is_ok();
+        ok &= load_tls(flash).is_none();
+    }
+    ok &= load(flash).is_none() && load_roots(flash).is_none();
+    if ok {
+        cortex_m::peripheral::SCB::sys_reset();
+    }
+    warn!("storage: factory reset failed; not restarting");
+}
+
 #[embassy_executor::task]
 pub async fn storage_task(mut flash: Store) -> ! {
     loop {
-        use embassy_futures::select::{Either3, select3};
-        let mut now = match select3(state::SAVE_REQUEST.wait(), tls_request(), state::ROOTS_SAVE.wait()).await {
-            Either3::First(now) => now,
-            Either3::Second(()) => {
+        use embassy_futures::select::{Either4, select4};
+        let mut now = match select4(state::SAVE_REQUEST.wait(), tls_request(), state::ROOTS_SAVE.wait(), state::FACTORY_RESET.wait()).await {
+            Either4::First(now) => now,
+            Either4::Fourth(()) => {
+                factory_reset(&mut flash).await;
+                continue;
+            }
+            Either4::Second(()) => {
                 // read back, like the settings: a silent write failure must not look like success
                 #[cfg(feature = "https")]
                 match state::tls_material() {
@@ -107,7 +134,7 @@ pub async fn storage_task(mut flash: Store) -> ! {
                 }
                 continue;
             }
-            Either3::Third(()) => {
+            Either4::Third(()) => {
                 let roots = state::roots_snapshot();
                 match save_roots(&mut flash, &roots) {
                     Ok(()) if load_roots(&mut flash).as_ref() == Some(&roots) => info!("storage: NTS roots saved"),

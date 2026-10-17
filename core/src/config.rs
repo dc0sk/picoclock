@@ -62,6 +62,8 @@ pub struct Config {
     pub wifi_strongest: bool,
     /// Answer mDNS queries for `<device name>.local`.
     pub mdns: bool,
+    /// Name on the network (DHCP, mDNS, HTTPS certificate). Empty = `picoclock-<last MAC block>`.
+    pub hostname: String<HOSTNAME_MAX>,
 }
 
 impl Default for Config {
@@ -86,6 +88,7 @@ impl Default for Config {
             http_redirect: true,
             wifi_strongest: false,
             mdns: true,
+            hostname: String::new(),
         }
     }
 }
@@ -130,6 +133,7 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { name: "http_redirect", help: "on|off: while HTTPS is available, redirect plain-HTTP page requests to it", secret: false },
     KeyInfo { name: "wifi_select", help: "order|strongest: join the first stored network in slot order, or the strongest one in range (default order)", secret: false },
     KeyInfo { name: "mdns", help: "on|off: answer for <device name>.local on the LAN (multicast DNS, default on)", secret: false },
+    KeyInfo { name: "hostname", help: "name of this clock on the network (DHCP, mDNS, HTTPS certificate): 1-24 lowercase letters, digits and hyphens; empty = picoclock-<last MAC block>", secret: false },
     KeyInfo { name: "ntp_serve", help: "on|off: answer NTP requests from the LAN (accuracy about +-1 s)", secret: false },
 ];
 
@@ -139,6 +143,32 @@ pub fn hostname(mac: [u8; 6]) -> String<16> {
     let mut s = String::new();
     let _ = write!(s, "picoclock-{:02x}", mac[5]);
     s
+}
+
+/// Longest custom device name. The HTTPS certificate and mDNS names add `.local`, and buffers are sized for that.
+pub const HOSTNAME_MAX: usize = 24;
+
+/// A usable device name: 1 to [`HOSTNAME_MAX`] lowercase letters, digits and hyphens, not starting or ending with a hyphen
+/// (one DNS label, RFC 1123).
+pub fn valid_hostname(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= HOSTNAME_MAX
+        && !s.starts_with('-')
+        && !s.ends_with('-')
+        && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+impl Config {
+    /// The name this clock uses on the network: the custom `hostname`, or `picoclock-<last MAC block>` when none is set.
+    pub fn device_name(&self, mac_last: u8) -> String<32> {
+        let mut s = String::new();
+        if self.hostname.is_empty() {
+            let _ = s.push_str(&hostname([0, 0, 0, 0, 0, mac_last]));
+        } else {
+            let _ = s.push_str(&self.hostname);
+        }
+        s
+    }
 }
 
 /// `wifi3_ssid` -> (slot index 2, is_password). `wifi_ssid` / `wifi_password` are aliases for slot 1.
@@ -276,6 +306,17 @@ impl Config {
                 }
             }
             "mdns" => self.mdns = parse_bool(value)?,
+            "hostname" => {
+                // DNS names are case-insensitive; keep them lowercase so the certificate and mDNS name are unambiguous
+                let mut name = String::<HOSTNAME_MAX>::new();
+                for c in value.chars() {
+                    name.push(c.to_ascii_lowercase()).map_err(|_| ConfigError::InvalidValue)?;
+                }
+                if !name.is_empty() && !valid_hostname(&name) {
+                    return Err(ConfigError::InvalidValue);
+                }
+                self.hostname = name;
+            }
             "http_redirect" => self.http_redirect = parse_bool(value)?,
             _ => return Err(ConfigError::UnknownKey),
         }
@@ -309,6 +350,7 @@ impl Config {
             "https" => out.write_str(on_off(self.https)),
             "wifi_select" => out.write_str(if self.wifi_strongest { "strongest" } else { "order" }),
             "mdns" => out.write_str(on_off(self.mdns)),
+            "hostname" => out.write_str(&self.hostname),
             "http_redirect" => out.write_str(on_off(self.http_redirect)),
             _ => return Err(ConfigError::UnknownKey),
         };
@@ -658,6 +700,31 @@ mod tests {
         let mut buf = [0u8; 2048];
         let n = c.to_bytes(&mut buf).unwrap();
         assert_eq!(val(&Config::from_bytes(&buf[..n]).unwrap(), "ntp_servers"), "nts:time.cloudflare.com,pool.ntp.org", "survives storage");
+    }
+
+    // VERIFIES: REQ-CFG-08
+    #[test]
+    fn hostname_setting_names_the_device() {
+        let mut c = Config::default();
+        assert_eq!(c.device_name(0xab).as_str(), "picoclock-ab", "no custom name: the default from the MAC block");
+        assert_eq!(val(&c, "hostname"), "");
+        c.set("hostname", "Kitchen-Clock").unwrap();
+        assert_eq!(val(&c, "hostname"), "kitchen-clock", "stored lowercase");
+        assert_eq!(c.device_name(0xab).as_str(), "kitchen-clock");
+        for good in ["a", "clock1", "my-clock", &"a".repeat(HOSTNAME_MAX)] {
+            c.set("hostname", good).unwrap_or_else(|_| panic!("{good:?}"));
+        }
+        for bad in ["-clock", "clock-", "my clock", "my_clock", "clock.local", "uhr\u{e4}", &"a".repeat(HOSTNAME_MAX + 1), "a\nb"] {
+            let before = c.clone();
+            assert_eq!(c.set("hostname", bad), Err(ConfigError::InvalidValue), "{bad:?}");
+            assert_eq!(c, before, "an invalid name changes nothing");
+        }
+        c.set("hostname", "uhr-2").unwrap();
+        let mut buf = [0u8; 2048];
+        let n = c.to_bytes(&mut buf).unwrap();
+        assert_eq!(Config::from_bytes(&buf[..n]).unwrap().device_name(1).as_str(), "uhr-2", "survives storage");
+        c.set("hostname", "").unwrap();
+        assert_eq!(c.device_name(0x0c).as_str(), "picoclock-0c", "empty goes back to the default");
     }
 
     // VERIFIES: REQ-NET-04 REQ-NET-07

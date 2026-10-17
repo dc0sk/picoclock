@@ -233,6 +233,16 @@ The clock shall answer multicast DNS queries (type A or ANY) for `<device name>.
 *Why:* Roadmap item, now built; the HTTPS certificate already names `<device name>.local`, so the name should resolve. The device name is used rather than a fixed `picoclock.local` because two clocks on one LAN would collide.  
 *Implemented by:* WiFi, hourly sync, geolocation request and NTP server, WiFi order, DHCP option 42 and mDNS packet logic, Configuration model and flash storage, Terminal commands and USB serial console
 
+**REQ-NET-08** (ratified, medium)  
+When several networks are stored, the clock shall try every one of them once before it retries any, and shall not retry a network whose join failed with an invalid passphrase or a network not found; a single stored network keeps all its attempts.  
+*Why:* A wrong passphrase costs about ten seconds of handshake timeout per attempt, and three attempts in a row on a bad first slot kept the clock offline for about 30 s although the second slot was fine (measured on the Pico 2 W, 2026-10-17).  
+*Implemented by:* WiFi, hourly sync, geolocation request and NTP server, WiFi order, DHCP option 42 and mDNS packet logic
+
+**REQ-NET-09** (ratified, low)  
+The clock shall answer ICMP echo requests (ping) sent to its IPv4 address.  
+*Why:* A first thing a user tries to see whether the clock is on the network; the web page and mDNS name worked while ping did not because the network stack's ping reply option was not enabled.  
+*Implemented by:* WiFi, hourly sync, geolocation request and NTP server
+
 
 ### 4.7 Configuration
 
@@ -265,6 +275,21 @@ Settings changed on the USB terminal shall take effect at once and be written to
 The software version, the source repository and the license shall be shown on the web page and by the terminal command `version` (alias `about`); the version is the package version, identical for the core and firmware packages.  
 *Why:* Requested by the owner: a user of a running clock must be able to tell which build it runs and where the source is, as the AGPL expects.  
 *Implemented by:* Terminal commands and USB serial console, HTTP parsing, settings page and web server, Configuration model and flash storage
+
+**REQ-CFG-07** (ratified, medium)  
+The WiFi MAC address shall be shown by the terminal command `status` and on the web page, as six hexadecimal bytes separated by colons.  
+*Why:* Requested by the owner (2026-10-17): the address is needed to find the clock in a router's client list and to set up a DHCP reservation.  
+*Implemented by:* Terminal commands and USB serial console, HTTP parsing, settings page and web server, WiFi, hourly sync, geolocation request and NTP server
+
+**REQ-CFG-08** (ratified, medium)  
+The setting `hostname` (terminal and web page) shall name the clock on the network: 1 to 24 lowercase letters, digits and hyphens, not starting or ending with a hyphen, upper case stored as lower case, anything else refused with the setting unchanged. The name is used for the DHCP host name, the mDNS name `<name>.local` and the names in a self-signed HTTPS certificate; empty means `picoclock-<last MAC block>`. A change takes effect without a reboot (the clock rejoins the network so the router learns the name, and makes a new self-signed certificate; an uploaded certificate is left alone).  
+*Why:* Requested by the owner (2026-10-17). Two clocks on one LAN need different names; the MAC-based default stays so that an unconfigured clock is still unique.  
+*Implemented by:* Configuration model and flash storage, Terminal commands and USB serial console, HTTP parsing, settings page and web server, WiFi, hourly sync, geolocation request and NTP server, HTTPS server (Pico 2 W): heap, rustls glue, certificate lifecycle and flash record
+
+**REQ-CFG-09** (ratified, high)  
+A factory reset shall be possible from the terminal (`factory-reset`) and from the web page. Each asks a second time and erases nothing unless the exact word RESET is entered; the question says what is erased: all settings including every WiFi network and password and the web password, the NTS roots the user added, and the HTTPS certificate and key. After the erase the clock restarts with the default settings. The web request is refused when it comes from another site.  
+*Why:* Requested by the owner (2026-10-17), guarded by a second query because the erase cannot be undone and the clock is off the network afterwards until it is given WiFi over USB.  
+*Implemented by:* Terminal commands and USB serial console, HTTP parsing, settings page and web server, Configuration model and flash storage, Composition: task wiring, shared state, chip selection
 
 
 ### 4.8 Terminal

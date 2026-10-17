@@ -90,7 +90,7 @@ picoclock> save
 picoclock> status
 ```
 
-`help` lists every command and setting; `tz europe/` lists matching zone names; `time` shows UTC and local time.
+`factory-reset` erases everything (see below). `help` lists every command and setting; `tz europe/` lists matching zone names; `time` shows UTC and local time.
 Changes apply immediately but are only written to flash by `save` (the web page and the buttons save for you).
 
 | setting | meaning | default |
@@ -157,7 +157,11 @@ picoclock> root remove 1         # remove your root number 1
 - Compare the fingerprint `root add` prints with the one your authority publishes: a trust anchor decides whom the clock
   believes about the time.
 - The chain a server sends must end at the root you added (the server's intermediates come from the server). A pinned
-  self-signed server certificate is not covered by what has been tested.
+  self-signed server certificate works if you add the server's own certificate as the root and it is not marked as a CA
+  (`basicConstraints CA:FALSE`); `openssl req -x509` marks it `CA:TRUE` by default and then the clock refuses it, so
+  create it with `-addext basicConstraints=critical,CA:FALSE`. Of 20 public NTS servers checked on 2026-10-17 (those that
+  answered), all chain to ISRG Root X1 or the SSL.com ECC root, which are built in, so you only need `root add` for a
+  private server.
 - Refused, with the reason: text that is not a certificate, an expired one, one already trusted (built in or added), one
   larger than 1536 bytes, and (Pico W) an RSA certificate. A refused paste changes nothing.
 - **Pico 2 W:** the HTTPS page has the same list and an add/remove form. **Pico W: USB terminal only.** Its web page is plain
@@ -166,16 +170,33 @@ picoclock> root remove 1         # remove your root number 1
 - `status` shows the last key exchange (`nts ke  : <server>: ok (450 ms)` or why it was refused) and how many roots are
   built in and added. After removing a root, reboot to see a refusal: the clock reuses its cookies until they run out.
 
+## Factory reset
+
+`factory-reset` on the USB terminal, or the *Factory reset...* button on the web page, erases all settings (every WiFi
+network and password, the web password, the timezone and the rest), the NTS roots you added and the HTTPS certificate and
+key, then restarts the clock with the defaults. It asks a second time and erases nothing unless you type the word `RESET`
+(capitals) at the terminal or on the second web page; anything else cancels. The clock is off the network afterwards until
+you give it a WiFi network over USB (`set wifi1_ssid ...`, `save`, or `tools/provision.py`). The time in the battery-backed
+RTC is not touched. A web request from another site is refused.
+
 ## Network name and NTP server
 
 The clock registers itself on the network as `picoclock-<last MAC octet>` (for example `picoclock-54`), via the
-DHCP hostname; `status` shows it. Routers such as a FRITZ!Box then resolve `picoclock-54.fritz.box`.
+DHCP hostname; `status` shows the name and the WiFi **MAC address** (also at the top of the web page). Routers such as a
+FRITZ!Box then resolve `picoclock-54.fritz.box`.
+
+**Your own name.** `set hostname kitchen` (or the `hostname` field on the web page) replaces the default: 1 to 24 lowercase
+letters, digits and hyphens, not starting or ending with a hyphen (capitals are stored as lower case, anything else is
+refused). It applies to the DHCP name, the mDNS name `kitchen.local` and the names in the self-signed HTTPS certificate.
+A change takes effect at once, without a reboot: the clock rejoins the network (a few seconds offline) so the router
+learns the new name, and makes a new self-signed certificate, so the browser will ask you to trust it again. A certificate
+you uploaded is kept, and then it is up to you to have it name the new host. An empty value goes back to the default.
 
 The clock also answers multicast DNS (mDNS) for `picoclock-54.local` with its address, so `https://picoclock-54.local/`
 works from machines that resolve `.local` names (the HTTPS certificate names it too). The name carries the MAC octet on
 purpose: a fixed `picoclock.local` would collide when two clocks share a LAN. `status` shows whether the multicast group
 was joined and how many queries were seen and answered; `set mdns off` turns it off. It answers only for its own name, and
-only with an IPv4 address.
+only with an IPv4 address. The clock also answers ping (ICMP echo), so `ping picoclock-54.local` works.
 
 **NTP servers from the router (DHCP option 42).** The clock asks the router for NTP servers; `status` lists what it
 offered (`dhcp ntp:`). Put `dhcp` in `ntp_servers` to use them, for example `set ntp_servers dhcp,pool.ntp.org`. The default
@@ -327,7 +348,7 @@ enough to delay the display scan. Measured before and after (`status` shows the 
 the flicker is gone. A settings save still pauses the scan for about 34 ms.
 
 **Fallbacks tested on the clock:** the second NTP server is used when the first fails; the next WiFi slot is used when
-a slot is wrong or absent (a wrong passphrase on the active slot costs about 37 s before the next slot is tried);
+a slot is wrong or absent (a wrong passphrase on the active slot costs about 10 s, one handshake timeout, before the next slot is tried; every stored network is tried once before any is retried);
 the location lookup moves to the next provider and keeps its cached rule when all fail. The web page is in daily use by
 the owner.
 

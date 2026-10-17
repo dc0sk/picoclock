@@ -27,7 +27,7 @@ embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5
 embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967" }
 embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "executor-thread", "executor-interrupt"] }
-embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt", "udp", "tcp", "tcp-listener", "dhcpv4", "medium-ethernet", "dns", "ipv4", "hostname", "dhcpv4-options", "multicast"] }
+embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt", "udp", "tcp", "tcp-listener", "dhcpv4", "medium-ethernet", "dns", "ipv4", "hostname", "dhcpv4-options", "multicast", "icmp-ping-reply"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt"] }
 cyw43 = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt"] }
 cyw43-pio = { git = "https://github.com/embassy-rs/embassy", rev = "cbb7990a5cce4be3650d804f9733f4a01bb1a967", features = ["defmt"] }
