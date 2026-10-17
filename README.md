@@ -358,7 +358,7 @@ The Pico 2 W build serves the web page over HTTPS on port 443 ([ADR-0002](docs/d
 
 Planned for future releases (requirements, not implemented):
 
-- **NTS:** offering the exporter patch to `embedded-tls` upstream (not done: it is outward-facing and needs your go-ahead).
+- **NTS:** the exporter patch to `embedded-tls` is offered upstream as https://github.com/embassy-rs/embedded-tls/pull/221 (open, 2026-10-17); the vendored copy stays until it is merged and released.
 - **Choosing between time sources** (requirements REQ-SRC-01 to 05, draft): two modes, `order` (an ordered list with
   fallbacks, as for NTP servers today) and `vote` (a plausibility check between the selected sources, with a selectable
   vote power per source and a tolerance). Delivered with the first additional source.

@@ -18,3 +18,5 @@ Changes, kept small so they can be offered upstream:
 Verification: `core/tests/tls_exporter_openssl.rs` makes the client and `openssl s_server -keymatexport` derive the same
 material from one handshake; `core/tests/nts_live.rs` (ignored by default) completes a real NTS-KE and an
 authenticated NTP exchange, which only works if the context-bearing derivation is right.
+
+Offered upstream on 2026-10-17 as https://github.com/embassy-rs/embedded-tls/pull/221 (parts 2 and 3, rewritten without the picoclock comments, with a rustls-based test). This copy stays until that is merged and released.
