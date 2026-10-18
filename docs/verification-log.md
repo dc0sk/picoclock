@@ -787,3 +787,15 @@ factory reset keep answering a POST with a page (the confirmation page, which as
 pressed the button.
 
 Verifies: REQ-WEB-11
+
+### VR-66 · 2026-10-18 · host · The timezone list link under the timezone field
+
+Reported by the owner after testing the web interface in a browser (the other points checked were fine: the redirect and message once, the
+reconnect after a password or name change, the phone width, the secrets, wrong values, the update check, the status page, and the plain port
+redirecting to HTTPS). The Time page now has the link "List of timezone names" directly under the timezone field, once, and no longer at
+the end of the form; the host test checks the order (timezone field, link, next setting, Save button) and that no other page has the
+link, and the screenshot in the README shows it. The screenshots were made again, which also shows the settings added since they were
+taken. **Not verified on the clock:** the Pico 2 W build with this change is flashed, but a web password is set, so a request without
+credentials gets `401` and the page could not be fetched from here; the owner is to look at the Time page in a browser.
+
+Verifies: REQ-WEB-11

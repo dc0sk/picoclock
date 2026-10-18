@@ -540,11 +540,12 @@ pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure:
             write!(out, "<form method=post action=\"/save?tab={}\">", tab.slug())?;
             for k in KEYS.iter().filter(|k| k.name != "geo_rule" && Some(k.group) == tab.group()) {
                 setting(cfg, k, out)?;
+                // the list of names belongs right under the field that takes one
+                if k.name == "timezone" {
+                    out.write_str("<small><a href=/zones>List of timezone names</a></small>")?;
+                }
             }
             out.write_str("<button>Save</button></form>")?;
-            if tab == Tab::Time {
-                out.write_str("<p><a href=/zones>List of timezone names</a></p>")?;
-            }
         }
     }
     write!(out, "<hr><p><small>picoclock {} is free software under the <a href=\"https://www.gnu.org/licenses/agpl-3.0.html\">GNU AGPL v3 or later</a>. Source code: <a href=\"https://github.com/dc0sk/picoclock\">github.com/dc0sk/picoclock</a></small></p></body></html>", crate::VERSION)
@@ -1002,6 +1003,22 @@ mod tests {
         }
         // the page that carries the refresh has no form whose resubmission matters: the refresh is a GET of /?tab=status's own URL
         assert!(!checking.contains("action=/save"));
+    }
+
+    // VERIFIES: REQ-WEB-11
+    #[test]
+    fn the_timezone_list_link_sits_right_under_the_timezone_field() {
+        let mut p = heapless::String::<12288>::new();
+        render_page(&Config::default(), &Status::default(), None, false, &crate::rootstore::Roots::new(), Tab::Time, &mut p).unwrap();
+        let (field, link, next) = (p.find("<label>timezone<").unwrap(), p.find("href=/zones").unwrap(), p.find("<label>dst<").unwrap());
+        assert!(field < link && link < next, "the link comes after the timezone field and before the next setting");
+        assert_eq!(p.matches("href=/zones").count(), 1, "once, not also at the end of the form");
+        assert!(p.find("<button>Save</button>").unwrap() > link);
+        for tab in [Tab::Wifi, Tab::Clock, Tab::Web, Tab::Status, Tab::Security] {
+            let mut q = heapless::String::<12288>::new();
+            render_page(&Config::default(), &Status::default(), None, true, &crate::rootstore::Roots::new(), tab, &mut q).unwrap();
+            assert!(!q.contains("href=/zones"), "{tab:?}");
+        }
     }
 
     // VERIFIES: REQ-WEB-11

@@ -23,8 +23,8 @@ last_updated: 2026-10-18
 | Ratified with hardware evidence                                   | 70    |
 | Ratified with unit tests only (no hardware, host or build record) | 18    |
 | Ratified and UNVERIFIED (stated reason)                           | 0     |
-| Unit tests bound to requirements                                  | 190   |
-| Verification records                                              | 64    |
+| Unit tests bound to requirements                                  | 191   |
+| Verification records                                              | 65    |
 
 ## Forward: requirement to evidence
 
@@ -92,7 +92,7 @@ last_updated: 2026-10-18
 | REQ-WEB-07  | ratified | high   | CERT                           | 10         | VR-38                                    | unit, host            |
 | REQ-WEB-09  | ratified | medium | HTTP                           | 1          | VR-57                                    | unit, hardware        |
 | REQ-WEB-10  | ratified | medium | HTTP                           | 1          | VR-57                                    | unit, hardware        |
-| REQ-WEB-11  | ratified | medium | HTTP, CONFIG                   | 4          | VR-60, VR-61, VR-65                      | unit, host, hardware  |
+| REQ-WEB-11  | ratified | medium | HTTP, CONFIG                   | 5          | VR-60, VR-61, VR-65, VR-66               | unit, host, hardware  |
 | REQ-SRC-01  | ratified | high   | SOURCES, CONFIG, NET           | 2          | VR-58                                    | unit, hardware        |
 | REQ-SRC-02  | ratified | high   | SOURCES                        | 2          | -                                        | unit                  |
 | REQ-SRC-03  | ratified | high   | SOURCES                        | 3          | -                                        | unit                  |
@@ -242,7 +242,7 @@ These have never been seen working on the clock (they may still have unit tests)
 - **REQ-WEB-07**: `x509::generated_certificate_can_be_read_back_and_matches_its_key`, `x509::validation_refuses_a_wrong_key_and_the_wrong_time`, `x509::generation_refuses_bad_inputs`, `x509::the_serial_is_always_positive_and_minimal`, `x509::inspect_rejects_malformed_and_unsupported_certificates`, `x509::pkcs8_form_of_a_secret_reads_back_and_is_well_formed`, `x509::fingerprint_is_formatted_like_openssl`, `x509::base64_and_pem_parsing`, `lib::openssl_reads_verifies_and_fingerprints_the_generated_certificate`, `lib::keys_and_certificates_made_by_openssl_are_read_and_matched`
 - **REQ-WEB-09**: `http::a_factory_reset_is_not_served_over_plain_http_while_https_is_on`
 - **REQ-WEB-10**: `http::a_full_size_certificate_upload_fits_one_request`
-- **REQ-WEB-11**: `http::every_setting_is_on_exactly_one_tab`, `http::the_tab_comes_from_the_query_and_is_never_echoed`, `http::the_busiest_pages_fit_with_room_to_spare`, `http::a_tab_saves_what_it_sends_and_ignores_nothing_it_knows`
+- **REQ-WEB-11**: `http::every_setting_is_on_exactly_one_tab`, `http::the_timezone_list_link_sits_right_under_the_timezone_field`, `http::the_tab_comes_from_the_query_and_is_never_echoed`, `http::the_busiest_pages_fit_with_room_to_spare`, `http::a_tab_saves_what_it_sends_and_ignores_nothing_it_knows`
 - **REQ-SRC-01**: `config::time_source_settings_are_validated_and_survive_the_flash_record`, `sources::with_only_ntp_selected_every_sample_sets_the_clock_as_before`
 - **REQ-SRC-02**: `sources::order_falls_back_when_the_better_source_is_silent_and_returns_when_it_delivers`, `sources::a_dcf77_sample_only_rewrites_the_rtc_when_the_clock_is_off`
 - **REQ-SRC-03**: `sources::vote_accepts_agreeing_sources_and_refuses_when_nobody_has_a_majority`, `sources::vote_power_decides_and_zero_power_cannot`, `sources::a_stale_source_does_not_vote`
@@ -335,3 +335,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-63  | 2026-10-18 | hardware | The firmware update check against GitHub                                            | REQ-UPD-01, REQ-UPD-03                                                                       |
 | VR-64  | 2026-10-18 | hardware | The update button no longer asks again when the page is reloaded                    | REQ-UPD-01                                                                                   |
 | VR-65  | 2026-10-18 | hardware | Every web form is answered with a redirect                                          | REQ-WEB-11                                                                                   |
+| VR-66  | 2026-10-18 | host     | The timezone list link under the timezone field                                     | REQ-WEB-11                                                                                   |
