@@ -39,6 +39,15 @@ async fn page<S: Write>(io: &mut S, msg: Option<(&str, bool)>, secure: bool, tab
     respond(io, "200 OK", "text/html; charset=utf-8", "", &body).await
 }
 
+/// The answer to a form: a redirect to the page it came from, with its message kept for that page to show once. Answering a POST
+/// with the page itself would make a reload send the form again (and, for "remove number 1", remove one more authority).
+async fn after_post<S: Write>(io: &mut S, msg: &str, is_error: bool, tab: Tab) -> Result<(), S::Error> {
+    state::set_flash_message(msg, is_error);
+    let mut location = heapless::String::<48>::new();
+    let _ = write!(location, "Location: /?tab={}\r\n", tab.slug());
+    respond(io, "303 See Other", "text/plain", &location, "done; see the page\n").await
+}
+
 async fn handle<S: Write>(io: &mut S, req: &Request<'_>, secure: bool) -> Result<(), S::Error> {
     let cfg = state::config_snapshot();
     // While HTTPS is up, the plain port only points to it: nothing is served and nothing is accepted over it.
@@ -67,7 +76,10 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
     let (path, query) = http::split_query(req.path);
     let tab = http::tab_from_query(query);
     match (&req.method, path) {
-        (Method::Get, "/") => page(io, None, secure, tab).await,
+        (Method::Get, "/") => {
+            let flash = state::take_flash_message();
+            page(io, flash.as_ref().map(|(m, e)| (m.as_str(), *e)), secure, tab).await
+        }
         (Method::Get, "/zones") => {
             // ~10 KB: stream in chunks rather than buffering.
             let total: usize = http::zone_names().map(|n| n.len() + 1).sum();
@@ -94,7 +106,7 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             let changed = state::edit_and_save(true, |c| http::apply_form(req.body, c, &mut errors));
             let mut msg = heapless::String::<320>::new();
             let _ = write!(msg, "{changed} setting(s) changed and saved. {errors}");
-            page(io, Some((&msg, !errors.is_empty())), secure, tab).await
+            after_post(io, &msg, !errors.is_empty(), tab).await
         }
         (Method::Post, "/update-check") => {
             if !http::same_origin(req, secure) {
@@ -146,9 +158,9 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
                     state::set_tls_material(material);
                     state::TLS_SAVE.signal(());
                     state::CERT_RELOAD.signal(());
-                    page(io, Some(("Certificate replaced. New connections use it; reload the page and your browser may ask you to trust it.", false)), secure, Tab::Security).await
+                    after_post(io, "Certificate replaced. New connections use it; reload the page and your browser may ask you to trust it.", false, Tab::Security).await
                 }
-                Err(e) => page(io, Some((e.message(), true)), secure, Tab::Security).await,
+                Err(e) => after_post(io, e.message(), true, Tab::Security).await,
             }
         }
         (Method::Post, "/root") => {
@@ -169,9 +181,9 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
                         Ok(n) => {
                             let mut msg = heapless::String::<96>::new();
                             let _ = write!(msg, "Added {n} certificate authorit{}; saved to flash.", if n == 1 { "y" } else { "ies" });
-                            page(io, Some((&msg, false)), secure, Tab::Security).await
+                            after_post(io, &msg, false, Tab::Security).await
                         }
-                        Err(e) => page(io, Some((e.message(), true)), secure, Tab::Security).await,
+                        Err(e) => after_post(io, e.message(), true, Tab::Security).await,
                     }
                 }
                 Some(http::RootForm::Remove(n)) => {
@@ -180,12 +192,12 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
                         (ok, ok)
                     });
                     if removed {
-                        page(io, Some(("Removed; saved to flash.", false)), secure, Tab::Security).await
+                        after_post(io, "Removed; saved to flash.", false, Tab::Security).await
                     } else {
-                        page(io, Some(("There is no such number in the list.", true)), secure, Tab::Security).await
+                        after_post(io, "There is no such number in the list.", true, Tab::Security).await
                     }
                 }
-                None => page(io, Some(("Paste a PEM certificate, or give the number to remove.", true)), secure, Tab::Security).await,
+                None => after_post(io, "Paste a PEM certificate, or give the number to remove.", true, Tab::Security).await,
             }
         }
         (Method::Get | Method::Post, _) => respond(io, "404 Not Found", "text/plain", "", "not found\n").await,

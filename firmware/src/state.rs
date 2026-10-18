@@ -286,3 +286,21 @@ pub fn carry_to_persisted(before: &Config, after: &Config, save_now: bool) {
     SAVE_REQUEST.signal(save_now);
     CONFIG_CHANGED.signal(());
 }
+
+/// The message a form's answer wants to show ("3 setting(s) changed", an error). A form is answered with a redirect, so the
+/// message waits here and the next page that is loaded shows it once (and a reload of that page does not show it again).
+static FLASH_MESSAGE: Mutex<Cs, RefCell<Option<(heapless::String<320>, bool)>>> = Mutex::new(RefCell::new(None));
+
+pub fn set_flash_message(msg: &str, is_error: bool) {
+    let mut m = heapless::String::new();
+    for c in msg.chars() {
+        if m.push(c).is_err() {
+            break;
+        }
+    }
+    FLASH_MESSAGE.lock(|f| *f.borrow_mut() = Some((m, is_error)));
+}
+
+pub fn take_flash_message() -> Option<(heapless::String<320>, bool)> {
+    FLASH_MESSAGE.lock(|f| f.borrow_mut().take())
+}

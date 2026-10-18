@@ -773,3 +773,17 @@ interface (`/save`, `/root`, `/cert`) still answer a POST with the page itself a
 (remove number n) a reload would remove another authority.
 
 Verifies: REQ-UPD-01
+
+### VR-65 · 2026-10-18 · hardware · Every web form is answered with a redirect
+
+After VR-64 the other forms had the same flaw. Now `POST /save`, `/cert` and `/root` also answer `303 See Other` to the page they came
+from (`/?tab=clock`, `/?tab=security`), and the message they want to show ("1 setting(s) changed and saved", an error) waits in RAM and is
+shown once by the next page that is loaded. On the Pico 2 W: a save from the Clock tab redirected to it, the first GET showed the
+message and a reload did not; two test authorities were added (each redirect, each message once), `remove=1` was sent once (message
+"Removed; saved to flash") and three further GETs of the page left one authority in place, where before each reload sent the removal again;
+a refused certificate redirected and showed its error once. The test authorities and the setting were removed again. The forms for the
+factory reset keep answering a POST with a page (the confirmation page, which asks and erases nothing). **Not verified in a browser**
+(curl only), and a message is kept for whichever page is loaded next, so a second browser could show it instead of the one that
+pressed the button.
+
+Verifies: REQ-WEB-11

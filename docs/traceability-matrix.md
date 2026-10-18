@@ -24,7 +24,7 @@ last_updated: 2026-10-18
 | Ratified with unit tests only (no hardware, host or build record) | 18    |
 | Ratified and UNVERIFIED (stated reason)                           | 0     |
 | Unit tests bound to requirements                                  | 190   |
-| Verification records                                              | 63    |
+| Verification records                                              | 64    |
 
 ## Forward: requirement to evidence
 
@@ -92,7 +92,7 @@ last_updated: 2026-10-18
 | REQ-WEB-07  | ratified | high   | CERT                           | 10         | VR-38                                    | unit, host            |
 | REQ-WEB-09  | ratified | medium | HTTP                           | 1          | VR-57                                    | unit, hardware        |
 | REQ-WEB-10  | ratified | medium | HTTP                           | 1          | VR-57                                    | unit, hardware        |
-| REQ-WEB-11  | ratified | medium | HTTP, CONFIG                   | 4          | VR-60, VR-61                             | unit, host, hardware  |
+| REQ-WEB-11  | ratified | medium | HTTP, CONFIG                   | 4          | VR-60, VR-61, VR-65                      | unit, host, hardware  |
 | REQ-SRC-01  | ratified | high   | SOURCES, CONFIG, NET           | 2          | VR-58                                    | unit, hardware        |
 | REQ-SRC-02  | ratified | high   | SOURCES                        | 2          | -                                        | unit                  |
 | REQ-SRC-03  | ratified | high   | SOURCES                        | 3          | -                                        | unit                  |
@@ -334,3 +334,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-62  | 2026-10-18 | hardware | A second DHCP answer and the access points the clock hears                          | REQ-NET-10                                                                                   |
 | VR-63  | 2026-10-18 | hardware | The firmware update check against GitHub                                            | REQ-UPD-01, REQ-UPD-03                                                                       |
 | VR-64  | 2026-10-18 | hardware | The update button no longer asks again when the page is reloaded                    | REQ-UPD-01                                                                                   |
+| VR-65  | 2026-10-18 | hardware | Every web form is answered with a redirect                                          | REQ-WEB-11                                                                                   |
