@@ -708,3 +708,17 @@ the 83 ms first learned in an earlier run came from a start with few, scattered 
 the two middle readings for an even count).
 
 Verifies: REQ-DCF-01, REQ-DCF-02, REQ-DCF-03, REQ-DCF-04
+
+### VR-60 · 2026-10-18 · build and host · Web interface in six pages
+
+Host tests (`core/src/http.rs`): every setting appears on exactly one settings page and nowhere else; the location cache is
+on none; the status text only on the Status page; each settings page posts to its own `/save?tab=...`; six links with the open
+one marked `aria-current`; every page is under 6.5 KB with everything switched on (the full WiFi page, which was the largest
+single form, is under 6 KB); the Security page with four trust anchors, a 300-character message and HTTPS running fits with
+room to spare; the tab comes only from `tab=` in the query, unknown values show Status and are never echoed. The Pico 2 W and
+Pico W firmware build and the gate passes. **Not verified on the clock:** the pages in a browser or by `curl`, the redirect
+from HTTP to HTTPS keeping the `?tab=`, and saving from each page: the clock had moved to the network 192.168.1.x (gateway
+192.168.1.1), which the Raspberry Pi used for testing (192.168.121.x) cannot reach, so the pages could not be fetched. They
+need one look in a browser.
+
+Verifies: REQ-WEB-11

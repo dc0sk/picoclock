@@ -4,7 +4,7 @@
 use core::fmt::Write;
 
 use crate::cli::Status;
-use crate::config::{Config, KEYS};
+use crate::config::{Config, Group, KEYS};
 
 pub const MAX_REQUEST: usize = 8192;
 const MAX_HEADERS: usize = 32;
@@ -440,41 +440,130 @@ label{display:block;margin-top:.8rem;font-weight:600}small{display:block;color:#
 input,select,textarea{width:100%;box-sizing:border-box;padding:.4rem;font:inherit}button{margin-top:1rem;padding:.5rem 1.2rem;font:inherit}\
 .msg{background:#eef;padding:.5rem;border-radius:4px}.err{background:#fdd}pre{background:#f4f4f4;padding:.5rem;overflow:auto}\
 @media(prefers-color-scheme:dark){body{background:#111;color:#eee}small{color:#aaa}pre{background:#222}.msg{background:#223}.err{background:#522}input,select,textarea{background:#222;color:#eee;border:1px solid #555}}textarea{font:12px monospace}\
+nav{display:flex;flex-wrap:wrap;gap:.3rem;margin:.5rem 0}nav a{padding:.6rem .9rem;border:1px solid #888;border-radius:4px;text-decoration:none;color:inherit}nav a[aria-current]{background:#468;color:#fff}\
 </style></head><body><h1>picoclock</h1>";
 
 /// Room for the `status` and `time` text on the page. A fully connected clock needs about 1 KB (a test keeps it honest);
 /// a smaller buffer cut the text off, mid-line, without a word.
 const STATUS_BUF: usize = 2048;
 
-/// Renders the status and settings page. Fails (`fmt::Error`) only if `out` is too small.
-pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure: bool, roots: &crate::rootstore::Roots, out: &mut impl Write) -> core::fmt::Result {
+/// The pages of the web interface: one per group of settings, so that no page has to hold everything at once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tab {
+    Status,
+    Wifi,
+    Time,
+    Clock,
+    Web,
+    Security,
+}
+
+impl Tab {
+    pub const ALL: [Tab; 6] = [Tab::Status, Tab::Wifi, Tab::Time, Tab::Clock, Tab::Web, Tab::Security];
+
+    pub fn slug(self) -> &'static str {
+        match self {
+            Tab::Status => "status",
+            Tab::Wifi => "wifi",
+            Tab::Time => "time",
+            Tab::Clock => "clock",
+            Tab::Web => "web",
+            Tab::Security => "security",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Tab::Status => "Status",
+            Tab::Wifi => "WiFi",
+            Tab::Time => "Time",
+            Tab::Clock => "Clock",
+            Tab::Web => "Web",
+            Tab::Security => "Security",
+        }
+    }
+
+    fn group(self) -> Option<Group> {
+        match self {
+            Tab::Wifi => Some(Group::Wifi),
+            Tab::Time => Some(Group::Time),
+            Tab::Clock => Some(Group::Clock),
+            Tab::Web => Some(Group::Web),
+            Tab::Status | Tab::Security => None,
+        }
+    }
+}
+
+/// Splits a request path into the path and the query (without the `?`).
+pub fn split_query(path: &str) -> (&str, &str) {
+    path.split_once('?').unwrap_or((path, ""))
+}
+
+/// The tab named by `tab=...` in a query string; anything else is the status page. The text is only compared, never echoed.
+pub fn tab_from_query(query: &str) -> Tab {
+    query
+        .split('&')
+        .find_map(|p| p.strip_prefix("tab="))
+        .and_then(|v| Tab::ALL.into_iter().find(|t| t.slug().eq_ignore_ascii_case(v)))
+        .unwrap_or(Tab::Status)
+}
+
+/// Renders one page of the web interface. Fails (`fmt::Error`) only if `out` is too small.
+pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure: bool, roots: &crate::rootstore::Roots, tab: Tab, out: &mut impl Write) -> core::fmt::Result {
     out.write_str(PAGE_HEAD)?;
+    out.write_str("<nav>")?;
+    for t in Tab::ALL {
+        write!(out, "<a href=\"/?tab={}\"{}>{}</a>", t.slug(), if t == tab { " aria-current=page" } else { "" }, t.label())?;
+    }
+    out.write_str("</nav>")?;
     if let Some((m, is_err)) = msg {
         write!(out, "<p class=\"msg{}\">{}</p>", if is_err { " err" } else { "" }, Esc(m))?;
     }
-    out.write_str("<pre>")?;
-    let mut status = heapless::String::<STATUS_BUF>::new();
-    crate::cli::execute("status", &mut cfg.clone(), st, &mut status);
-    let _ = crate::cli::execute("time", &mut cfg.clone(), st, &mut status);
-    write!(out, "{}</pre><form method=post action=/save>", Esc(&status))?;
-    for k in KEYS.iter().filter(|k| k.name != "geo_rule") {
-        write!(out, "<label>{}<small>{}</small>", k.name, Esc(k.help))?;
-        let mut v = heapless::String::<160>::new();
-        if k.secret {
-            let _ = write!(out, "<input type=password name={} autocomplete=new-password placeholder=\"{}\">", k.name, 
-                if cfg.write_display(k.name, &mut v).is_ok() && v == "(set)" { "(set; leave blank to keep)" } else { "(empty)" });
-        } else if matches!(k.help.split(':').next(), Some("on|off")) || k.help == "on|off" {
-            let _ = cfg.write_value(k.name, &mut v);
-            let on = v == "on";
-            write!(out, "<select name={}><option value=on{}>on<option value=off{}>off</select>", k.name,
-                if on { " selected" } else { "" }, if on { "" } else { " selected" })?;
-        } else {
-            let _ = cfg.write_value(k.name, &mut v);
-            write!(out, "<input name={} value=\"{}\">", k.name, Esc(&v))?;
+    match tab {
+        Tab::Status => {
+            out.write_str("<pre>")?;
+            let mut status = heapless::String::<STATUS_BUF>::new();
+            crate::cli::execute("status", &mut cfg.clone(), st, &mut status);
+            let _ = crate::cli::execute("time", &mut cfg.clone(), st, &mut status);
+            write!(out, "{}</pre>", Esc(&status))?;
         }
-        out.write_str("</label>")?;
+        Tab::Security => security(st, secure, roots, out)?,
+        Tab::Wifi | Tab::Time | Tab::Clock | Tab::Web => {
+            // each tab is its own form: saving sends only the settings shown on it
+            write!(out, "<form method=post action=\"/save?tab={}\">", tab.slug())?;
+            for k in KEYS.iter().filter(|k| k.name != "geo_rule" && Some(k.group) == tab.group()) {
+                setting(cfg, k, out)?;
+            }
+            out.write_str("<button>Save</button></form>")?;
+            if tab == Tab::Time {
+                out.write_str("<p><a href=/zones>List of timezone names</a></p>")?;
+            }
+        }
     }
-    out.write_str("<button>Save</button></form><p><a href=/zones>List of timezone names</a></p>")?;
+    write!(out, "<hr><p><small>picoclock {} is free software under the <a href=\"https://www.gnu.org/licenses/agpl-3.0.html\">GNU AGPL v3 or later</a>. Source code: <a href=\"https://github.com/dc0sk/picoclock\">github.com/dc0sk/picoclock</a></small></p></body></html>", crate::VERSION)
+}
+
+/// One setting as a labelled field.
+fn setting(cfg: &Config, k: &crate::config::KeyInfo, out: &mut impl Write) -> core::fmt::Result {
+    write!(out, "<label>{}<small>{}</small>", k.name, Esc(k.help))?;
+    let mut v = heapless::String::<160>::new();
+    if k.secret {
+        let _ = write!(out, "<input type=password name={} autocomplete=new-password placeholder=\"{}\">", k.name,
+            if cfg.write_display(k.name, &mut v).is_ok() && v == "(set)" { "(set; leave blank to keep)" } else { "(empty)" });
+    } else if matches!(k.help.split(':').next(), Some("on|off")) || k.help == "on|off" {
+        let _ = cfg.write_value(k.name, &mut v);
+        let on = v == "on";
+        write!(out, "<select name={}><option value=on{}>on<option value=off{}>off</select>", k.name,
+            if on { " selected" } else { "" }, if on { "" } else { " selected" })?;
+    } else {
+        let _ = cfg.write_value(k.name, &mut v);
+        write!(out, "<input name={} value=\"{}\">", k.name, Esc(&v))?;
+    }
+    out.write_str("</label>")
+}
+
+/// The factory reset, and (over TLS, once HTTPS runs) the certificate and the NTS trust anchors.
+fn security(st: &Status, secure: bool, roots: &crate::rootstore::Roots, out: &mut impl Write) -> core::fmt::Result {
     // The button only asks; the erase needs the confirmation word on the next page.
     out.write_str("<form method=post action=/reset><h2>Factory reset</h2><p>Erase all settings and start over. You are asked to confirm on the next page.</p><button>Factory reset...</button></form>")?;
     // Replacing the certificate means sending a private key: offered only over TLS, and only once the HTTPS server runs.
@@ -506,7 +595,7 @@ the server's own certificate first, then any intermediates, and the matching pri
 <form method=post action=/root><label>Remove number<input name=remove type=number min=1 max=4 required></label><button>Remove</button></form>",
         )?;
     }
-    write!(out, "<hr><p><small>picoclock {} is free software under the <a href=\"https://www.gnu.org/licenses/agpl-3.0.html\">GNU AGPL v3 or later</a>. Source code: <a href=\"https://github.com/dc0sk/picoclock\">github.com/dc0sk/picoclock</a></small></p></body></html>", crate::VERSION)
+    Ok(())
 }
 
 /// Plain-text list of all timezone names, one per line, streamed by the caller in chunks.
@@ -648,14 +737,18 @@ mod tests {
         c.set("wifi_password", "topsecret1").unwrap();
         c.set("web_password", "adminpw").unwrap();
         let mut page = heapless::String::<12288>::new();
-        render_page(&c, &Status::default(), Some(("a <b> message", true)), false, &crate::rootstore::Roots::new(), &mut page).unwrap();
+        for tab in [Tab::Wifi, Tab::Web, Tab::Clock] {
+            let mut one = heapless::String::<12288>::new();
+            render_page(&c, &Status::default(), Some(("a <b> message", true)), false, &crate::rootstore::Roots::new(), tab, &mut one).unwrap();
+            assert!(one.len() < 6000, "{tab:?} is {} bytes", one.len());
+            let _ = page.push_str(&one);
+        }
         assert!(!page.contains("<script>"), "ssid must be escaped");
         assert!(page.contains("&lt;script&gt;&quot;x&quot;&amp;"));
         assert!(page.contains("a &lt;b&gt; message"));
         assert!(!page.contains("topsecret1") && !page.contains("adminpw"));
         assert!(page.contains("leave blank to keep"));
         assert!(page.contains("name=hour12><option value=on"));
-        assert!(page.len() < 11000, "page is {} bytes", page.len());
     }
 
     // VERIFIES: REQ-WEB-01 REQ-WEB-05
@@ -667,7 +760,8 @@ mod tests {
             c.set(&format!("wifi{n}_password"), &"p".repeat(63)).unwrap();
         }
         let mut page = heapless::String::<12288>::new();
-        render_page(&c, &Status::default(), None, false, &crate::rootstore::Roots::new(), &mut page).expect("worst-case page must fit");
+        render_page(&c, &Status::default(), None, false, &crate::rootstore::Roots::new(), Tab::Wifi, &mut page).expect("worst-case page must fit");
+        assert!(page.len() < 6000, "{} bytes: the WiFi tab leaves room", page.len());
         assert!(page.contains("name=wifi8_ssid") && page.contains("name=wifi8_password"));
         assert!(!page.contains(&"p".repeat(63)));
     }
@@ -685,7 +779,7 @@ mod tests {
         assert_eq!(parse_reset_form(&[0xff, 0xfe]), ResetForm::Refused, "not text");
         // the main page only has the button; the confirmation word is asked on the second page
         let mut page = heapless::String::<12288>::new();
-        render_page(&Config::default(), &Status::default(), None, false, &crate::rootstore::Roots::new(), &mut page).unwrap();
+        render_page(&Config::default(), &Status::default(), None, false, &crate::rootstore::Roots::new(), Tab::Security, &mut page).unwrap();
         assert!(page.contains("action=/reset") && !page.contains("name=confirm"));
         let mut ask = heapless::String::<4096>::new();
         render_reset_confirm(Some("The word did not match <b>"), &mut ask).unwrap();
@@ -698,13 +792,16 @@ mod tests {
     fn page_shows_name_and_mac_address() {
         let st = Status { mac: Some([0x28, 0xcd, 0xc1, 0x12, 0x34, 0xab]), ..Default::default() };
         let mut page = heapless::String::<12288>::new();
-        render_page(&Config::default(), &st, None, false, &crate::rootstore::Roots::new(), &mut page).unwrap();
+        render_page(&Config::default(), &st, None, false, &crate::rootstore::Roots::new(), Tab::Status, &mut page).unwrap();
         assert!(page.contains("mac     : 28:cd:c1:12:34:ab") && page.contains("name    : picoclock-ab"));
         let mut c = Config::default();
         c.set("hostname", "uhr").unwrap();
         let mut page = heapless::String::<12288>::new();
-        render_page(&c, &st, None, false, &crate::rootstore::Roots::new(), &mut page).unwrap();
-        assert!(page.contains("name    : uhr") && page.contains("name=hostname value=\"uhr\""));
+        render_page(&c, &st, None, false, &crate::rootstore::Roots::new(), Tab::Status, &mut page).unwrap();
+        assert!(page.contains("name    : uhr"));
+        let mut page = heapless::String::<12288>::new();
+        render_page(&c, &st, None, false, &crate::rootstore::Roots::new(), Tab::Web, &mut page).unwrap();
+        assert!(page.contains("name=hostname value=\"uhr\""));
         // the form changes the name like the terminal does, and a bad one is refused
         let mut errors = heapless::String::<256>::new();
         assert_eq!(apply_form(b"hostname=Wohnzimmer", &mut c, &mut errors), 1);
@@ -766,7 +863,7 @@ mod tests {
         c.set("time_sources", "dcf77,ntp").unwrap();
         c.set("time_mode", "vote").unwrap();
         let mut page = heapless::String::<12288>::new();
-        render_page(&c, &st, None, true, &crate::rootstore::Roots::new(), &mut page).unwrap();
+        render_page(&c, &st, None, true, &crate::rootstore::Roots::new(), Tab::Status, &mut page).unwrap();
         let pre = page.split("<pre>").nth(1).unwrap().split("</pre>").next().unwrap();
         // the last line of `status` and both lines of `time` must be whole
         assert!(pre.contains("\nscan    :"), "{pre}");
@@ -793,7 +890,7 @@ mod tests {
     #[test]
     fn page_overflow_is_an_error_not_a_panic() {
         let mut tiny = heapless::String::<100>::new();
-        assert!(render_page(&Config::default(), &Status::default(), None, false, &crate::rootstore::Roots::new(), &mut tiny).is_err());
+        assert!(render_page(&Config::default(), &Status::default(), None, false, &crate::rootstore::Roots::new(), Tab::Status, &mut tiny).is_err());
     }
 
     fn get(host: Option<&'static str>, path: &'static str) -> Request<'static> {
@@ -827,6 +924,84 @@ mod tests {
         assert_eq!(https_redirect(&get(None, "/"), "evil\r\nX: y"), None);
     }
 
+    // VERIFIES: REQ-WEB-11
+    #[test]
+    fn every_setting_is_on_exactly_one_tab() {
+        let c = Config::default();
+        let page = |tab| {
+            let mut p = heapless::String::<12288>::new();
+            render_page(&c, &Status::default(), None, false, &crate::rootstore::Roots::new(), tab, &mut p).unwrap();
+            p
+        };
+        for k in KEYS.iter().filter(|k| k.name != "geo_rule") {
+            let on: std::vec::Vec<_> = Tab::ALL.into_iter().filter(|t| page(*t).contains(&format!("<label>{}<small>", k.name))).collect();
+            assert_eq!(on.len(), 1, "{} appears on {on:?}", k.name);
+        }
+        assert!(Tab::ALL.into_iter().all(|t| !page(t).contains("<label>geo_rule<")), "the location cache is not a setting");
+        // the status text only on the status tab, the settings forms post back to their own tab
+        for t in Tab::ALL {
+            let p = page(t);
+            assert_eq!(p.contains("<pre>"), t == Tab::Status, "{t:?}");
+            if matches!(t, Tab::Wifi | Tab::Time | Tab::Clock | Tab::Web) {
+                assert!(p.contains(&format!("action=\"/save?tab={}\"", t.slug())), "{t:?}");
+            }
+            // six links, the open one marked
+            assert_eq!(p.matches("<nav>").count() + p.matches("<a href=\"/?tab=").count(), 7, "{t:?}");
+            assert_eq!(p.matches("aria-current=page").count(), 1);
+            assert!(p.contains(&format!("href=\"/?tab={}\" aria-current=page", t.slug())), "{t:?}");
+            assert!(p.len() < 6500, "{t:?} is {} bytes", p.len());
+        }
+    }
+
+    // VERIFIES: REQ-WEB-11
+    #[test]
+    fn the_tab_comes_from_the_query_and_is_never_echoed() {
+        for (q, want) in [("", Tab::Status), ("tab=wifi", Tab::Wifi), ("tab=WIFI", Tab::Wifi), ("x=1&tab=time", Tab::Time), ("tab=clock&x", Tab::Clock),
+            ("tab=web", Tab::Web), ("tab=security", Tab::Security), ("tab=%ff", Tab::Status), ("tab=<script>", Tab::Status), ("tab=", Tab::Status),
+            ("tab=wifi2", Tab::Status), ("tabs=wifi", Tab::Status), ("xtab=wifi", Tab::Status)] {
+            assert_eq!(tab_from_query(q), want, "{q:?}");
+        }
+        assert_eq!(split_query("/save?tab=wifi"), ("/save", "tab=wifi"));
+        assert_eq!(split_query("/zones"), ("/zones", ""));
+        assert_eq!(split_query("/?tab=time&a=b?c"), ("/", "tab=time&a=b?c"));
+        let mut page = heapless::String::<12288>::new();
+        render_page(&Config::default(), &Status::default(), None, false, &crate::rootstore::Roots::new(), tab_from_query("tab=<script>alert(1)</script>"), &mut page).unwrap();
+        assert!(!page.contains("alert(1)"));
+    }
+
+    // VERIFIES: REQ-WEB-11 REQ-WEB-01
+    #[test]
+    fn the_busiest_pages_fit_with_room_to_spare() {
+        // the busy status block alone, and the security page with four trust anchors and a long error message
+        let mut busy = std::string::String::new();
+        let mut roots = crate::rootstore::Roots::new();
+        for seed in 1..=4u8 {
+            let cert = crate::x509::generate_self_signed([seed; 32], [seed; 8], &["a-fairly-long-authority-name.example"], 1_792_000_000).unwrap();
+            roots.add_pem(&format!("-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n", b64(&cert)), None).unwrap();
+        }
+        let st = Status { https_state: 2, utc_unix: Some(1_800_000_000), ..Default::default() };
+        let message = "x".repeat(300);
+        for tab in Tab::ALL {
+            let mut p = heapless::String::<12288>::new();
+            render_page(&Config::default(), &st, Some((&message, true)), true, &roots, tab, &mut p).unwrap();
+            assert!(p.len() < 8000, "{tab:?}: {} bytes of 12288", p.len());
+            busy.push_str(&format!("{tab:?}={} ", p.len()));
+        }
+        assert!(!busy.is_empty());
+    }
+
+    // VERIFIES: REQ-WEB-11
+    #[test]
+    fn a_tab_saves_what_it_sends_and_ignores_nothing_it_knows() {
+        // the form of one tab posts only its own settings; a body with a setting from another tab is still applied (the
+        // parser does not know the tabs), and blank secrets keep the old value
+        let mut c = Config::default();
+        c.set("web_password", "keepme").unwrap();
+        let mut errs = std::string::String::new();
+        assert_eq!(apply_form(b"hostname=lab&web_password=&hour12=on", &mut c, &mut errs), 2);
+        assert_eq!((c.hostname.as_str(), c.hour12, c.web_password.as_str()), ("lab", true, "keepme"));
+    }
+
     // VERIFIES: REQ-WEB-08
     #[test]
     fn upload_form_is_offered_only_over_tls_and_only_when_https_runs() {
@@ -834,7 +1009,7 @@ mod tests {
         let ready = Status { https_state: 2, ..Default::default() };
         let page = |st: &Status, secure| {
             let mut p = heapless::String::<12288>::new();
-            render_page(&c, st, None, secure, &crate::rootstore::Roots::new(), &mut p).unwrap();
+            render_page(&c, st, None, secure, &crate::rootstore::Roots::new(), Tab::Security, &mut p).unwrap();
             p
         };
         assert!(page(&ready, true).contains("action=/cert") && page(&ready, true).contains("name=key"));
@@ -976,7 +1151,7 @@ mod tests {
         }
         let page = |st: &Status, secure| {
             let mut p = heapless::String::<12288>::new();
-            render_page(&c, st, None, secure, &roots, &mut p).expect("the page with four roots must fit the buffer");
+            render_page(&c, st, None, secure, &roots, Tab::Security, &mut p).expect("the page with four roots must fit the buffer");
             p
         };
         let p = page(&ready, true);

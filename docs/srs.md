@@ -362,6 +362,11 @@ The web server shall accept a request of up to 8 KiB, so that an uploaded certif
 *Why:* Found by the full-code review of 2026-10-17: the request limit was 4 KiB and the form parser's text buffer 3.5 KB, while the PEM text of a 3 KB chain is about 4.3 KB, so the largest chain the page promised could not be uploaded.  
 *Implemented by:* HTTP parsing, settings page and web server
 
+**REQ-WEB-11** (ratified, medium)  
+The web interface shall consist of six pages selected by `?tab=` (Status, WiFi, Time, Clock, Web, Security; an unknown or missing tab is the status page), without JavaScript: the status text only on the Status page, each setting on exactly one of the four settings pages, each of which is its own form saving only the settings it shows, and the factory reset, the certificate upload and the NTS trust anchors on the Security page; every page shall fit its buffer with room to spare, with every optional part present.  
+*Why:* Requested by the owner (2026-10-18) because the settings had grown to about 45 on one page. Fable's review of the options measured a latent overflow of the 12 KB page buffer when a busy status block, four trust anchors and a message were all on one page; one page per group removes it. REQ-WEB-01 (the page fits) still holds, now for each page.  
+*Implemented by:* HTTP parsing, settings page and web server, Configuration model and flash storage
+
 
 ### 4.10 Time sources
 

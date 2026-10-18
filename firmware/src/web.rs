@@ -11,7 +11,7 @@ use embassy_net::Stack;
 use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_io_async::{Read, Write};
-use picoclock_core::http::{self, Method, Parse, Request};
+use picoclock_core::http::{self, Method, Parse, Request, Tab};
 
 use crate::state;
 
@@ -30,10 +30,10 @@ async fn respond<S: Write>(io: &mut S, status: &str, ctype: &str, extra: &str, b
     io.flush().await
 }
 
-async fn page<S: Write>(io: &mut S, msg: Option<(&str, bool)>, secure: bool) -> Result<(), S::Error> {
+async fn page<S: Write>(io: &mut S, msg: Option<(&str, bool)>, secure: bool, tab: Tab) -> Result<(), S::Error> {
     let mut body = heapless::String::<12288>::new();
     let (cfg, st) = (state::config_snapshot(), state::status());
-    if http::render_page(&cfg, &st, msg, secure, &state::roots_snapshot(), &mut body).is_err() {
+    if http::render_page(&cfg, &st, msg, secure, &state::roots_snapshot(), tab, &mut body).is_err() {
         return respond(io, "500 Internal Server Error", "text/plain", "", "page too large\n").await;
     }
     respond(io, "200 OK", "text/html; charset=utf-8", "", &body).await
@@ -64,8 +64,10 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
     if !http::authorized(&cfg, req.authorization) {
         return respond(io, "401 Unauthorized", "text/plain", "WWW-Authenticate: Basic realm=\"picoclock\"\r\n", "login required\n").await;
     }
-    match (&req.method, req.path) {
-        (Method::Get, "/") => page(io, None, secure).await,
+    let (path, query) = http::split_query(req.path);
+    let tab = http::tab_from_query(query);
+    match (&req.method, path) {
+        (Method::Get, "/") => page(io, None, secure, tab).await,
         (Method::Get, "/zones") => {
             // ~10 KB: stream in chunks rather than buffering.
             let total: usize = http::zone_names().map(|n| n.len() + 1).sum();
@@ -92,7 +94,7 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             let changed = state::edit_and_save(true, |c| http::apply_form(req.body, c, &mut errors));
             let mut msg = heapless::String::<320>::new();
             let _ = write!(msg, "{changed} setting(s) changed and saved. {errors}");
-            page(io, Some((&msg, !errors.is_empty())), secure).await
+            page(io, Some((&msg, !errors.is_empty())), secure, tab).await
         }
         (Method::Post, "/reset") => {
             // With HTTPS on, the plain port may not erase the clock even when the redirect is switched off: without a web
@@ -134,9 +136,9 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
                     state::set_tls_material(material);
                     state::TLS_SAVE.signal(());
                     state::CERT_RELOAD.signal(());
-                    page(io, Some(("Certificate replaced. New connections use it; reload the page and your browser may ask you to trust it.", false)), secure).await
+                    page(io, Some(("Certificate replaced. New connections use it; reload the page and your browser may ask you to trust it.", false)), secure, Tab::Security).await
                 }
-                Err(e) => page(io, Some((e.message(), true)), secure).await,
+                Err(e) => page(io, Some((e.message(), true)), secure, Tab::Security).await,
             }
         }
         (Method::Post, "/root") => {
@@ -157,9 +159,9 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
                         Ok(n) => {
                             let mut msg = heapless::String::<96>::new();
                             let _ = write!(msg, "Added {n} certificate authorit{}; saved to flash.", if n == 1 { "y" } else { "ies" });
-                            page(io, Some((&msg, false)), secure).await
+                            page(io, Some((&msg, false)), secure, Tab::Security).await
                         }
-                        Err(e) => page(io, Some((e.message(), true)), secure).await,
+                        Err(e) => page(io, Some((e.message(), true)), secure, Tab::Security).await,
                     }
                 }
                 Some(http::RootForm::Remove(n)) => {
@@ -168,12 +170,12 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
                         (ok, ok)
                     });
                     if removed {
-                        page(io, Some(("Removed; saved to flash.", false)), secure).await
+                        page(io, Some(("Removed; saved to flash.", false)), secure, Tab::Security).await
                     } else {
-                        page(io, Some(("There is no such number in the list.", true)), secure).await
+                        page(io, Some(("There is no such number in the list.", true)), secure, Tab::Security).await
                     }
                 }
-                None => page(io, Some(("Paste a PEM certificate, or give the number to remove.", true)), secure).await,
+                None => page(io, Some(("Paste a PEM certificate, or give the number to remove.", true)), secure, Tab::Security).await,
             }
         }
         (Method::Get | Method::Post, _) => respond(io, "404 Not Found", "text/plain", "", "not found\n").await,

@@ -251,8 +251,13 @@ forward port 123 from the internet to the clock.
 
 ## Web page
 
-Find the clock's IP with `status` (or your router) and open `http://<ip>/`. The page shows status and all settings, and
-ends with the software version, the repository link and the license.
+Find the clock's IP with `status` (or your router) and open `http://<ip>/`. The interface has six pages, linked at the top of
+each (`/?tab=status`, `wifi`, `time`, `clock`, `web`, `security`): **Status** (the same text as the terminal's `status` and
+`time`), the settings in four groups, **WiFi**, **Time** (timezone, NTP/NTS, time sources and votes, DCF77), **Clock**
+(display, alarm, chime, HAM mode) and **Web** (name, mDNS, web password, HTTPS), and **Security** (factory reset and, over
+HTTPS, the certificate and the NTS trust anchors). Each settings page is its own form with its own *Save*, which saves only
+the settings on that page; switching pages drops what you typed and did not save. There is no JavaScript. Every page ends with
+the software version, the repository link and the license.
 
 - **Pico 2 W:** HTTPS. `http://<ip>/` redirects to `https://<ip>/`; accept the clock's certificate once (compare the
   fingerprint with `cert` in the terminal), see *HTTPS (Pico 2 W)*.
@@ -450,9 +455,6 @@ Planned for future releases (not implemented). Delivered in 0.2.0: source select
 - **GPS module (u-blox NEO-M9N, SparkFun board)** as a time source over UART (NMEA/UBX, optionally the PPS pulse for sub-millisecond
   accuracy; planned wiring UART1 on GP4/GP5 and PPS on GP3, or the I2C bus the RTC uses), which would also let the NTP server claim a low stratum. Delivering it bumps the software version again, after
   another full-code review.
-- **Web page revised into tabs** (Fable's advice, 2026-10-18): one page per group (Status, WiFi, Time, Clock, Web, Security) as
-  `GET /?tab=...`, each group its own form, no JavaScript; this also removes a latent overflow of the 12 KB page buffer when
-  every optional part is shown at once. Not started.
 - Pico 2 W: run it for days; press the buttons and cover the light sensor on it.
 
 **Found by the full-code review of 2026-10-17** (Fable, before the time-source phase). Fixed in that round: the web status
