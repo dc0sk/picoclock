@@ -102,7 +102,9 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             }
             state::with_runtime(|r| r.update = picoclock_core::update::Check::Checking);
             state::UPDATE_NOW.signal(());
-            page(io, Some(("Asking GitHub for the latest release. Reload this page in a few seconds; nothing is installed.", false)), secure, Tab::Status).await
+            // Post/Redirect/Get: the answer to the button is a redirect to a plain page, so reloading that page asks nothing again.
+            // The Status page refreshes itself while the check runs.
+            respond(io, "303 See Other", "text/plain", "Location: /?tab=status\r\n", "checking; see the status page\n").await
         }
         (Method::Post, "/reset") => {
             // With HTTPS on, the plain port may not erase the clock even when the redirect is switched off: without a web

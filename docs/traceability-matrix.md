@@ -23,8 +23,8 @@ last_updated: 2026-10-18
 | Ratified with hardware evidence                                   | 70    |
 | Ratified with unit tests only (no hardware, host or build record) | 18    |
 | Ratified and UNVERIFIED (stated reason)                           | 0     |
-| Unit tests bound to requirements                                  | 189   |
-| Verification records                                              | 62    |
+| Unit tests bound to requirements                                  | 190   |
+| Verification records                                              | 63    |
 
 ## Forward: requirement to evidence
 
@@ -77,7 +77,7 @@ last_updated: 2026-10-18
 | REQ-CFG-09  | ratified | high   | CLI, HTTP, CONFIG, APP         | 3          | VR-55                                    | unit, hardware        |
 | REQ-CFG-10  | ratified | high   | CONFIG, APP                    | 3          | -                                        | unit                  |
 | REQ-NET-10  | ratified | medium | NET, CLI                       | 1          | VR-62                                    | unit, hardware        |
-| REQ-UPD-01  | ratified | medium | UPDATE, NET, CLI, HTTP, CONFIG | 4          | VR-63                                    | unit, hardware        |
+| REQ-UPD-01  | ratified | medium | UPDATE, NET, CLI, HTTP, CONFIG | 5          | VR-63, VR-64                             | unit, hardware        |
 | REQ-UPD-02  | ratified | medium | UPDATE                         | 2          | -                                        | unit                  |
 | REQ-UPD-03  | ratified | high   | UPDATE, NTS, NET               | 1          | VR-63                                    | unit, hardware        |
 | REQ-CLI-01  | ratified | medium | CLI                            | 7          | VR-01, VR-02                             | unit, hardware        |
@@ -228,7 +228,7 @@ These have never been seen working on the clock (they may still have unit tests)
 - **REQ-CFG-09**: `cli::factory_reset_is_a_request_and_needs_the_exact_word`, `http::factory_reset_takes_two_steps_on_the_web_page`, `slots::first_save_cut_off_leaves_defaults_never_garbage_and_erase_all_clears_both`
 - **REQ-CFG-10**: `slots::a_save_cut_off_at_any_step_leaves_the_old_or_the_new_settings`, `slots::first_save_cut_off_leaves_defaults_never_garbage_and_erase_all_clears_both`, `slots::the_backup_is_used_when_the_primary_is_blank_or_torn`
 - **REQ-NET-10**: `cli::status_names_the_dhcp_server_the_access_points_and_a_changed_lease`
-- **REQ-UPD-01**: `http::only_the_status_page_offers_the_update_check_and_it_shows_the_result`, `update::the_answer_is_judged_against_the_running_version`, `update::status_says_what_was_found_and_never_that_anything_was_installed`, `update::the_request_names_the_release_endpoint_and_the_running_version`
+- **REQ-UPD-01**: `http::only_the_status_page_offers_the_update_check_and_it_shows_the_result`, `http::the_status_page_refreshes_itself_only_while_a_check_runs`, `update::the_answer_is_judged_against_the_running_version`, `update::status_says_what_was_found_and_never_that_anything_was_installed`, `update::the_request_names_the_release_endpoint_and_the_running_version`
 - **REQ-UPD-02**: `update::versions_parse_strictly_and_compare_by_number`, `update::the_answer_is_judged_against_the_running_version`
 - **REQ-UPD-03**: `lib::the_update_check_trusts_exactly_one_root_and_it_is_not_an_nts_root`
 - **REQ-CLI-01**: `cli::set_get_show`, `cli::set_without_value_clears_text_settings`, `cli::actions`, `cli::time_shows_utc_and_local`, `cli::tz_listing_and_status`, `cli::help_lists_every_key`, `cli::status_shows_heap_use_only_where_there_is_a_heap`
@@ -333,3 +333,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-61  | 2026-10-18 | hardware | The six web pages on the Pico 2 W; one SSID on two networks                         | REQ-WEB-11                                                                                   |
 | VR-62  | 2026-10-18 | hardware | A second DHCP answer and the access points the clock hears                          | REQ-NET-10                                                                                   |
 | VR-63  | 2026-10-18 | hardware | The firmware update check against GitHub                                            | REQ-UPD-01, REQ-UPD-03                                                                       |
+| VR-64  | 2026-10-18 | hardware | The update button no longer asks again when the page is reloaded                    | REQ-UPD-01                                                                                   |

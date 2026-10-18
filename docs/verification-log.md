@@ -761,3 +761,15 @@ handshake stops the other tasks there are untested on that chip; the daily sched
 no real release of this project exists to be found as "newer".
 
 Verifies: REQ-UPD-01, REQ-UPD-03
+
+### VR-64 · 2026-10-18 · hardware · The update button no longer asks again when the page is reloaded
+
+Found by the owner: the answer to `POST /update-check` was the page itself with the text "reload this page in a few seconds", and a
+reload made the browser send the request again and start another check. Now the answer is `303 See Other` to `/?tab=status`, and while
+a check runs the Status page carries a 4-second refresh. On the Pico 2 W: the POST returned `303` with `Location: /?tab=status`; a GET right
+after showed "update  : checking GitHub..." and the refresh; a GET 14 s later showed the result without it; five further GETs left
+"checked 0 min ago" unchanged, so reloading asks nothing. **Not verified in a browser** (curl only). The other forms of the web
+interface (`/save`, `/root`, `/cert`) still answer a POST with the page itself and so have the same resubmission on reload; for `/root`
+(remove number n) a reload would remove another authority.
+
+Verifies: REQ-UPD-01

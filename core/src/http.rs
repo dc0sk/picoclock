@@ -510,7 +510,12 @@ pub fn tab_from_query(query: &str) -> Tab {
 
 /// Renders one page of the web interface. Fails (`fmt::Error`) only if `out` is too small.
 pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure: bool, roots: &crate::rootstore::Roots, tab: Tab, out: &mut impl Write) -> core::fmt::Result {
-    out.write_str(PAGE_HEAD)?;
+    // While an update check runs, the Status page asks the browser to load it again in a few seconds (a plain GET, which
+    // asks nothing of the clock), so the answer appears without the user reloading by hand.
+    match (tab, st.update == crate::update::Check::Checking, PAGE_HEAD.split_once("</head>")) {
+        (Tab::Status, true, Some((head, rest))) => write!(out, "{head}<meta http-equiv=refresh content=4></head>{rest}")?,
+        _ => out.write_str(PAGE_HEAD)?,
+    }
     out.write_str("<nav>")?;
     for t in Tab::ALL {
         write!(out, "<a href=\"/?tab={}\"{}>{}</a>", t.slug(), if t == tab { " aria-current=page" } else { "" }, t.label())?;
@@ -977,6 +982,26 @@ mod tests {
         }
         c.set("update_check", "off").unwrap();
         assert!(!c.update_check);
+    }
+
+    // VERIFIES: REQ-UPD-01
+    #[test]
+    fn the_status_page_refreshes_itself_only_while_a_check_runs() {
+        let c = Config::default();
+        let page = |tab, check| {
+            let st = Status { update: check, ..Default::default() };
+            let mut p = heapless::String::<12288>::new();
+            render_page(&c, &st, None, true, &crate::rootstore::Roots::new(), tab, &mut p).unwrap();
+            p
+        };
+        let checking = page(Tab::Status, crate::update::Check::Checking);
+        assert!(checking.contains("<meta http-equiv=refresh content=4></head><body>"), "the refresh is in the head");
+        assert!(checking.starts_with("<!doctype html>") && checking.matches("</head>").count() == 1);
+        for (tab, check) in [(Tab::Status, crate::update::Check::UpToDate), (Tab::Status, crate::update::Check::Never), (Tab::Time, crate::update::Check::Checking), (Tab::Security, crate::update::Check::Checking)] {
+            assert!(!page(tab, check).contains("http-equiv=refresh"), "{tab:?} {check:?}");
+        }
+        // the page that carries the refresh has no form whose resubmission matters: the refresh is a GET of /?tab=status's own URL
+        assert!(!checking.contains("action=/save"));
     }
 
     // VERIFIES: REQ-WEB-11
