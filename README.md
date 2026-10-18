@@ -30,6 +30,8 @@ serves the web page, the web password and the WiFi passphrases over plain HTTP. 
   authenticates the time with TLS 1.3 and AES-SIV; see *Secure NTP* below.
 - **Time sources:** NTP/NTS and, since 0.2.0, a DCF77 radio receiver module, combined by an ordered list with
   fallbacks or by a vote between them; see *Time sources*.
+- **HAM mode (optional):** `set ham_mode on` makes the hourly chime the time in Morse code (HHMM, local 24-hour time), and holding
+  UP or DOWN for 1.5 seconds sends it on request. SET keeps the menu. Speed `morse_wpm`, default 18.
 - **NTP server (optional):** `ntp_serve on` lets other devices on the LAN use the clock as a time source. Off by default.
 - **WiFi:** up to 8 stored networks, tried in slot order, or with `set wifi_select strongest` the strongest one in range
   first (stored networks the scan did not see, such as hidden ones, still get their turn). The device name on the network is
@@ -38,6 +40,24 @@ serves the web page, the web password and the WiFi passphrases over plain HTTP. 
   USB serial terminal, web page (HTTPS on the Pico 2 W, plain HTTP on the Pico W), and the buttons for the everyday settings.
 - **Hardware:** RTC with its temperature sensor plus the RP2040/RP2350 die sensor (`chip` in `status`; it reads warmer
   than the room), buzzer (key beep, hourly chime, alarm), ambient-light auto-brightness, and the three buttons.
+
+## Hardware
+
+| Part                      | Product                                                                                                  | Notes |
+|---------------------------|----------------------------------------------------------------------------------------------------------|-------|
+| Clock                     | [Waveshare Pico-Clock-Green](https://www.waveshare.com/pico-clock-green.htm)                              | 32x8 LED matrix, DS3231 RTC, buzzer, light sensor, three buttons; takes a Raspberry Pi Pico on its header |
+| Controller (**preferred**) | Raspberry Pi **Pico 2 W** (RP2350)                                                                       | All features: HTTPS, NTS with RSA certificate chains, hardware random number generator |
+| Controller (alternative)  | Raspberry Pi **Pico W** (RP2040)                                                                          | Works, with the limits below |
+| DCF77 receiver (optional) | [Pollin DCF1, order no. 810 054](https://www.pollin.de/p/dcf-empfangsmodul-dcf1-810054)                   | Pins PON, TCO, GND, VCC; wiring in *Time sources* |
+| GPS (planned, not yet supported) | SparkFun u-blox NEO-M9N                                                                            | Next release cycle |
+| Debug probe (optional)    | Raspberry Pi Debug Probe (CMSIS-DAP)                                                                      | Only for the RTT logs, see *Debugging* |
+
+**What the Pico W (RP2040) cannot do compared with the Pico 2 W:** no HTTPS (the web page is plain HTTP, so the web password
+and WiFi passphrases travel in clear on your LAN; use the USB terminal for those); NTS only with ECDSA certificate chains,
+so servers with RSA chains (several Let's Encrypt-based ones, for example `ptbtime1.ptb.de`, and chains you add yourself) are
+refused; random numbers come from the ring oscillator, conditioned in software, not from a hardware generator (this feeds
+the NTS key exchange); and the NTS key exchange stops the other tasks for 5 to 7 seconds (0.5 to 1 second on the Pico 2 W).
+The Pico W build has so far been compiled but not run with the features added since 0.1.0 (see *Status and limits*).
 
 ## Build and flash
 
@@ -111,6 +131,8 @@ Changes apply immediately but are only written to flash by `save` (the web page 
 | `https`, `http_redirect` | Pico 2 W only: serve the web page over HTTPS; redirect plain-HTTP page requests to it | on, on |
 | `wifi_select` | `order` (first stored network in slot order) or `strongest` (the strongest one in range) | `order` |
 | `mdns` | answer for `<device name>.local` on the LAN | on |
+| `dcf77_delay`, `dcf77_learned` | DCF77 receiver delay: `auto` (learned against NTP) or 0 to 500 ms; the learned value is kept | `auto`, 0 |
+| `ham_mode`, `morse_wpm` | `on`: the hourly chime and a 1.5 s hold of UP or DOWN send the time as Morse code (HHMM); speed 5 to 40 wpm | off, 18 |
 | `time_sources` | the time sources in use, best first: `ntp`, `dcf77` (see *Time sources*) | `ntp` |
 | `time_mode` | `order` (first source with a fresh time) or `vote` (the sources must agree) | `order` |
 | `vote_ntp`, `vote_dcf77` | vote power 0 to 9 per source in mode `vote` (0 = compared and shown, cannot decide) | 1, 1 |
@@ -272,13 +294,16 @@ it is from the clock, and for DCF77 the pulse and frame counters.
   digits, a real date and a weekday that fits the date, and the clock is only set when **two consecutive frames** announce
   minutes exactly one minute apart. The receiver sends German time; the clock converts it with the transmitted CET/CEST bits,
   so your `timezone` does not matter. A DCF77 time renews the sync time but rewrites the RTC only when the clock is more than
-  0.3 s off (the receiver has second resolution). Locking can take 20 minutes or more; reception is often better at night and
+  0.3 s off (the receiver has second resolution). The receiver's own delay (about 50 to 80 ms on the first one tried) is set
+  with `dcf77_delay`, by hand or, by default, learned: the clock compares confirmed DCF77 times with a fresh NTP time and keeps
+  the median. Locking can take 20 minutes or more; reception is often better at night and
   poor next to a display or a WiFi radio, so place the antenna away from them.
 - **Wiring** (module with the pins PON, TCO, GND, VCC, for example the Pollin DCF1): PON to GP0, TCO to GP1, GND, VCC from the
   3V3 pin (the module takes 1.2 to 3.3 V), and a 10 µF capacitor across the supply. The receiver is only switched on while
   `dcf77` is in `time_sources`. See the wiring plan in `docs/design/architecture.md`.
-- **Not verified on hardware yet:** the DCF77 receiver (no module is wired to the clock yet). The decoder, the selection and the
-  settings are tested on the host; the settings and `status` run on a Pico 2 W without a module.
+- **Verified on a Pico 2 W** with a Pollin DCF1 (2026-10-18, VR-59): decoding, DCF77 alone setting a restarted clock, the delay. **Not
+  yet:** the module with its supply capacitor, reception at night, and the vote with two live sources that disagree. The
+  antenna needs care: it received nothing until it was reseated with its wires bent away from the other components.
 
 ## Timezone lookup by IP (`timezone=auto`)
 
@@ -425,6 +450,9 @@ Planned for future releases (not implemented). Delivered in 0.2.0: source select
 - **GPS module (u-blox NEO-M9N, SparkFun board)** as a time source over UART (NMEA/UBX, optionally the PPS pulse for sub-millisecond
   accuracy; planned wiring UART1 on GP4/GP5 and PPS on GP3, or the I2C bus the RTC uses), which would also let the NTP server claim a low stratum. Delivering it bumps the software version again, after
   another full-code review.
+- **Web page revised into tabs** (Fable's advice, 2026-10-18): one page per group (Status, WiFi, Time, Clock, Web, Security) as
+  `GET /?tab=...`, each group its own form, no JavaScript; this also removes a latent overflow of the 12 KB page buffer when
+  every optional part is shown at once. Not started.
 - Pico 2 W: run it for days; press the buttons and cover the light sensor on it.
 
 **Found by the full-code review of 2026-10-17** (Fable, before the time-source phase). Fixed in that round: the web status

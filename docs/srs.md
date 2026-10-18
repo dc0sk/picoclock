@@ -403,11 +403,28 @@ The DCF77 receiver pulses shall be classified by width (about 100 ms = 0, about 
 **REQ-DCF-03** (ratified, medium)  
 The DCF77 receiver module shall be wired to GP0 (PON) and GP1 (TCO) and powered from the 3V3 pin; the receiver shall be switched on (PON low, after a high-to-low edge) only while `dcf77` is in `time_sources` and off (PON high) otherwise, and pulses shall be timed on the microsecond clock.  
 *Why:* Planned wiring in docs/design/architecture.md: the pins are free on the clock board, the module (1.2 to 3.3 V, PON low = on) needs no level shifting, and a receiver that is not used should not pick up or cause interference.  
-*Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Composition: task wiring, shared state, chip selection  
-*Unverified:* no receiver module is wired to the clock yet; the decoder and selection are tested on the host and the settings and status on the Pico 2 W without a module (VR-58). A hardware record follows when the module is fitted.
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Composition: task wiring, shared state, chip selection
+
+**REQ-DCF-04** (ratified, medium)  
+The DCF77 receiver delay (how late the receiver's pulse edges are) shall be settable by hand (`dcf77_delay` 0 to 500 ms) or learned automatically (`dcf77_delay auto`, the default): in auto mode the clock compares each confirmed DCF77 time with a fresh NTP time (at most 5 minutes old), keeps the median of the last readings (at least 4, readings more than 1 s off ignored), uses it, and stores it (`dcf77_learned`) so that it survives a restart; `status` shows the delay in use and whether it is learned or manual.  
+*Why:* Requested by the owner (2026-10-18). On the first receiver the DCF77 time was about 55 ms behind NTP; with a vote tolerance of a second this is harmless, but it makes the offset display and the sub-second phase of a DCF77-only clock wrong by the receiver's delay.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Configuration model and flash storage, Terminal commands and USB serial console
 
 
-### 4.11 Display
+### 4.11 Buzzer
+
+**REQ-HAM-01** (ratified, medium)  
+The time shall be convertible to Morse code as the four digits HHMM of the displayed local time in 24-hour form, with standard timing (dash = 3 dits, gap inside a digit = 1 dit, between digits = 3 dits) at a speed of 5 to 40 words per minute (`morse_wpm`, default 18, one dit = 1200 / wpm ms).  
+*Why:* Requested by the owner (2026-10-18) for radio amateurs: the time can be read without looking at the clock.  
+*Implemented by:* Buzzer driver
+
+**REQ-HAM-02** (ratified, medium)  
+With the setting `ham_mode on` (default off) the hourly chime (when `hourly_chime` is on) shall be the time in Morse code instead of the two beeps, and holding UP or DOWN for 1.5 seconds outside the menu shall sound the time in Morse code; nothing is sent while the clock has no time, in the menu, or while the alarm rings. The alarm keeps priority and SET keeps its menu function.  
+*Why:* Requested by the owner (2026-10-18): the hourly beep is the time in Morse code, also on a long hold of a button. SET's long hold already opens the menu, so UP and DOWN carry the hold.  
+*Implemented by:* Button, menu, alarm and view state machine, Buzzer driver, Button polling, Configuration model and flash storage
+
+
+### 4.12 Display
 
 **REQ-DSP-01** (ratified, high)  
 The firmware shall compose the 32x8 matrix, weekday LEDs and status icons into the panel's row format so that glyphs, shifts and icons do not disturb each other.  
@@ -420,7 +437,7 @@ During normal operation (WiFi connected, web page and NTP in use) the display sc
 *Implemented by:* LED matrix scan, Composition: task wiring, shared state, chip selection, Terminal commands and USB serial console
 
 
-### 4.12 Interaction
+### 4.13 Interaction
 
 **REQ-UI-01** (ratified, high)  
 The SET button shall cycle the time, date and temperature views and return to the time view after a timeout.  
@@ -458,7 +475,7 @@ The colon shall blink only while the time is NTP-synchronised, and the status ic
 *Implemented by:* Button, menu, alarm and view state machine
 
 
-### 4.13 Hardware
+### 4.14 Hardware
 
 **REQ-HW-01** (ratified, medium)  
 The clock shall read the DS3231 temperature sensor and show it on the display, the terminal and the web page.  
@@ -496,7 +513,7 @@ The clock shall accept a DCF77 receiver module and a u-blox GPS module as additi
 *Implemented by:* none yet
 
 
-### 4.14 Non-functional
+### 4.15 Non-functional
 
 **REQ-NFR-01** (ratified, medium)  
 The firmware image and the settings sector shall fit the flash of the target board without overlapping, and the static RAM shall fit the chip.  

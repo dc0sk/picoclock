@@ -73,9 +73,31 @@ pub struct Config {
     pub vote_power: [u8; SOURCES.len()],
     /// Seconds within which sources agree in mode `vote`.
     pub vote_tolerance: u16,
+    /// DCF77 receiver delay: `auto` uses `dcf77_learned`, otherwise `dcf77_delay_ms`.
+    pub dcf77_auto: bool,
+    pub dcf77_delay_ms: u16,
+    /// The delay the clock measured against NTP (kept so that it survives a restart).
+    pub dcf77_learned: u16,
+    /// HAM mode: the hourly chime and a long hold of UP or DOWN send the time in Morse code.
+    pub ham_mode: bool,
+    /// Morse speed in words per minute.
+    pub morse_wpm: u8,
+}
+
+fn parse_delay(value: &str) -> Result<u16, ConfigError> {
+    let ms: u16 = value.parse().map_err(|_| ConfigError::InvalidValue)?;
+    if ms > crate::dcf77::MAX_DELAY_MS {
+        return Err(ConfigError::InvalidValue);
+    }
+    Ok(ms)
 }
 
 impl Config {
+    /// The DCF77 receiver delay in use (ms).
+    pub fn dcf77_delay(&self) -> u16 {
+        if self.dcf77_auto { self.dcf77_learned } else { self.dcf77_delay_ms }
+    }
+
     /// The source selection as the selector wants it.
     pub fn policy(&self) -> Policy {
         Policy { mode: self.time_mode, order: self.time_sources.clone(), power: self.vote_power, tolerance_s: self.vote_tolerance }
@@ -110,6 +132,11 @@ impl Config {
             time_sources,
             vote_power,
             vote_tolerance,
+            dcf77_auto,
+            dcf77_delay_ms,
+            dcf77_learned,
+            ham_mode,
+            morse_wpm,
         } = after;
         macro_rules! carry {
             ($($f:ident),*) => { $( if before.$f != *$f { self.$f = $f.clone(); } )* };
@@ -117,7 +144,7 @@ impl Config {
         carry!(
             ntp_servers, timezone, geo_rule, dst, hour12, fahrenheit, brightness, key_beep, hourly_chime, alarm_enabled,
             alarm_minutes, web_password, web_enabled, ntp_serve, https, http_redirect, wifi_strongest, mdns, hostname, time_mode,
-            time_sources, vote_power, vote_tolerance
+            time_sources, vote_power, vote_tolerance, dcf77_auto, dcf77_delay_ms, dcf77_learned, ham_mode, morse_wpm
         );
         for (i, net) in wifi.iter().enumerate() {
             if before.wifi[i] != *net {
@@ -154,6 +181,11 @@ impl Default for Config {
             time_sources: heapless::Vec::from_slice(&[Source::Ntp]).unwrap(),
             vote_power: [1; SOURCES.len()],
             vote_tolerance: 2,
+            dcf77_auto: true,
+            dcf77_delay_ms: 0,
+            dcf77_learned: 0,
+            ham_mode: false,
+            morse_wpm: 18,
         }
     }
 }
@@ -204,6 +236,10 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { name: "vote_ntp", help: "0-9: vote power of NTP/NTS in mode vote (0 = compared and shown, cannot decide; default 1)", secret: false },
     KeyInfo { name: "vote_dcf77", help: "0-9: vote power of DCF77 in mode vote (default 1)", secret: false },
     KeyInfo { name: "vote_tolerance", help: "1-3600 seconds within which sources count as agreeing in mode vote (default 2)", secret: false },
+    KeyInfo { name: "dcf77_delay", help: "auto, or 0-500 ms: how late the DCF77 receiver's pulses are; auto learns it against NTP (default auto)", secret: false },
+    KeyInfo { name: "dcf77_learned", help: "0-500 ms: the delay learned in auto mode (kept over restarts; set it to start from a known value)", secret: false },
+    KeyInfo { name: "ham_mode", help: "on|off: send the time in Morse code (HHMM) instead of the hourly beeps, and when UP or DOWN is held for 1.5 s", secret: false },
+    KeyInfo { name: "morse_wpm", help: "5-40: Morse speed in words per minute (default 18)", secret: false },
     KeyInfo { name: "ntp_serve", help: "on|off: answer NTP requests from the LAN (accuracy about +-1 s)", secret: false },
 ];
 
@@ -408,6 +444,25 @@ impl Config {
                 }
                 self.vote_tolerance = secs;
             }
+            "dcf77_delay" => {
+                if value.eq_ignore_ascii_case("auto") {
+                    // the manual number is not kept (the record holds `auto`), so the value is the same after a restart
+                    self.dcf77_auto = true;
+                    self.dcf77_delay_ms = 0;
+                } else {
+                    self.dcf77_delay_ms = parse_delay(value)?;
+                    self.dcf77_auto = false;
+                }
+            }
+            "dcf77_learned" => self.dcf77_learned = parse_delay(value)?,
+            "ham_mode" => self.ham_mode = parse_bool(value)?,
+            "morse_wpm" => {
+                let wpm: u8 = value.parse().map_err(|_| ConfigError::InvalidValue)?;
+                if !(crate::morse::MIN_WPM..=crate::morse::MAX_WPM).contains(&wpm) {
+                    return Err(ConfigError::InvalidValue);
+                }
+                self.morse_wpm = wpm;
+            }
             "hostname" => {
                 // DNS names are case-insensitive; keep them lowercase so the certificate and mDNS name are unambiguous
                 let mut name = String::<HOSTNAME_MAX>::new();
@@ -457,6 +512,11 @@ impl Config {
             "vote_ntp" => write!(out, "{}", self.vote_power[Source::Ntp as usize]),
             "vote_dcf77" => write!(out, "{}", self.vote_power[Source::Dcf77 as usize]),
             "vote_tolerance" => write!(out, "{}", self.vote_tolerance),
+            "dcf77_delay" if self.dcf77_auto => out.write_str("auto"),
+            "dcf77_delay" => write!(out, "{}", self.dcf77_delay_ms),
+            "dcf77_learned" => write!(out, "{}", self.dcf77_learned),
+            "ham_mode" => out.write_str(on_off(self.ham_mode)),
+            "morse_wpm" => write!(out, "{}", self.morse_wpm),
             "hostname" => out.write_str(&self.hostname),
             "http_redirect" => out.write_str(on_off(self.http_redirect)),
             _ => return Err(ConfigError::UnknownKey),
@@ -616,6 +676,43 @@ mod tests {
             let before = c.clone();
             assert!(c.set(k, bad).is_err(), "{k}={bad:?}");
             assert_eq!(c, before, "a refused value changes nothing");
+        }
+        let mut buf = [0xFFu8; 2048];
+        let n = c.to_bytes(&mut buf).unwrap();
+        assert_eq!(Config::from_bytes(&buf[..n]), Some(c));
+    }
+
+    // VERIFIES: REQ-HAM-02
+    #[test]
+    fn ham_mode_settings_are_validated() {
+        let mut c = Config::default();
+        assert_eq!((val(&c, "ham_mode"), val(&c, "morse_wpm")), ("off".into(), "18".into()));
+        c.set("ham_mode", "on").unwrap();
+        c.set("morse_wpm", "40").unwrap();
+        for bad in ["4", "41", "fast", "-5"] {
+            assert!(c.set("morse_wpm", bad).is_err(), "{bad}");
+        }
+        let mut buf = [0xFFu8; 2048];
+        let n = c.to_bytes(&mut buf).unwrap();
+        let back = Config::from_bytes(&buf[..n]).unwrap();
+        assert!(back.ham_mode && back.morse_wpm == 40);
+    }
+
+    // VERIFIES: REQ-DCF-04
+    #[test]
+    fn the_receiver_delay_is_manual_or_automatic() {
+        let mut c = Config::default();
+        assert_eq!((val(&c, "dcf77_delay"), c.dcf77_delay()), ("auto".into(), 0), "automatic by default, nothing learned yet");
+        c.set("dcf77_learned", "57").unwrap();
+        assert_eq!(c.dcf77_delay(), 57);
+        c.set("dcf77_delay", "120").unwrap();
+        assert_eq!((val(&c, "dcf77_delay"), c.dcf77_delay()), ("120".into(), 120), "a number overrides what was learned");
+        c.set("dcf77_delay", "AUTO").unwrap();
+        assert_eq!((val(&c, "dcf77_delay"), c.dcf77_delay(), c.dcf77_delay_ms), ("auto".into(), 57, 0), "back to auto uses what was learned");
+        for (k, bad) in [("dcf77_delay", "501"), ("dcf77_delay", "-1"), ("dcf77_delay", "fast"), ("dcf77_learned", "501"), ("dcf77_learned", "auto")] {
+            let before = c.clone();
+            assert!(c.set(k, bad).is_err(), "{k}={bad}");
+            assert_eq!(c, before);
         }
         let mut buf = [0xFFu8; 2048];
         let n = c.to_bytes(&mut buf).unwrap();

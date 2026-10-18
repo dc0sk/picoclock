@@ -10,6 +10,8 @@ use crate::state::BUTTONS;
 const POLL_MS: u32 = 10;
 const DEBOUNCE: u32 = 30;
 const LONG: u32 = 800;
+/// UP / DOWN held this long send `Press::Long` once (HAM mode: the time in Morse code); they auto-repeat from `REPEAT_AFTER` on.
+const HOLD: u32 = 1500;
 const REPEAT_AFTER: u32 = 500;
 const REPEAT_EVERY: u32 = 150;
 
@@ -17,6 +19,7 @@ const REPEAT_EVERY: u32 = 150;
 struct Track {
     held_ms: u32,
     long_sent: bool,
+    hold_sent: bool,
 }
 
 #[embassy_executor::task]
@@ -32,6 +35,10 @@ pub async fn button_task(mut pins: [Input<'static>; 3]) -> ! {
                 match b {
                     Button::Set if t.held_ms >= LONG && !t.long_sent => {
                         t.long_sent = true;
+                        let _ = BUTTONS.try_send((b, Press::Long));
+                    }
+                    Button::Up | Button::Down if t.held_ms >= HOLD && !t.hold_sent => {
+                        t.hold_sent = true;
                         let _ = BUTTONS.try_send((b, Press::Long));
                     }
                     Button::Up | Button::Down

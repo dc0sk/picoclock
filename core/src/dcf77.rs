@@ -37,6 +37,59 @@ pub struct Stats {
     pub pulses_bad: u32,
 }
 
+/// Longest receiver delay that can be set or learned (ms).
+pub const MAX_DELAY_MS: u16 = 500;
+
+/// Learns the receiver delay: how late the demodulated pulse edge is against true time (filters in the receiver, the signal's
+/// travel time, the wake-up of the firmware). Each reading is the delay that would have made a DCF77 fix agree with a fresh
+/// NTP time; the answer is the median of the last few, so one bad NTP reading or a noisy edge does not move it.
+#[derive(Debug, Default)]
+pub struct DelayEstimator {
+    readings: [i32; 9],
+    n: usize,
+    next: usize,
+}
+
+impl DelayEstimator {
+    /// Fewest readings before an answer is given: a DCF77 fix comes every minute, and an NTP time is only a reference for a
+    /// few minutes after it arrived.
+    pub const MIN_READINGS: usize = 4;
+
+    pub const fn new() -> Self {
+        Self { readings: [0; 9], n: 0, next: 0 }
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::new();
+    }
+
+    /// Adds a reading (ms) and returns the delay learned so far, clamped to 0 to [`MAX_DELAY_MS`]. A reading that is
+    /// implausible (more than 1 s from zero) is dropped.
+    pub fn push(&mut self, reading_ms: i32) -> Option<u16> {
+        if reading_ms.abs() > 1000 {
+            return None;
+        }
+        self.readings[self.next] = reading_ms;
+        self.next = (self.next + 1) % self.readings.len();
+        self.n = (self.n + 1).min(self.readings.len());
+        if self.n < Self::MIN_READINGS {
+            return None;
+        }
+        let mut v = self.readings;
+        let v = &mut v[..self.n];
+        v.sort_unstable();
+        // median; the mean of the two middle readings when there is an even number of them
+        let mid = v.len() / 2;
+        let median = if v.len() % 2 == 0 { (v[mid - 1] + v[mid]) / 2 } else { v[mid] };
+        Some(median.clamp(0, MAX_DELAY_MS as i32) as u16)
+    }
+}
+
+/// The monotonic time (ms) a pulse that began at `rise_us` really began, after taking the receiver delay off.
+pub fn corrected_ms(rise_us: u64, delay_ms: u16) -> u64 {
+    (rise_us / 1000).saturating_sub(delay_ms as u64)
+}
+
 #[derive(Debug)]
 pub struct Decoder {
     bits: [u8; 60],
@@ -354,6 +407,55 @@ pub(crate) mod tests {
         let mut d = Decoder::new();
         let out: std::vec::Vec<_> = (0..300u64).filter_map(|i| d.pulse(i * 1_300_000, 100_000)).collect();
         assert!(out.is_empty());
+    }
+
+    // VERIFIES: REQ-DCF-04
+    #[test]
+    fn the_delay_is_learned_from_noisy_readings_and_bad_ones_are_ignored() {
+        let mut e = DelayEstimator::new();
+        // true delay 55 ms; NTP readings scatter by +-25 ms and one is wild
+        let readings = [55 + 20, 55 - 25, 55 + 5, 55 - 10, 3000, 55 + 25, 55, 55 - 5, 55 + 10];
+        let mut last = None;
+        for (i, r) in readings.iter().enumerate() {
+            let out = e.push(*r);
+            if i + 1 < DelayEstimator::MIN_READINGS {
+                assert_eq!(out, None, "too few readings after {}", i + 1);
+            }
+            last = out.or(last);
+        }
+        let learned = last.unwrap();
+        assert!((50..=60).contains(&learned), "{learned}");
+        // a reading outside +-1 s is not counted at all
+        let mut e = DelayEstimator::new();
+        for _ in 0..10 {
+            assert_eq!(e.push(-5000), None);
+        }
+        // a receiver that is ahead of NTP gives 0, never a negative or absurd delay
+        for _ in 0..9 {
+            e.push(-30);
+        }
+        assert_eq!(e.push(-30), Some(0));
+        for _ in 0..9 {
+            e.push(900);
+        }
+        assert_eq!(e.push(900), Some(MAX_DELAY_MS));
+    }
+
+    // VERIFIES: REQ-DCF-04
+    #[test]
+    fn an_even_number_of_readings_gives_the_middle_between_the_two() {
+        let mut e = DelayEstimator::new();
+        let out: std::vec::Vec<_> = [82, 50, 73, 55].iter().map(|r| e.push(*r)).collect();
+        assert_eq!(out, [None, None, None, Some(64)], "(55 + 73) / 2, not the upper one");
+        assert_eq!(e.push(41), Some(55), "five readings: 41 50 55 73 82");
+    }
+
+    // VERIFIES: REQ-DCF-04
+    #[test]
+    fn the_delay_moves_the_instant_a_pulse_began_back() {
+        assert_eq!(corrected_ms(10_000_000, 0), 10_000);
+        assert_eq!(corrected_ms(10_000_000, 55), 9_945);
+        assert_eq!(corrected_ms(30_000, 500), 0, "never below zero");
     }
 
     // VERIFIES: REQ-DCF-02

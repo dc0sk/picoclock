@@ -380,7 +380,7 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                     let _ = write!(out, ", vote power {}", cfg.vote_power[src as usize]);
                 }
                 if src == crate::sources::Source::Dcf77 && cfg.time_sources.contains(&src) {
-                    let _ = write!(out, "; pulses {}, frames ok {}, bad {}, bad pulses {}", st.dcf.pulses, st.dcf.frames_ok, st.dcf.frames_bad, st.dcf.pulses_bad);
+                    let _ = write!(out, "; pulses {}, frames ok {}, bad {}, bad pulses {}; receiver delay {} ms ({})", st.dcf.pulses, st.dcf.frames_ok, st.dcf.frames_bad, st.dcf.pulses_bad, cfg.dcf77_delay(), if cfg.dcf77_auto { "learned" } else { "manual" });
                 }
             }
             for (label, t) in [("temp    ", st.temp_c10), ("chip    ", st.chip_temp_c10)] {

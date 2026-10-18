@@ -142,7 +142,7 @@ async fn ui_task(mut rtc: Rtc) -> ! {
             let at = Instant::now();
             match rtc.set(&unix_to_datetime(target)).await {
                 Ok(()) => {
-                    info!("rtc: set from NTP, unix {}", target);
+                    info!("rtc: set, unix {}", target);
                     state::set_anchor(target, at);
                     state::with_runtime(|r| r.last_sync_unix = Some(target));
                 }

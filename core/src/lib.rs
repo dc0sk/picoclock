@@ -25,6 +25,7 @@ pub mod entropy;
 pub mod font;
 pub mod geo;
 pub mod http;
+pub mod morse;
 pub mod netutil;
 pub mod nts;
 pub mod nts_ke;

@@ -444,7 +444,7 @@ input,select,textarea{width:100%;box-sizing:border-box;padding:.4rem;font:inheri
 
 /// Room for the `status` and `time` text on the page. A fully connected clock needs about 1 KB (a test keeps it honest);
 /// a smaller buffer cut the text off, mid-line, without a word.
-const STATUS_BUF: usize = 1536;
+const STATUS_BUF: usize = 2048;
 
 /// Renders the status and settings page. Fails (`fmt::Error`) only if `out` is too small.
 pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure: bool, roots: &crate::rootstore::Roots, out: &mut impl Write) -> core::fmt::Result {

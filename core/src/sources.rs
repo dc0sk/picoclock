@@ -90,7 +90,8 @@ pub struct Sample {
 }
 
 impl Sample {
-    fn now_ms(&self, now_ms: u64) -> i64 {
+    /// The UTC time in ms at the monotonic instant `now_ms`.
+    pub fn now_ms(&self, now_ms: u64) -> i64 {
         self.unix_ms + now_ms.saturating_sub(self.at_ms) as i64
     }
 }
@@ -251,6 +252,11 @@ impl Selector {
                 age_s: self.last[i].map(|x| now_ms.saturating_sub(x.at_ms) / 1000),
             }
         })
+    }
+
+    /// The source's latest sample if it is younger than `max_age_ms`.
+    pub fn recent(&self, s: Source, now_ms: u64, max_age_ms: u64) -> Option<Sample> {
+        self.last[s.index()].filter(|x| now_ms.saturating_sub(x.at_ms) <= max_age_ms)
     }
 
     /// A source stopped (receiver switched off, source deselected): its old sample no longer counts.

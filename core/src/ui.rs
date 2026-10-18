@@ -44,6 +44,8 @@ pub enum Press {
 pub enum Beep {
     Key,
     Chime,
+    /// The time as Morse code (HAM mode): the four digits HHMM and the length of a dit in ms.
+    Morse([u8; 4], u16),
     /// Start of the alarm; the firmware keeps beeping while [`Ui::alarm_ringing`] is true.
     Alarm,
 }
@@ -166,6 +168,10 @@ impl Ui {
         }
     }
 
+    fn morse(cfg: &Config, local: &DateTime) -> Beep {
+        Beep::Morse(crate::morse::hhmm(local.hour, local.minute), crate::morse::dit_ms(cfg.morse_wpm))
+    }
+
     fn key_beep(cfg: &Config) -> Option<Beep> {
         cfg.key_beep.then_some(Beep::Key)
     }
@@ -191,6 +197,8 @@ impl Ui {
             }
             (Mode::Menu(_), _, _) => out.beep = None,
             (_, Button::Set, Press::Long) => self.mode = Mode::Menu(0),
+            // held for 1.5 s (the button task sends `Long` once): the time in Morse code, in HAM mode
+            (_, Button::Up | Button::Down, Press::Long) => out.beep = cfg.ham_mode.then(|| env.local().map(|t| Self::morse(cfg, &t))).flatten(),
             (Mode::View(v, _), Button::Set, Press::Short) => {
                 let next = match v {
                     View::Time => View::Date,
@@ -262,7 +270,7 @@ impl Ui {
         } else if cfg.hourly_chime && local.minute == 0 && self.last_chime_key != Some(key) {
             self.last_chime_key = Some(key);
             if !self.alarm_ringing() {
-                out.beep = Some(Beep::Chime);
+                out.beep = Some(if cfg.ham_mode { Self::morse(cfg, &local) } else { Beep::Chime });
             }
         }
         out
@@ -592,6 +600,37 @@ mod tests {
         cfg.alarm_enabled = true;
         cfg.alarm_minutes = 11 * 60;
         assert_eq!(ui.tick(&cfg, &env(Some(dt(11, 0, 0)), 7_200_000)).beep, Some(Beep::Alarm), "alarm wins");
+    }
+
+    // VERIFIES: REQ-HAM-02
+    #[test]
+    fn ham_mode_sends_the_time_in_morse_at_the_hour_and_on_a_long_hold() {
+        let (mut ui, mut cfg) = (Ui::new(), Config::default());
+        let held = |ui: &mut Ui, cfg: &mut Config, b| ui.button(b, Press::Long, cfg, &env(Some(dt(7, 45, 0)), 0)).beep;
+        // off: a long hold of UP or DOWN does nothing, and the hourly chime stays the two beeps
+        assert_eq!(held(&mut ui, &mut cfg, Button::Up), None);
+        cfg.hourly_chime = true;
+        assert_eq!(ui.tick(&cfg, &env(Some(dt(9, 0, 5)), 5000)).beep, Some(Beep::Chime));
+        // on: the hold sends HHMM at the configured speed (UP and DOWN alike), also with the chime switched off
+        cfg.ham_mode = true;
+        cfg.hourly_chime = false;
+        cfg.morse_wpm = 20;
+        for b in [Button::Up, Button::Down] {
+            assert_eq!(held(&mut ui, &mut cfg, b), Some(Beep::Morse([0, 7, 4, 5], 60)), "{b:?}");
+        }
+        // the hour: the chime setting decides whether it sounds, HAM mode what it sounds like
+        assert_eq!(ui.tick(&cfg, &env(Some(dt(10, 0, 0)), 3_600_000)).beep, None);
+        cfg.hourly_chime = true;
+        assert_eq!(ui.tick(&cfg, &env(Some(dt(11, 0, 0)), 7_200_000)).beep, Some(Beep::Morse([1, 1, 0, 0], 60)));
+        assert_eq!(ui.tick(&cfg, &env(Some(dt(11, 0, 1)), 7_201_000)).beep, None, "once");
+        // no time yet: nothing to send; in the menu the hold is just a long UP / DOWN and sends nothing
+        assert_eq!(ui.button(Button::Up, Press::Long, &mut cfg, &env(None, 0)).beep, None);
+        ui.button(Button::Set, Press::Long, &mut cfg, &env(Some(dt(7, 45, 0)), 10));
+        assert_eq!(held(&mut ui, &mut cfg, Button::Down), None);
+        // the alarm still wins over the hourly Morse
+        cfg.alarm_enabled = true;
+        cfg.alarm_minutes = 12 * 60;
+        assert_eq!(ui.tick(&cfg, &env(Some(dt(12, 0, 0)), 10_800_000)).beep, Some(Beep::Alarm));
     }
 
     // VERIFIES: REQ-UI-02

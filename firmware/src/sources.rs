@@ -4,7 +4,8 @@
 
 use defmt::info;
 use embassy_time::{Duration, Instant, with_timeout};
-use picoclock_core::sources::{SOURCES, Selector, Verdict};
+use picoclock_core::dcf77::DelayEstimator;
+use picoclock_core::sources::{SOURCES, Selector, Source, Verdict};
 
 use crate::state::{self, Offer};
 
@@ -13,9 +14,18 @@ fn clock_ms() -> Option<i64> {
     state::anchor().map(|(secs, at)| secs * 1000 + at.elapsed().as_millis() as i64)
 }
 
+/// An NTP time is only a reference for the receiver delay for this long after it arrived: the monotonic timer drifts by
+/// about 30 ppm, 0.1 s in an hour.
+const NTP_REFERENCE_MS: u64 = 300_000;
+/// A learned delay is written to flash when it moved by this much (ms) and the last write is older than the interval.
+const LEARNED_STEP_MS: u16 = 5;
+const LEARNED_SAVE_EVERY_MS: u64 = 600_000;
+
 #[embassy_executor::task]
 pub async fn sources_task() -> ! {
     let mut selector = Selector::new();
+    let mut estimator = DelayEstimator::new();
+    let mut last_save_ms: Option<u64> = None;
     loop {
         let received = with_timeout(Duration::from_secs(2), state::SAMPLES.receive()).await;
         let policy = state::config_snapshot().policy();
@@ -27,6 +37,28 @@ pub async fn sources_task() -> ! {
             }
         }
         if let Ok(Offer { src, sample, secure }) = received {
+            // Automatic receiver delay: compare this DCF77 time (already corrected by the delay in use) with a fresh NTP time
+            if src == Source::Dcf77 {
+                let cfg = state::config_snapshot();
+                let reference = selector.recent(Source::Ntp, now_ms, NTP_REFERENCE_MS).filter(|_| cfg.dcf77_auto && policy.selected(Source::Ntp));
+                if let Some(ntp) = reference {
+                    let ahead_ms = sample.now_ms(now_ms) - ntp.now_ms(now_ms);
+                    let reading = cfg.dcf77_delay() as i32 - ahead_ms as i32;
+                    info!("dcf77: {} ms from NTP with a delay of {} ms -> reading {}", ahead_ms, cfg.dcf77_delay(), reading);
+                    if let Some(learned) = estimator.push(reading)
+                        && learned.abs_diff(cfg.dcf77_learned) >= LEARNED_STEP_MS
+                        && last_save_ms.is_none_or(|t| now_ms - t >= LEARNED_SAVE_EVERY_MS)
+                    {
+                        info!("dcf77: receiver delay learned {} ms (was {})", learned, cfg.dcf77_learned);
+                        last_save_ms = Some(now_ms);
+                        state::edit_and_save(false, |c| {
+                            let mut v = heapless::String::<8>::new();
+                            let _ = core::fmt::Write::write_fmt(&mut v, format_args!("{learned}"));
+                            let _ = c.set("dcf77_learned", &v);
+                        });
+                    }
+                }
+            }
             let verdict = selector.offer(&policy, src, sample, now_ms, clock_ms());
             info!("sources: {} -> {}", src.name(), match verdict {
                 Verdict::Use { write: true } => "used, clock set",

@@ -689,3 +689,22 @@ REQ-DCF-03 follows when the module is fitted; until then the decoder and the sel
 (each checked by sabotaging the rule it tests: majority threshold, tolerance, consecutive-minute check, parity 3).
 
 Verifies: REQ-SRC-01
+
+### VR-59 · 2026-10-18 · hardware · DCF77 receiver on a Pico 2 W, software 0.2.0 (debug probe attached, RTT logs read)
+
+A Pollin DCF1 module wired as planned (PON on GP0, TCO on GP1, 3V3), **without** the 10 µF capacitor. The first attempt received
+almost nothing (2 pulses in 9 minutes, TCO low in 400 readings over the debug probe, and driven low, not floating); after the
+antenna was reseated and its wires bent away from other components it received about 60 pulses a minute. **Decoding:** confirmed
+times arrive every one to four minutes in daytime reception (frames ok 24 against bad 10 over about 40 minutes). **Selection:**
+in `order` with NTP first, DCF77 stood by and `status` showed its time 54 to 75 ms behind the NTP-set clock; with DCF77 alone
+(`time_sources dcf77`, NTP not queried) a restarted clock had no time, took it from the second confirmed DCF77 time ("used, clock
+set", RTC written), and later fixes agreed with the clock within 3 ms. **Receiver delay (REQ-DCF-04):** a manual `dcf77_delay 55`
+moved the displayed offset from -54 ms to +4..+19 ms; in `auto` the readings logged over RTT were 82, 50, 73, 55 ms
+(delay 0), the first answer 73 ms was stored, and with it applied the offset read +32 ms (reading 41); the median over more fixes
+is expected to settle near 55 ms but this was not observed beyond 5 readings. **Not verified:** the receiver with the capacitor
+fitted; reception at night; the fallback and the vote with two live sources disagreeing; whether the learned delay converges
+over a day; HAM mode (REQ-HAM-02) was set on the clock but the buttons were not pressed and the sound not heard (host tests only);
+the 83 ms first learned in an earlier run came from a start with few, scattered readings and the upper median (fixed: the mean of
+the two middle readings for an even count).
+
+Verifies: REQ-DCF-01, REQ-DCF-02, REQ-DCF-03, REQ-DCF-04

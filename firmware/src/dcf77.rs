@@ -49,7 +49,8 @@ pub async fn dcf77_task(mut tco: Input<'static>, mut pon: Output<'static>) -> ! 
             let width_us = rise.elapsed().as_micros() as u32;
             if let Some(fix) = decoder.pulse(rise.as_micros(), width_us) {
                 info!("dcf77: time confirmed");
-                let sample = Sample { unix_ms: fix.unix_utc * 1000, at_ms: fix.rise_us / 1000 };
+                let delay = state::with_config(|c| c.dcf77_delay());
+                let sample = Sample { unix_ms: fix.unix_utc * 1000, at_ms: picoclock_core::dcf77::corrected_ms(fix.rise_us, delay) };
                 let _ = state::SAMPLES.try_send(Offer { src: Source::Dcf77, sample, secure: false });
             }
             state::with_runtime(|r| r.dcf = decoder.stats);
