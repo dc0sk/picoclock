@@ -96,6 +96,14 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             let _ = write!(msg, "{changed} setting(s) changed and saved. {errors}");
             page(io, Some((&msg, !errors.is_empty())), secure, tab).await
         }
+        (Method::Post, "/update-check") => {
+            if !http::same_origin(req, secure) {
+                return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
+            }
+            state::with_runtime(|r| r.update = picoclock_core::update::Check::Checking);
+            state::UPDATE_NOW.signal(());
+            page(io, Some(("Asking GitHub for the latest release. Reload this page in a few seconds; nothing is installed.", false)), secure, Tab::Status).await
+        }
         (Method::Post, "/reset") => {
             // With HTTPS on, the plain port may not erase the clock even when the redirect is switched off: without a web
             // password nothing else stops a host on the LAN. (Builds without TLS have no other way to offer this.)

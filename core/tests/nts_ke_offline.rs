@@ -71,3 +71,14 @@ fn built_in_roots_are_the_known_certificates() {
         assert!(known.contains(&fp.as_str()), "unknown built-in root {fp}");
     }
 }
+
+// VERIFIES: REQ-UPD-03
+#[test]
+fn the_update_check_trusts_exactly_one_root_and_it_is_not_an_nts_root() {
+    let roots = nts_ke::UPDATE_ROOTS;
+    assert_eq!(roots.len(), 1);
+    let fp = picoclock_core::x509::fingerprint_hex(&picoclock_core::x509::fingerprint(roots[0])).to_string();
+    assert_eq!(fp, "4F:F4:60:D5:4B:9C:86:DA:BF:BC:FC:57:12:E0:40:0D:2B:ED:3F:BC:4D:4F:BD:AA:86:E0:6A:DC:D2:A9:AD:7A", "USERTrust ECC Certification Authority");
+    // and NTS does not trust it: the two lists are separate
+    assert!(!nts_ke::BUILT_IN_ROOTS.contains(&roots[0]));
+}

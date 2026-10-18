@@ -526,6 +526,8 @@ pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure:
             crate::cli::execute("status", &mut cfg.clone(), st, &mut status);
             let _ = crate::cli::execute("time", &mut cfg.clone(), st, &mut status);
             write!(out, "{}</pre>", Esc(&status))?;
+            // only asks GitHub whether a newer release exists; nothing is installed
+            out.write_str("<form method=post action=/update-check><button>Check for updates now</button></form>")?;
         }
         Tab::Security => security(st, secure, roots, out)?,
         Tab::Wifi | Tab::Time | Tab::Clock | Tab::Web => {
@@ -861,6 +863,9 @@ mod tests {
             lease_changes: 255,
             link_rssi: Some(-92),
             aps: [Some(crate::cli::ApSeen { bssid: [0xdc, 0x39, 0x6f, 0xce, 0x6d, 0xf9], channel: 11, rssi: -92 }); 6],
+            update: crate::update::Check::Newer,
+            update_latest: Some(crate::update::Version { major: 65535, minor: 65535, patch: 65535 }),
+            update_checked_unix: Some(1_700_000_000),
             geo: [crate::cli::GeoTry { stage: 5, bytes: 999, end: 1, addr: [255, 255, 255, 255] }; crate::geo::PROVIDERS.len()],
         };
         let mut c = Config::default();
@@ -957,6 +962,21 @@ mod tests {
             assert!(p.contains(&format!("href=\"/?tab={}\" aria-current=page", t.slug())), "{t:?}");
             assert!(p.len() < 6500, "{t:?} is {} bytes", p.len());
         }
+    }
+
+    // VERIFIES: REQ-UPD-01
+    #[test]
+    fn only_the_status_page_offers_the_update_check_and_it_shows_the_result() {
+        let mut c = Config::default();
+        let st = Status { update: crate::update::Check::Newer, update_latest: crate::update::Version::parse("9.9.9"), update_checked_unix: Some(1_800_000_000), utc_unix: Some(1_800_000_600), ..Default::default() };
+        for tab in Tab::ALL {
+            let mut p = heapless::String::<12288>::new();
+            render_page(&c, &st, None, true, &crate::rootstore::Roots::new(), tab, &mut p).unwrap();
+            assert_eq!(p.contains("action=/update-check"), tab == Tab::Status, "{tab:?}");
+            assert_eq!(p.contains("9.9.9 is available"), tab == Tab::Status, "the result is part of the status text on the Status page: {tab:?}");
+        }
+        c.set("update_check", "off").unwrap();
+        assert!(!c.update_check);
     }
 
     // VERIFIES: REQ-WEB-11

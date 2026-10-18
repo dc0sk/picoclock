@@ -35,6 +35,7 @@ pub mod sources;
 pub mod slots;
 pub mod sntp;
 pub mod time;
+pub mod update;
 pub mod tlsstore;
 pub mod tz;
 pub mod ui;

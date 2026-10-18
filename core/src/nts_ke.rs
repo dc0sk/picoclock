@@ -28,6 +28,15 @@ const SSL_COM_ROOT_ECC: &[u8] = include_bytes!("../roots/ssl-com-root-ecc.der");
 #[cfg(feature = "rsa")]
 const ISRG_ROOT_X1: &[u8] = include_bytes!("../roots/isrg-root-x1.der");
 
+/// USERTrust ECC Certification Authority (P-384): the root of GitHub's chain (Sectigo E46 and E36 below it). Trusted only for the
+/// update check ([`UPDATE_ROOTS`]), not for NTS.
+/// SHA-256 fingerprint 4F:F4:60:D5:4B:9C:86:DA:BF:BC:FC:57:12:E0:40:0D:2B:ED:3F:BC:4D:4F:BD:AA:86:E0:6A:DC:D2:A9:AD:7A.
+const USERTRUST_ECC: &[u8] = include_bytes!("../roots/usertrust-ecc.der");
+
+/// The only root the update check trusts. A pinned root keeps every other authority, and any root the user added for NTS, out
+/// of the one connection that tells the clock a new firmware exists (installing one is guarded by a signature anyway).
+pub const UPDATE_ROOTS: &[&[u8]] = &[USERTRUST_ECC];
+
 /// The built-in roots. A server is trusted if its chain ends at any of them (and the host name and dates match). ECDSA chains
 /// can always be verified; RSA chains only in builds with the `rsa` feature (Pico 2 W), so on the Pico W a server with an
 /// RSA certificate fails with a certificate error.
@@ -191,4 +200,43 @@ where
     // they pass, and `session` is not returned if they fail.
     verifier.finish().map_err(KeError::Tls)?;
     Ok(session)
+}
+
+/// One HTTPS request on `socket` (a connected TCP stream to port 443 of `host`) and the start of the answer. `request` is sent
+/// as it is; at most `response.len()` bytes of the answer are kept (the rest is not read) and the number is returned. The
+/// server must chain to one of `roots` and match `host`, and the dates are checked with `C`, as for [`key_exchange`]. Like
+/// there, the slow certificate checks run only after the answer is in, and **nothing is returned if they fail**.
+pub async fn https_get<S, C>(socket: S, host: &str, request: &[u8], roots: &[&[u8]], read_buf: &mut [u8], write_buf: &mut [u8], response: &mut [u8]) -> Result<usize, KeError>
+where
+    S: Read + Write,
+    C: TlsClock,
+{
+    if C::now().is_none() {
+        return Err(KeError::NoTime);
+    }
+    let config = TlsConfig::new().with_server_name(host);
+    let mut tls = TlsConnection::<_, Aes128GcmSha256>::new(socket, read_buf, write_buf);
+    let mut verifier = DeferredVerifier::<C>::new(roots);
+    tls.open(TlsContext::new(&config, &mut verifier)).await.map_err(KeError::Tls)?;
+    let mut sent = 0;
+    while sent < request.len() {
+        sent += tls.write(&request[sent..]).await.map_err(KeError::Tls)?;
+    }
+    tls.flush().await.map_err(KeError::Tls)?;
+    let mut have = 0;
+    while have < response.len() {
+        match tls.read(&mut response[have..]).await {
+            Ok(0) => break,
+            Ok(n) => have += n,
+            // the server said goodbye (close_notify) after its answer: that is the end of the answer, not a failure
+            Err(TlsError::ConnectionClosed) if have > 0 => break,
+            Err(e) => return Err(KeError::Tls(e)),
+        }
+    }
+    if have == 0 {
+        return Err(KeError::Closed);
+    }
+    let _ = tls.close().await;
+    verifier.finish().map_err(KeError::Tls)?;
+    Ok(have)
 }

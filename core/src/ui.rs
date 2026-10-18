@@ -300,7 +300,8 @@ impl Ui {
                 None => f.put_dashes(),
                 Some(l) => {
                     let (h, pm) = if cfg.hour12 { (if l.hour % 12 == 0 { 12 } else { l.hour % 12 }, l.hour >= 12) } else { (l.hour, false) };
-                    f.put_time(h, l.minute, !env.synced || l.second % 2 == 0);
+                    // steady unless the user turned blinking on; blinking only while synchronised (the count-up icon also shows that)
+                    f.put_time(h, l.minute, !(cfg.colon_blink && env.synced) || l.second % 2 == 0);
                     if cfg.hour12 {
                         f.set_icon(if pm { Icon::Pm } else { Icon::Am }, true);
                     }
@@ -656,15 +657,27 @@ mod tests {
         assert_eq!(px(&got, 4), px(&dashes, 4));
     }
 
-    // VERIFIES: REQ-UI-07
+    // VERIFIES: REQ-UI-08
     #[test]
-    fn colon_blinks_only_when_synced() {
-        let (ui, cfg) = (Ui::new(), Config::default());
-        let (on, off) = (rendered(&ui, &cfg, &env(Some(dt(1, 1, 0)), 0)), rendered(&ui, &cfg, &env(Some(dt(1, 1, 1)), 0)));
-        assert_ne!(on.0, off.0);
-        let mut e = env(Some(dt(1, 1, 1)), 0);
-        e.synced = false;
-        assert_eq!(px(&rendered(&ui, &cfg, &e), 3), px(&on, 3), "steady colon until the first sync");
+    fn the_colon_is_steady_unless_blinking_is_on_and_then_blinks_only_when_synced() {
+        let (ui, mut cfg) = (Ui::new(), Config::default());
+        assert!(!cfg.colon_blink, "steady by default");
+        let at = |ui: &Ui, cfg: &Config, sec, synced| {
+            let mut e = env(Some(dt(1, 1, sec)), 0);
+            e.synced = synced;
+            rendered(ui, cfg, &e)
+        };
+        // default: the same picture on an even and an odd second, synced or not
+        assert_eq!(at(&ui, &cfg, 0, true).0, at(&ui, &cfg, 1, true).0);
+        assert_eq!(at(&ui, &cfg, 0, false).0, at(&ui, &cfg, 1, false).0);
+        let mut want = Frame::new();
+        want.put_time(1, 1, true);
+        assert_eq!(px(&at(&ui, &cfg, 1, true), 3), px(&want, 3), "the colon is lit");
+        // on: it blinks while synced, and stays lit until the first sync
+        cfg.colon_blink = true;
+        assert_ne!(at(&ui, &cfg, 0, true).0, at(&ui, &cfg, 1, true).0, "blinks");
+        assert_eq!(px(&at(&ui, &cfg, 0, true), 3), px(&want, 3));
+        assert_eq!(px(&at(&ui, &cfg, 1, false), 3), px(&want, 3), "steady colon until the first sync");
     }
 
     // VERIFIES: REQ-TIME-01 REQ-TIME-02
@@ -709,7 +722,7 @@ mod tests {
         assert_eq!(px(&rendered(&ui, &cfg, &e), 4), px(&dashes, 4));
     }
 
-    // VERIFIES: REQ-UI-07
+    // VERIFIES: REQ-UI-08
     #[test]
     fn status_icons_reflect_config() {
         let (ui, mut cfg) = (Ui::new(), Config::default());

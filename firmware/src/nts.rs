@@ -96,6 +96,42 @@ impl Nts {
         None
     }
 
+    /// One HTTPS request to `host` (port 443) with the trust limited to `roots`; returns the start of the answer. Uses the same
+    /// buffers as the key exchange, and like it holds the executor for the handshake (about 0.5 to 1 s on the Pico 2 W, 5 to 7 s
+    /// on the Pico W). Nothing is returned unless the certificate chain, the name and the dates all checked out.
+    pub async fn https_get(&mut self, stack: Stack<'static>, host: &str, request: &[u8], roots: &[&[u8]], response: &mut [u8]) -> Option<usize> {
+        if DeviceClock::now().is_none() {
+            warn!("https: {} skipped: the clock has no valid time, so certificate dates cannot be checked", host);
+            return None;
+        }
+        let addr = match with_timeout(Duration::from_secs(8), stack.dns_query(host, DnsQueryType::A)).await {
+            Ok(Ok(a)) => *a.first()?,
+            _ => {
+                warn!("https: cannot resolve {}", host);
+                return None;
+            }
+        };
+        let Buffers { tls_read, tls_write, tcp_rx, tcp_tx } = &mut *self.buffers;
+        let mut socket = TcpSocket::new(stack, &mut tcp_rx[..], &mut tcp_tx[..]).ok()?;
+        socket.set_timeout(Some(Duration::from_secs(20)));
+        if !matches!(with_timeout(CONNECT_TIMEOUT, socket.connect(SocketAddr::new(addr, 443))).await, Ok(Ok(()))) {
+            warn!("https: cannot connect to {}:443", host);
+            return None;
+        }
+        state::feed_watchdog();
+        match with_timeout(KE_TIMEOUT, nts_ke::https_get::<_, DeviceClock>(socket, host, request, roots, &mut tls_read[..], &mut tls_write[..], response)).await {
+            Ok(Ok(n)) => Some(n),
+            Ok(Err(e)) => {
+                warn!("https: {} failed: {:?}", host, defmt::Debug2Format(&e));
+                None
+            }
+            Err(_) => {
+                warn!("https: {} timed out", host);
+                None
+            }
+        }
+    }
+
     async fn key_exchange(&mut self, stack: Stack<'static>, host: &str) -> Option<Session> {
         if DeviceClock::now().is_none() {
             warn!("nts: {} skipped: the clock has no valid time, so certificate dates cannot be checked", host);

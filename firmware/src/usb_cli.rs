@@ -136,6 +136,7 @@ async fn run_line(class: &mut Class, line: &str) -> Result<Action, Disconnected>
             send(class, &crlf_of(cli::RESET_WARNING)).await?;
             send(class, "\r\nType RESET (capitals) to erase everything, anything else cancels: ").await?;
         }
+        Action::UpdateCheck => state::UPDATE_NOW.signal(()),
         Action::Reboot => {
             send(class, "rebooting\r\n").await?;
             Timer::after_millis(200).await;

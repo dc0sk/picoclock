@@ -132,7 +132,9 @@ Changes apply immediately but are only written to flash by `save` (the web page 
 | `wifi_select` | `order` (first stored network in slot order) or `strongest` (the strongest one in range) | `order` |
 | `mdns` | answer for `<device name>.local` on the LAN | on |
 | `dcf77_delay`, `dcf77_learned` | DCF77 receiver delay: `auto` (learned against NTP) or 0 to 500 ms; the learned value is kept | `auto`, 0 |
+| `colon_blink` | `on`: the colon between hours and minutes blinks once a second while synchronised | off |
 | `ham_mode`, `morse_wpm` | `on`: the hourly chime and a 1.5 s hold of UP or DOWN send the time as Morse code (HHMM); speed 5 to 40 wpm | off, 18 |
+| `update_check` | `on`: ask GitHub once a day whether a newer release exists (nothing is installed) | on |
 | `time_sources` | the time sources in use, best first: `ntp`, `dcf77` (see *Time sources*) | `ntp` |
 | `time_mode` | `order` (first source with a fresh time) or `vote` (the sources must agree) | `order` |
 | `vote_ntp`, `vote_dcf77` | vote power 0 to 9 per source in mode `vote` (0 = compared and shown, cannot decide) | 1, 1 |
@@ -302,8 +304,18 @@ Menu items in order: alarm on/off, alarm hour, alarm minute, hourly chime, key b
 While the alarm rings, any button stops it. Menu and brightness edits are saved a few seconds after the last press.
 
 Status icons: alarm = alarm enabled, bell = hourly chime, auto-light = auto brightness, AM/PM in 12 h mode,
-C/F = unit, **count-up icon = time was synced by NTP within the last 3 h**. The colon blinks once synced and stays
+C/F = unit, **count-up icon = time was synced by NTP within the last 3 h**. The colon is steady by default (blinking can cause radio interference, QRM); `set colon_blink on` makes it blink once synced, and it stays
 solid before. The display shows `--:--` until the RTC holds a valid time.
+
+## Firmware update check
+
+Once a day while connected (the first time a few minutes after joining) the clock asks GitHub's releases API for the newest release
+of this project and says in `status`, in `update` and on the web page's Status page whether it is newer than the version you run
+(`update  : 0.3.0 is available, you run 0.2.0; see https://github.com/dc0sk/picoclock/releases`). `update check` (or the *Check for
+updates now* button) asks at once. `set update_check off` stops the daily check. **The clock does not download or install anything**;
+you update with a UF2 file as before. The connection trusts only the USERTrust ECC root that GitHub's certificate chain ends at, and
+the answer is used only after the certificate, the name and the dates were verified. Installing from the clock (a signed image and a
+bootloader) is planned, see `docs/design/adr/0006-firmware-update.md`; the signing keys exist, the bootloader does not.
 
 ## Time sources
 

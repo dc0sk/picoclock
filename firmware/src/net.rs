@@ -23,6 +23,12 @@ use crate::{ntp, state};
 
 const RESYNC: Duration = Duration::from_secs(3600);
 const NTP_RETRY: Duration = Duration::from_secs(30);
+/// The update check: first one 3 minutes after joining, then daily; a failure is retried after an hour, a rate limit or a
+/// switched-off check looked at again after six hours.
+const UPDATE_FIRST: Duration = Duration::from_secs(180);
+const UPDATE_EVERY: Duration = Duration::from_secs(24 * 3600);
+const UPDATE_RETRY: Duration = Duration::from_secs(3600);
+const UPDATE_RECHECK: Duration = Duration::from_secs(6 * 3600);
 const GEO_REFRESH: Duration = Duration::from_secs(24 * 3600);
 const GEO_RETRY: Duration = Duration::from_secs(300);
 /// A join attempt that has not finished by then is abandoned: the radio driver waits for an event that can be lost,
@@ -174,6 +180,36 @@ async fn record_access_points(control: &mut Control<'static>, ssid: &str) {
     });
 }
 
+/// Asks GitHub for the latest release and records what was found; returns when to ask again. Nothing is installed.
+async fn update_check(stack: Stack<'static>, nts: &mut Nts) -> Duration {
+    use picoclock_core::update::{self, Check, Outcome, Version};
+    let mut response = [0u8; 4096];
+    let request = update::request();
+    let got = nts.https_get(stack, update::HOST, request.as_bytes(), picoclock_core::nts_ke::UPDATE_ROOTS, &mut response).await;
+    let now = state::status().utc_unix;
+    let (check, latest, again) = match got {
+        Some(n) => match update::parse_response(&response[..n], Version::running()) {
+            Outcome::RateLimited => (Check::RateLimited, None, UPDATE_RECHECK),
+            other => {
+                let (c, v) = <(Check, Option<Version>)>::from(other);
+                (c, v, if c == Check::Failed { UPDATE_RETRY } else { UPDATE_EVERY })
+            }
+        },
+        // no valid time yet counts as "not now", not as a failure to remember for a day
+        None if now.is_none() => (Check::Never, None, UPDATE_FIRST),
+        None => (Check::Failed, None, UPDATE_RETRY),
+    };
+    info!("update: check finished: {}", defmt::Debug2Format(&check));
+    state::with_runtime(|r| {
+        r.update = check;
+        r.update_latest = latest;
+        if check != Check::Never {
+            r.update_checked_unix = now;
+        }
+    });
+    again
+}
+
 /// Collects the networks in range (name and signal) with one passive scan, at most `SCAN_TIME` long.
 async fn scan(control: &mut Control<'static>, seen: &mut heapless::Vec<Seen, 24>) {
     let mut scanner = control.scan(Default::default()).await;
@@ -197,6 +233,8 @@ async fn scan(control: &mut Control<'static>, seen: &mut heapless::Vec<Seen, 24>
 async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, joined_with: &Creds, name: &str, nts: &mut Nts) {
     let mut next_sync = Instant::now();
     let mut next_geo = Instant::now();
+    // the first update check a few minutes after joining, so that it does not pile onto the first sync and key exchange
+    let mut next_update = Instant::now() + UPDATE_FIRST;
     loop {
         let cfg = state::config_snapshot();
         let mac_last = state::status().mac.map_or(0, |m| m[5]);
@@ -257,6 +295,19 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
                         }
                         None => NTP_RETRY,
                     }
+                };
+        }
+        if state::UPDATE_NOW.try_take().is_some() {
+            next_update = Instant::now();
+            state::with_runtime(|r| r.update = picoclock_core::update::Check::Checking);
+        }
+        if Instant::now() >= next_update {
+            let asked = state::with_runtime(|r| r.update == picoclock_core::update::Check::Checking);
+            next_update = Instant::now()
+                + if cfg.update_check || asked {
+                    update_check(stack, nts).await
+                } else {
+                    UPDATE_RECHECK // switched off: look again later in case that changes
                 };
         }
         if cfg.wants_geolocation() {

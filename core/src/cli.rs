@@ -82,6 +82,10 @@ pub struct Status {
     /// join saw, strongest first.
     pub link_rssi: Option<i16>,
     pub aps: [Option<ApSeen>; 6],
+    /// The firmware update check: its state, the newest release it saw and when it last asked (unix seconds).
+    pub update: crate::update::Check,
+    pub update_latest: Option<crate::update::Version>,
+    pub update_checked_unix: Option<i64>,
 }
 
 /// One access point from the scan after a join.
@@ -124,6 +128,8 @@ pub enum Action {
     RootAdd,
     /// `root remove <n>`: remove your own root number n (1-based, as listed).
     RootRemove(usize),
+    /// `update check`: ask GitHub now whether a newer release exists (nothing is installed).
+    UpdateCheck,
     /// `factory-reset`: the session asks for confirmation (see [`reset_confirmed`]) before anything is erased.
     FactoryReset,
 }
@@ -215,6 +221,7 @@ commands:
   root                  list the certificate authorities trusted for NTS (built in and your own)
   root add              paste a CA certificate (PEM) to trust for NTS; then it ends at the END line
   root remove <n>       remove one of your own roots
+  update [check]        show whether a newer release exists on GitHub; 'update check' asks now (nothing is installed)
   version               show the software version, source repository and license
   cert                  show the HTTPS certificate (fingerprint, validity)
   cert new              replace the HTTPS certificate with a new self-signed one
@@ -398,6 +405,8 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                     let _ = out.write_str("never");
                 }
             }
+            let _ = out.write_str("\nupdate  : ");
+            crate::update::describe(out, cfg.update_check, st.update, st.update_latest, st.update_checked_unix, st.utc_unix);
             let _ = write!(out, "\nsources : mode {}", cfg.time_mode.name());
             if cfg.time_mode == crate::sources::Mode::Vote {
                 let _ = write!(out, ", tolerance {} s", cfg.vote_tolerance);
@@ -518,6 +527,22 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             Action::None
         }
         "sync" => Action::SyncNow,
+        "update" => match rest {
+            "" => {
+                let _ = out.write_str("update  : ");
+                crate::update::describe(out, cfg.update_check, st.update, st.update_latest, st.update_checked_unix, st.utc_unix);
+                let _ = out.write_str("\n");
+                Action::None
+            }
+            "check" => {
+                let _ = out.write_str("asking GitHub for the latest release (the answer shows in 'update' in a few seconds)\n");
+                Action::UpdateCheck
+            }
+            _ => {
+                let _ = out.write_str("usage: update | update check\n");
+                Action::None
+            }
+        },
         "cert" => match (rest, st.https_state) {
             (_, 0) => {
                 let _ = out.write_str("no HTTPS in this build (Pico 2 W only)\n");

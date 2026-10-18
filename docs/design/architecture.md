@@ -325,7 +325,7 @@ rendering are all unit-tested with a fake `Env`.
 - Views: SET cycles time, date, temperature (back to time after 5 s). Holding SET opens the menu: alarm on/off, hour,
   minute, hourly chime, key beep, 12/24 h, C/F, brightness. UP / DOWN adjust brightness outside the menu.
 - Alarm: fires once per matching minute in local time, any button stops it, it stops itself after a minute (`ALARM_MAX_MS`).
-- The panel has no WiFi icon, so the blinking colon and the count-up icon carry the sync state.
+- The panel has no WiFi icon, so the count-up icon carries the sync state (and the colon, if `colon_blink` is on; it is steady by default to avoid radio interference).
 - Brightness: fixed levels use the display duty directly; `auto` maps the light sensor's raw ADC value to a duty
   (full brightness up to 1500, linearly down to 15 % at 3500). The polarity (high reading = dark) comes from the vendor
   demo; the owner reports that the sensor works, but the thresholds were not measured.

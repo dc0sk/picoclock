@@ -82,6 +82,11 @@ pub struct Config {
     pub ham_mode: bool,
     /// Morse speed in words per minute.
     pub morse_wpm: u8,
+    /// Ask GitHub once a day whether a newer firmware release exists (nothing is installed).
+    pub update_check: bool,
+    /// The colon between hours and minutes blinks once a second while the time is synchronised. Off by default: a steady
+    /// colon, because the blinking display current is a source of radio interference (QRM) for amateur-radio users.
+    pub colon_blink: bool,
 }
 
 fn parse_delay(value: &str) -> Result<u16, ConfigError> {
@@ -137,6 +142,8 @@ impl Config {
             dcf77_learned,
             ham_mode,
             morse_wpm,
+            update_check,
+            colon_blink,
         } = after;
         macro_rules! carry {
             ($($f:ident),*) => { $( if before.$f != *$f { self.$f = $f.clone(); } )* };
@@ -144,7 +151,7 @@ impl Config {
         carry!(
             ntp_servers, timezone, geo_rule, dst, hour12, fahrenheit, brightness, key_beep, hourly_chime, alarm_enabled,
             alarm_minutes, web_password, web_enabled, ntp_serve, https, http_redirect, wifi_strongest, mdns, hostname, time_mode,
-            time_sources, vote_power, vote_tolerance, dcf77_auto, dcf77_delay_ms, dcf77_learned, ham_mode, morse_wpm
+            time_sources, vote_power, vote_tolerance, dcf77_auto, dcf77_delay_ms, dcf77_learned, ham_mode, morse_wpm, update_check, colon_blink
         );
         for (i, net) in wifi.iter().enumerate() {
             if before.wifi[i] != *net {
@@ -186,6 +193,8 @@ impl Default for Config {
             dcf77_learned: 0,
             ham_mode: false,
             morse_wpm: 18,
+            update_check: true,
+            colon_blink: false,
         }
     }
 }
@@ -248,6 +257,8 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { group: Group::Time, name: "vote_tolerance", help: "1-3600 seconds within which sources count as agreeing in mode vote (default 2)", secret: false },
     KeyInfo { group: Group::Time, name: "dcf77_delay", help: "auto, or 0-500 ms: how late the DCF77 receiver's pulses are; auto learns it against NTP (default auto)", secret: false },
     KeyInfo { group: Group::Time, name: "dcf77_learned", help: "0-500 ms: the delay learned in auto mode (kept over restarts; set it to start from a known value)", secret: false },
+    KeyInfo { group: Group::Web, name: "update_check", help: "on|off: ask GitHub once a day whether a newer firmware release exists (shown in status; nothing is installed; default on)", secret: false },
+    KeyInfo { group: Group::Clock, name: "colon_blink", help: "on|off: blink the colon between hours and minutes once a second while synchronised (default off: a steady colon, less radio interference)", secret: false },
     KeyInfo { group: Group::Clock, name: "ham_mode", help: "on|off: send the time in Morse code (HHMM) instead of the hourly beeps, and when UP or DOWN is held for 1.5 s", secret: false },
     KeyInfo { group: Group::Clock, name: "morse_wpm", help: "5-40: Morse speed in words per minute (default 18)", secret: false },
     KeyInfo { group: Group::Time, name: "ntp_serve", help: "on|off: answer NTP requests from the LAN (accuracy about +-1 s)", secret: false },
@@ -466,6 +477,8 @@ impl Config {
             }
             "dcf77_learned" => self.dcf77_learned = parse_delay(value)?,
             "ham_mode" => self.ham_mode = parse_bool(value)?,
+            "update_check" => self.update_check = parse_bool(value)?,
+            "colon_blink" => self.colon_blink = parse_bool(value)?,
             "morse_wpm" => {
                 let wpm: u8 = value.parse().map_err(|_| ConfigError::InvalidValue)?;
                 if !(crate::morse::MIN_WPM..=crate::morse::MAX_WPM).contains(&wpm) {
@@ -526,6 +539,8 @@ impl Config {
             "dcf77_delay" => write!(out, "{}", self.dcf77_delay_ms),
             "dcf77_learned" => write!(out, "{}", self.dcf77_learned),
             "ham_mode" => out.write_str(on_off(self.ham_mode)),
+            "update_check" => out.write_str(on_off(self.update_check)),
+            "colon_blink" => out.write_str(on_off(self.colon_blink)),
             "morse_wpm" => write!(out, "{}", self.morse_wpm),
             "hostname" => out.write_str(&self.hostname),
             "http_redirect" => out.write_str(on_off(self.http_redirect)),
@@ -841,19 +856,32 @@ mod tests {
 
     // VERIFIES: REQ-CFG-02 REQ-NFR-01
     #[test]
-    fn serialisation_fits_one_sector_with_worst_case_values() {
+    fn serialisation_fits_the_record_with_every_setting_at_its_longest() {
         let mut c = Config::default();
-        c.set("wifi_ssid", &"s".repeat(32)).unwrap();
-        c.set("wifi_password", &"p".repeat(63)).unwrap();
+        for n in 1..=WIFI_SLOTS {
+            c.set(&format!("wifi{n}_ssid"), &"s".repeat(32)).unwrap();
+            c.set(&format!("wifi{n}_password"), &"p".repeat(63)).unwrap();
+        }
         c.set("web_password", &"w".repeat(64)).unwrap();
         c.set("ntp_servers", &"n".repeat(96)).unwrap();
         // the longest rule the setting takes: bracketed names and hh:mm:ss offsets stretch a POSIX rule (a doubled one is refused)
         let long = "<+1234>-12:30:15<+1235>-11:30:15,M10.5.0/-1:30:15,M3.5.0/3:30:15";
         assert!(long.len() <= 64, "{}", long.len());
         c.set("timezone", long).unwrap_or_else(|_| panic!("the long rule is accepted"));
-        c.geo_rule = String::try_from("X".repeat(64).as_str()).unwrap();
-        let mut buf = [0u8; 1024];
-        assert!(c.to_bytes(&mut buf).unwrap() < 1024);
+        c.set("geo_rule", long).unwrap_or_else(|_| panic!("the long rule is accepted as a cached location rule"));
+        c.set("hostname", &"h".repeat(HOSTNAME_MAX)).unwrap();
+        c.set("time_sources", "dcf77,ntp").unwrap();
+        c.set("time_mode", "vote").unwrap();
+        c.set("vote_tolerance", "3600").unwrap();
+        c.set("dcf77_delay", "500").unwrap();
+        c.set("dcf77_learned", "500").unwrap();
+        c.set("morse_wpm", "40").unwrap();
+        c.set("brightness", "255").unwrap_or(());
+        let mut buf = [0xFFu8; 2048]; // storage::RECORD
+        let n = c.to_bytes(&mut buf).expect("the worst case must fit the flash record");
+        // a setting added later must not eat the last of the room unnoticed: keep a tenth of the record free
+        assert!(n <= 2048 - 200, "{n} bytes of 2048: raise the record size in firmware/src/storage.rs before adding more settings");
+        assert_eq!(Config::from_bytes(&buf), Some(c));
     }
 
     // VERIFIES: REQ-NET-02

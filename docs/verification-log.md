@@ -709,7 +709,7 @@ the two middle readings for an even count).
 
 Verifies: REQ-DCF-01, REQ-DCF-02, REQ-DCF-03, REQ-DCF-04
 
-### VR-60 · 2026-10-18 · build and host · Web interface in six pages
+### VR-60 · 2026-10-18 · host · Web interface in six pages
 
 Host tests (`core/src/http.rs`): every setting appears on exactly one settings page and nowhere else; the location cache is
 on none; the status text only on the Status page; each settings page posts to its own `/save?tab=...`; six links with the open
@@ -738,8 +738,26 @@ not choose between access points of one SSID and does not log the BSSID.
 
 Verifies: REQ-WEB-11
 
-### VR-62 · 2026-10-18 · hardware and network · A second DHCP answer and the access points the clock hears
+### VR-62 · 2026-10-18 · hardware · A second DHCP answer and the access points the clock hears
 
 **Incident:** once, after a firmware flash, the Pico 2 W held 192.168.1.100 with gateway 192.168.1.1, no DHCP option 42 and no NTP answer, for about 15 minutes; its normal network is 192.168.121.x (gateway 192.168.121.1, which offers option 42). The code has no static or fallback address (searched `firmware/` and `core/`; xarxa has none; the 192.168.x literals are in tests), so a DHCP server answered. **Checks since:** about 25 further restarts and one reflash all requested from server-id 192.168.121.1 (a passive listener on the wired port saw the clock's DISCOVER and REQUEST); six broadcast DISCOVERs from the Pi's wired port were answered only by 192.168.121.1 (`b4:fc:7d:22:07:b0`); the Pi's WiFi scan lists only the six BSSIDs of the owner's two meshed AVM access points (checked every 40 s for an hour). The owner states the AVM fallbacks are 192.168.178.1 and 169.254.1.1, so 192.168.1.1 is not theirs; they also have Shelly and Anker devices and a devolo powerline adapter on the LAN, none yet identified as the source. **New logging (REQ-NET-10):** `status` now shows `dhcp:` and `ap:`; after the join the clock's own 2.4 GHz scan heard two access points with the SSID: `dc:39:6f:ce:6d:f9` channel 1, -51 dBm (the joined one, link -53 dBm) and `b4:fc:7d:22:07:a0` channel 1, -85 dBm, which shares its first five bytes with the router's LAN address and is presumably the Fritz!Box's own radio. **Not determined:** what answered with 192.168.1.1, and where it is; it has not reproduced.
 
 Verifies: REQ-NET-10
+
+### VR-63 · 2026-10-18 · hardware · The firmware update check against GitHub
+
+**Host, live (`core/tests/update_live.rs`, run with `--ignored`; same TLS code as on the clock):** TLS 1.3 to `api.github.com` with only the
+pinned USERTrust ECC root succeeds (the chain is Sectigo E36 under E46 under USERTrust ECC); the same request with the NTS roots is
+refused (`Tls` error, nothing returned); a connection to `api.github.com` with the name `example.org` is refused; the answer for
+this repository is `404` (no release) and is understood as such; the answer for a repository that has releases
+(`rust-lang/rust`, 3610 bytes read) gives its tag as the newer version. Found and fixed on the way: the server's close_notify after its
+answer was reported as a failure. **Pico 2 W:** with the real repository `update check` answered "no release has been published yet,
+checked 0 min ago" (the same on the web page); a temporary build pointed at `rust-lang/rust` answered "1.99.1 is available, you run
+0.2.0" (the stand-in target is not a release of this project; the build was removed again); the web button
+(`POST /update-check`) started a check and a request with a foreign `Origin` got `403`; `update_check off`/`on` took effect; the
+setting that was found not to fit the old test (the settings record outgrew a 1 KB buffer) now has a test with every setting at its
+longest (1.8 KB of 2 KB). **Not verified:** the Pico W (RP2040) was not attached, so the check's 16 KB TLS buffer and the 5 to 7 s the
+handshake stops the other tasks there are untested on that chip; the daily schedule and the one-hour retry were not observed over time;
+no real release of this project exists to be found as "newer".
+
+Verifies: REQ-UPD-01, REQ-UPD-03

@@ -68,6 +68,9 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     lease_changes: 0,
     link_rssi: None,
     aps: [None; 6],
+    update: picoclock_core::update::Check::Never,
+    update_latest: None,
+    update_checked_unix: None,
 }));
 
 /// Milliseconds since boot at the last pass of the clock task (`ui_task`), which owns the RTC bus. The watchdog task feeds the
@@ -153,6 +156,8 @@ pub static CONFIG_CHANGED: Signal<Cs, ()> = Signal::new();
 pub static FACTORY_RESET: Signal<Cs, ()> = Signal::new();
 pub static SYNC_NOW: Signal<Cs, ()> = Signal::new();
 pub static GEO_NOW: Signal<Cs, ()> = Signal::new();
+/// Ask GitHub now whether a newer release exists (`update check`, the web page's button).
+pub static UPDATE_NOW: Signal<Cs, ()> = Signal::new();
 pub static BEEP: Signal<Cs, Beep> = Signal::new();
 pub static ALARM_RINGING: AtomicBool = AtomicBool::new(false);
 

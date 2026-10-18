@@ -302,7 +302,25 @@ The saved settings shall be kept in two flash sectors, written one after the oth
 *Implemented by:* Configuration model and flash storage, Composition: task wiring, shared state, chip selection
 
 
-### 4.8 Terminal
+### 4.8 Update
+
+**REQ-UPD-01** (ratified, medium)  
+The clock shall ask GitHub's releases API for the newest release of the project, once a day while connected (a first time a few minutes after joining) and whenever the user asks (`update check`, the Check button on the web page's Status page), and show whether a newer version exists in `status`, `update` and on the web page, with the address of the releases page. Checking can be switched off (`update_check off`). The check never downloads or installs anything.  
+*Why:* Requested by the owner (2026-10-18): check first, notify, install only on the user's request (ADR-0006).  
+*Implemented by:* Firmware update check (GitHub releases), WiFi, hourly sync, geolocation request and NTP server, Terminal commands and USB serial console, HTTP parsing, settings page and web server, Configuration model and flash storage
+
+**REQ-UPD-02** (ratified, medium)  
+Release tags shall be read as `major.minor.patch` (an optional leading `v`; anything else, such as a pre-release suffix, is unreadable) and compared by number; the answer shall be classed as newer, the same, ahead of the latest release, no release yet (404), rate limited (403, 429) or unreadable, and a check that cannot be read shall never claim a version.  
+*Why:* A text comparison would call 0.10.0 older than 0.9.9, and a guess from a half-read answer could tell the owner to install something that does not exist.  
+*Implemented by:* Firmware update check (GitHub releases)
+
+**REQ-UPD-03** (ratified, high)  
+The update check shall trust only the pinned USERTrust ECC Certification Authority root (not the NTS roots and not roots the user added), shall verify the certificate chain, the host name and the dates, shall refuse to run without a valid time, and shall use nothing of the answer unless those checks passed.  
+*Why:* Decided in ADR-0006: the check is not what protects the install (a signature does), but a connection that tells the clock a new firmware exists must not be open to every public authority.  
+*Implemented by:* Firmware update check (GitHub releases), NTS client: key exchange, authenticated packets, sessions, WiFi, hourly sync, geolocation request and NTP server
+
+
+### 4.9 Terminal
 
 **REQ-CLI-01** (ratified, medium)  
 The clock shall provide a terminal over USB serial with commands to show, get, set, save and reset settings, show status and time, list zones, sync, look up the zone, reboot and enter flashing mode.  
@@ -315,7 +333,7 @@ Zone listings shall be capped so one command cannot flood the console.
 *Implemented by:* Terminal commands and USB serial console
 
 
-### 4.9 Web
+### 4.10 Web
 
 **REQ-WEB-01** (ratified, medium)  
 The clock shall serve a web page on port 80 that shows status and edits every setting, and the page shall fit the response buffer with all fields at maximum length.  
@@ -373,7 +391,7 @@ The web interface shall consist of six pages selected by `?tab=` (Status, WiFi, 
 *Implemented by:* HTTP parsing, settings page and web server, Configuration model and flash storage
 
 
-### 4.10 Time sources
+### 4.11 Time sources
 
 **REQ-SRC-01** (ratified, high)  
 The user shall be able to select which time sources the clock uses (NTP or NTS and DCF77; GPS in a later release), and choose one of two selection modes: `order` or `vote`. The RTC keeps the time between updates in both modes. With only NTP/NTS selected the clock shall behave as it does today.  
@@ -421,7 +439,7 @@ The DCF77 receiver delay (how late the receiver's pulse edges are) shall be sett
 *Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Configuration model and flash storage, Terminal commands and USB serial console
 
 
-### 4.11 Buzzer
+### 4.12 Buzzer
 
 **REQ-HAM-01** (ratified, medium)  
 The time shall be convertible to Morse code as the four digits HHMM of the displayed local time in 24-hour form, with standard timing (dash = 3 dits, gap inside a digit = 1 dit, between digits = 3 dits) at a speed of 5 to 40 words per minute (`morse_wpm`, default 18, one dit = 1200 / wpm ms).  
@@ -434,7 +452,7 @@ With the setting `ham_mode on` (default off) the hourly chime (when `hourly_chim
 *Implemented by:* Button, menu, alarm and view state machine, Buzzer driver, Button polling, Configuration model and flash storage
 
 
-### 4.12 Display
+### 4.13 Display
 
 **REQ-DSP-01** (ratified, high)  
 The firmware shall compose the 32x8 matrix, weekday LEDs and status icons into the panel's row format so that glyphs, shifts and icons do not disturb each other.  
@@ -447,7 +465,7 @@ During normal operation (WiFi connected, web page and NTP in use) the display sc
 *Implemented by:* LED matrix scan, Composition: task wiring, shared state, chip selection, Terminal commands and USB serial console
 
 
-### 4.13 Interaction
+### 4.14 Interaction
 
 **REQ-UI-01** (ratified, high)  
 The SET button shall cycle the time, date and temperature views and return to the time view after a timeout.  
@@ -479,13 +497,19 @@ The clock shall beep on button presses and on the hour when those settings are o
 *Why:* Requested buzzer support.  
 *Implemented by:* Button, menu, alarm and view state machine, Buzzer driver
 
-**REQ-UI-07** (ratified, low)  
+**REQ-UI-07** (retired, low)  
 The colon shall blink only while the time is NTP-synchronised, and the status icons shall reflect the settings.  
 *Why:* The panel has no spare WiFi icon, so the colon and count-up icon carry the sync state.  
-*Implemented by:* Button, menu, alarm and view state machine
+*Implemented by:* none yet  
+*Retired:* Assumed that a blinking colon is wanted by everyone. For radio amateurs the blinking display current is a source of interference (QRM), and the owner asked on 2026-10-18 for a steady colon by default; the sync state is also shown by the count-up icon.
+
+**REQ-UI-08** (ratified, low)  
+The colon between hours and minutes shall be steady by default; with the setting `colon_blink on` it blinks once a second while the time is synchronised and stays lit until the first synchronisation. The status icons shall reflect the settings.  
+*Why:* Requested by the owner (2026-10-18): a blinking colon might cause more QRM, so it is off unless wanted. The count-up icon carries the sync state either way.  
+*Implemented by:* Button, menu, alarm and view state machine, Configuration model and flash storage
 
 
-### 4.14 Hardware
+### 4.15 Hardware
 
 **REQ-HW-01** (ratified, medium)  
 The clock shall read the DS3231 temperature sensor and show it on the display, the terminal and the web page.  
@@ -523,7 +547,7 @@ The clock shall accept a DCF77 receiver module and a u-blox GPS module as additi
 *Implemented by:* none yet
 
 
-### 4.15 Non-functional
+### 4.16 Non-functional
 
 **REQ-NFR-01** (ratified, medium)  
 The firmware image and the settings sector shall fit the flash of the target board without overlapping, and the static RAM shall fit the chip.  
