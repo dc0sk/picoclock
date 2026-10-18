@@ -20,11 +20,11 @@ last_updated: 2026-10-18
 | Ratified                                                          | 89    |
 | Draft (roadmap)                                                   | 1     |
 | Retired                                                           | 1     |
-| Ratified with hardware evidence                                   | 66    |
-| Ratified with unit tests only (no hardware, host or build record) | 18    |
+| Ratified with hardware evidence                                   | 67    |
+| Ratified with unit tests only (no hardware, host or build record) | 17    |
 | Ratified and UNVERIFIED (stated reason)                           | 0     |
 | Unit tests bound to requirements                                  | 183   |
-| Verification records                                              | 58    |
+| Verification records                                              | 59    |
 
 ## Forward: requirement to evidence
 
@@ -88,7 +88,7 @@ last_updated: 2026-10-18
 | REQ-WEB-07  | ratified | high   | CERT                          | 10         | VR-38                                    | unit, host            |
 | REQ-WEB-09  | ratified | medium | HTTP                          | 1          | VR-57                                    | unit, hardware        |
 | REQ-WEB-10  | ratified | medium | HTTP                          | 1          | VR-57                                    | unit, hardware        |
-| REQ-WEB-11  | ratified | medium | HTTP, CONFIG                  | 4          | -                                        | unit                  |
+| REQ-WEB-11  | ratified | medium | HTTP, CONFIG                  | 4          | VR-61                                    | unit, hardware        |
 | REQ-SRC-01  | ratified | high   | SOURCES, CONFIG, NET          | 2          | VR-58                                    | unit, hardware        |
 | REQ-SRC-02  | ratified | high   | SOURCES                       | 2          | -                                        | unit                  |
 | REQ-SRC-03  | ratified | high   | SOURCES                       | 3          | -                                        | unit                  |
@@ -140,7 +140,6 @@ These have never been seen working on the clock (they may still have unit tests)
 | REQ-CLI-02  | unit        |              |
 | REQ-WEB-05  | unit        |              |
 | REQ-WEB-07  | unit, host  |              |
-| REQ-WEB-11  | unit        |              |
 | REQ-SRC-02  | unit        |              |
 | REQ-SRC-03  | unit        |              |
 | REQ-SRC-04  | unit        |              |
@@ -319,3 +318,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-57  | 2026-10-18 | hardware | Decisions after the review: unsaved edits, 8 KiB uploads, watchdog, reset over HTTP | REQ-CFG-05, REQ-WEB-09, REQ-WEB-10, REQ-NFR-03                                               |
 | VR-58  | 2026-10-18 | hardware | Software 0.2.0 on a Pico 2 W without a DCF77 module: source selection               | REQ-SRC-01                                                                                   |
 | VR-59  | 2026-10-18 | hardware | DCF77 receiver on a Pico 2 W, software 0.2.0 (debug probe attached, RTT logs read)  | REQ-DCF-01, REQ-DCF-02, REQ-DCF-03, REQ-DCF-04                                               |
+| VR-61  | 2026-10-18 | hardware | The six web pages on the Pico 2 W; one SSID on two networks                         | REQ-WEB-11                                                                                   |

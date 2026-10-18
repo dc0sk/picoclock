@@ -722,3 +722,18 @@ from HTTP to HTTPS keeping the `?tab=`, and saving from each page: the clock had
 need one look in a browser.
 
 Verifies: REQ-WEB-11
+
+### VR-61 · 2026-10-18 · hardware · The six web pages on the Pico 2 W; one SSID on two networks
+
+On the clock (192.168.121.41): all six pages answered `200` over HTTPS (2.5 to 4.1 KB), each with its own tab marked, the four
+settings pages with `action="/save?tab=..."`; an unknown tab gave the Status page; the plain-HTTP redirect kept the query
+(`Location: https://.../?tab=time`); `POST /save?tab=clock` applied both fields sent (`fahrenheit` and `hostname`, the latter
+belonging to another tab: the parser does not know the tabs) and returned the Clock page; the Security page's reset button
+reached its confirmation page (nothing erased); `/zones` still worked. Both settings were put back. **Why the clock was
+unreachable earlier:** the SSID `WiFi_RGBDYYXg8Kt_nomap` is broadcast by two sets of access points (BSSIDs `DC:39:6F:CE:6D:..`
+and `D4:24:DD:1C:12:..`, seen by the Raspberry Pi's WiFi scan) that belong to two different networks (gateways 192.168.121.1
+and 192.168.1.1). The clock joins whichever its scan finds first, so after a restart it was once on 192.168.1.x (no NTP
+answer there, hence `ntp: waiting`, and the Pi could not reach it) and three times in a row on 192.168.121.x. The firmware does
+not choose between access points of one SSID and does not log the BSSID.
+
+Verifies: REQ-WEB-11
