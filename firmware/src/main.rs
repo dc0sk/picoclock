@@ -14,6 +14,7 @@ mod buzzer;
 mod crypto;
 #[cfg(feature = "https")]
 mod heap;
+mod install;
 #[cfg(feature = "https")]
 mod https;
 #[cfg(feature = "https")]
@@ -57,6 +58,18 @@ use embassy_rp::{bind_interrupts, dma};
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
 use panic_probe as _;
+/// The info block of this image (chip and version), which the install of a later version reads from the signed file
+/// (`picoclock_core::image`). The linker script keeps it within the first KiB of the image.
+#[used]
+#[unsafe(link_section = ".picoclock_info")]
+static IMAGE_INFO: [u8; picoclock_core::image::INFO_LEN] = picoclock_core::image::info_bytes(
+    #[cfg(feature = "rp2040")]
+    picoclock_core::image::Chip::Rp2040,
+    #[cfg(feature = "rp235x")]
+    picoclock_core::image::Chip::Rp2350,
+    picoclock_core::image::RUNNING,
+);
+
 use picoclock_core::config::Brightness;
 use picoclock_core::frame::Frame;
 use picoclock_core::time::{datetime_to_unix, next_second_boundary, unix_to_datetime};

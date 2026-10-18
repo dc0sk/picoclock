@@ -5,6 +5,9 @@
   sign_image.py sign IMG.bin OUT.sig KEYGRIP-OR-FPR [--gnupghome DIR] [--pubkey HEX]
                                              Ed25519 signature over the SHA-512 digest of IMG.bin, made by gpg-agent
                                              (PKSIGN); with --pubkey the signature is verified before it is written
+  sign_image.py pack IMG.bin IMG.sig OUT.pcu  the update file: the image followed by its 64-byte signature
+  sign_image.py pack-unsigned IMG.bin OUT.pcu  an update file with 64 zero bytes in place of the signature, for a custom build
+                                             (cargo feature custom-images); an official build refuses it
   sign_image.py verify IMG.bin IMG.sig PUBKEY-HEX
                                              exit 0 only if the signature is valid for that raw public key
   sign_image.py self-test                    throwaway key in a temporary GnuPG home: sign, verify, tamper, refuse
@@ -140,6 +143,18 @@ def main(a):
         img = elf_to_bin(open(a[1], "rb").read())
         open(a[2], "wb").write(img)
         print(f"{a[2]}: {len(img)} bytes")
+        return
+    if a[:1] == ["pack"] and len(a) == 4:
+        img, sig = open(a[1], "rb").read(), open(a[2], "rb").read()
+        if len(sig) != 64:
+            raise SystemExit("the signature must be 64 bytes")
+        open(a[3], "wb").write(img + sig)
+        print(f"{a[3]}: {len(img) + 64} bytes ({len(img)} image + 64 signature)")
+        return
+    if a[:1] == ["pack-unsigned"] and len(a) == 3:
+        img = open(a[1], "rb").read()
+        open(a[2], "wb").write(img + bytes(64))
+        print(f"{a[2]}: {len(img) + 64} bytes ({len(img)} image + 64 zero bytes: unsigned)")
         return
     if a[:1] == ["verify"] and len(a) == 4:
         ok = verify(a[1], open(a[2], "rb").read(), a[3])

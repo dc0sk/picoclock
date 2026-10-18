@@ -21,6 +21,8 @@ aes-siv = { version = "0.7", default-features = false }
 # The web page's certificate (ADR-0002). Same crate versions the embassy-crypto drivers use, so the firmware links one copy.
 p256 = { version = "0.14", default-features = false, features = ["ecdsa", "arithmetic", "pkcs8"] }
 sha2 = { version = "0.11", default-features = false }
+# Firmware images are signed with Ed25519 (ADR-0006): the clock checks the signature before it stages an image for the bootloader.
+ed25519-dalek = { version = "3", default-features = false }
 rand_core = { version = "0.6", default-features = false }
 
 [dev-dependencies]

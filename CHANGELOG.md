@@ -12,6 +12,13 @@ Settings saved by an older version keep working; new settings start at their def
   image is swapped in; if it does not confirm itself within 20 s of running, the old image is swapped back. Tested on the Pico 2 W.
   Release files change: **a clock running 0.2.0 or older needs the combined image once** (`tools/combine_image.py`), settings are kept.
 
+- **Installing an update file over the USB terminal** (ADR-0006, step 2): `tools/upload_image.py FILE.pcu` sends an image with its Ed25519
+  signature; the clock checks the chip, that the version is newer and the signature against two built-in keys, stages it, and
+  `update apply` (confirmed with `INSTALL`) swaps it in. Works on both boards (the only install route for the Pico W). Tested on
+  the Pico 2 W.
+- **Custom builds** (`--features custom-images`): install your own build without the signature and version checks. The build says
+  so in `version`, `update` and `status`, and its update check only informs. See the README, "Custom builds".
+
 ### Planned
 - Signed firmware install from the web and terminal (ADR-0006, step 2): bootloader, Ed25519 signature, rollback protection.
 - u-blox GPS as a third time source (0.3.0), reviewed before it is built.

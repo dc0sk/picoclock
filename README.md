@@ -96,6 +96,90 @@ or halted by `reset halt`; the BOOTSEL path above worked every time. Logs over R
 
 Nothing is configured at build time. After the first flash, configure over USB (below).
 
+### How the flash is used: bootloader, two image slots, settings
+
+The chip starts the **bootloader** first. It owns a small state sector and two equally sized slots for the program, so a new
+firmware is written next to the running one and swapped in, never written over it ("dual bank"). The settings live in their own
+sectors at the very end of the flash and are not part of either slot, so neither a swap nor a revert touches them. Not to scale
+(the two slots are about 95 % of the flash).
+
+```
+ Pico 2 W (RP2350), 4 MiB                          Pico W (RP2040), 2 MiB
+ ------------------------------------------        ------------------------------------------
+ 0x000000 +--------------------------------+        0x000000 +--------------------------------+
+          | BOOTLOADER            64 KiB   |                 | boot2 + BOOTLOADER     64 KiB  |
+ 0x010000 +--------------------------------+        0x010000 +--------------------------------+
+          | STATE                  4 KiB   |                 | STATE                   4 KiB  |
+ 0x011000 +--------------------------------+        0x011000 +--------------------------------+
+          |                                |                 |                                |
+          | ACTIVE slot         1984 KiB   |                 | ACTIVE slot          976 KiB   |
+          | the firmware that runs         |                 | the firmware that runs         |
+          | (image: 1.3 MiB today)         |                 | (image: 0.75 MiB today)        |
+ 0x201000 +--------------------------------+        0x105000 +--------------------------------+
+          |                                |                 |                                |
+          | DFU slot            1988 KiB   |                 | DFU slot             980 KiB   |
+          | the staged (new) image, and    |                 | the staged (new) image, and    |
+          | after a swap the old one       |                 | after a swap the old one       |
+ 0x3F2000 +--------------------------------+        0x1FA000 +--------------------------------+
+          | reserved (trust sector) 40 KiB |                 | reserved (trust sector) 12 KiB |
+ 0x3FC000 +--------------------------------+        0x1FD000 +--------------------------------+
+          | SETTINGS backup         4 KiB  |                 | SETTINGS backup         4 KiB  |
+ 0x3FD000 +--------------------------------+        0x1FE000 +--------------------------------+
+          | NTS roots you added     4 KiB  |                 | NTS roots you added     4 KiB  |
+ 0x3FE000 +--------------------------------+        0x1FF000 +--------------------------------+
+          | HTTPS key + certificate 4 KiB  |                 | SETTINGS                4 KiB  |
+ 0x3FF000 +--------------------------------+        0x200000 +--------------------------------+
+          | SETTINGS                4 KiB  |                   (no HTTPS on the Pico W)
+ 0x400000 +--------------------------------+
+```
+
+| Area | What it holds | Who writes it |
+|------|---------------|---------------|
+| BOOTLOADER | ~8 KB program that runs first, swaps the slots and starts ACTIVE | only the one-time combined image (BOOTSEL) |
+| STATE | a few bytes: "swap requested", "swapped, not yet confirmed", "confirmed", plus how far a swap got | bootloader and firmware |
+| ACTIVE | the firmware that runs | the bootloader (swap), the combined image |
+| DFU | the staged firmware, then the previous firmware after a swap | the firmware (upload), the bootloader (swap) |
+| SETTINGS (+ backup) | all configuration, WiFi networks, passwords; written backup first, then main, each with a CRC | the firmware, on `save` |
+| NTS roots, HTTPS | the trust anchors you added; the certificate and key of the web page | the firmware |
+
+**Start-up.** The bootloader looks at STATE and decides: boot ACTIVE, swap, or swap back.
+
+```
+   power on / reset
+          |
+          v
+   +--------------+   "swap requested"   +-----------------------------+
+   |  BOOTLOADER  |--------------------->| swap ACTIVE <-> DFU, page by|
+   |  reads STATE |                      | page (survives a power cut) |
+   +--------------+                      +--------------+--------------+
+      |       ^  \                                      |
+      |       |   \ "swapped, not confirmed"            | then boot the new image
+      |       |    \ (the new image never confirmed)    v
+      |       |     +--------------------------> swap BACK (old image returns)
+      | "confirmed"                                      |
+      v                                                  v
+   start ACTIVE <----------------------------------------+
+      |
+      v
+   firmware runs; after 20 s of a healthy clock task it writes "confirmed" into STATE
+```
+
+**Installing an update** (`update upload`, then `update apply`; see *Firmware update check*):
+
+```
+  1. before             2. upload             3. update apply        4. next start         5. 20 s later
+  ACTIVE  [ v0.2 ]      ACTIVE  [ v0.2 ]      ACTIVE  [ v0.2 ]       ACTIVE  [ v0.3 ]      ACTIVE  [ v0.3 ]
+  DFU     [ (old) ]     DFU     [ v0.3 ]      DFU     [ v0.3 ]       DFU     [ v0.2 ]      DFU     [ v0.2 ]
+  STATE   confirmed     STATE   confirmed     STATE   swap requested STATE   swapped,       STATE   confirmed
+                        file is read back     (you typed INSTALL)            not confirmed          (the new image
+                        and checked: chip,                                   (bootloader keeps       says it is fine)
+                        newer, signature                                      v0.2 in DFU to
+                                                                              go back to)
+```
+
+If step 4's image crashes or hangs before step 5, the next start finds "swapped, not confirmed" and the bootloader copies v0.2 back
+from DFU: the clock recovers without a debug probe. Settings (the last sectors) are the same before and after.
+
 ## Configure over USB
 
 Plug the clock into a computer and open the serial port (115200 8N1, any speed works):
@@ -312,11 +396,46 @@ solid before. The display shows `--:--` until the RTC holds a valid time.
 Once a day while connected (the first time a few minutes after joining) the clock asks GitHub's releases API for the newest release
 of this project and says in `status`, in `update` and on the web page's Status page whether it is newer than the version you run
 (`update  : 0.3.0 is available, you run 0.2.0; see https://github.com/dc0sk/picoclock/releases`). `update check` (or the *Check for
-updates now* button) asks at once. `set update_check off` stops the daily check. **The clock does not download or install anything**;
-you update with a UF2 file (see *Build and flash*). The connection trusts only the USERTrust ECC root that GitHub's certificate chain ends at, and
-the answer is used only after the certificate, the name and the dates were verified. Installing from the clock (a signed image) is planned, see `docs/design/adr/0006-firmware-update.md`; the signing keys and the
-bootloader exist (it swaps a staged image in and swaps back an image that does not confirm itself), the signature check and the
-download do not yet.
+updates now* button) asks at once. `set update_check off` stops the daily check. **The check does not download or install anything**;
+you update with a UF2 file (see *Build and flash*) or by uploading an update file (below). The connection trusts only the USERTrust ECC root that GitHub's certificate chain ends at, and
+the answer is used only after the certificate, the name and the dates were verified. Installing from the clock is described below; the clock does not download an image by itself yet (see `docs/design/adr/0006-firmware-update.md`).
+
+### Installing an update file, and why it is signed
+
+The USB terminal takes an **update file** (an image followed by its 64-byte signature): `python3 tools/upload_image.py FILE.pcu`
+sends it (`update upload <size>` is the command behind it), the clock writes it into the bootloader's second slot, reads it back, and
+checks the length, the chip, that the version is newer than the one that runs, and the Ed25519 signature against the two public
+keys built into the firmware. Nothing is installed by the upload: `update` shows what is staged, and `update apply` asks you to type
+`INSTALL`, then restarts into the new image. If the new image does not confirm itself 20 seconds after it started, the bootloader
+brings the old one back at the next start.
+
+**Why the signature.** An image replaces the whole firmware, including the WiFi password, the web password and the HTTPS key it can
+read. Without a check, anybody who learns the web password or reaches the console could install anything, and a fake release could
+do the same. The official releases are signed with the project owner's key (GnuPG, fingerprint in `docs/design/adr/0006-firmware-update.md`);
+the clock trusts that key, a backup key, and nothing else. The version rule stops a signed old image from being put back.
+
+### Custom builds (run your own firmware)
+
+This is open source: you can build and install your own. The signature check is a compile-time choice, so the protection is on in
+every official build and off only in a build you make yourself:
+
+```sh
+cargo build --release -p picoclock --no-default-features --features rp235x,custom-images --target thumbv8m.main-none-eabihf   # Pico 2 W
+cargo build --release -p picoclock --features custom-images                                                                    # Pico W
+python3 tools/sign_image.py bin target/thumbv8m.main-none-eabihf/release/picoclock my.bin
+python3 tools/sign_image.py pack-unsigned my.bin my.pcu
+python3 tools/upload_image.py my.pcu --apply
+```
+
+A `custom-images` build installs an update file **without** checking the signature or the version (so you can reinstall the same
+version while developing); it still requires the right chip, a plausible length and the info block every picoclock image carries.
+It says so in `version`, `update` and `status` (`custom build: images you upload are NOT checked ...`), and its update check only
+informs: it tells you what the official project has released and never fetches or installs it. **Anyone who can reach the console or
+the web page with its password can install anything on such a clock**, so use it on your own bench, not as a build you hand to others
+without saying so. The first installation of the bootloader (the combined image over BOOTSEL, see *Build and flash*) needs no
+signature either way. If you would rather keep the protection with your own key, replace the two keys in `core/src/image.rs`
+(`KEYS`) with yours and sign with `tools/sign_image.py sign`; the key never leaves your GnuPG agent.
+
 
 ## Time sources
 

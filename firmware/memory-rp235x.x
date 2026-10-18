@@ -25,6 +25,8 @@ MEMORY {
 /* Offsets in flash, read by `FirmwareUpdaterConfig::from_linkerfile_blocking` (the state sector is where the bootloader keeps it) */
 __bootloader_state_start = 0x10010000 - 0x10000000;
 __bootloader_state_end = 0x10011000 - 0x10000000;
+__bootloader_active_start = 0x10011000 - 0x10000000;
+__bootloader_active_end = 0x10201000 - 0x10000000;
 __bootloader_dfu_start = 0x10201000 - 0x10000000;
 __bootloader_dfu_end = 0x103F2000 - 0x10000000;
 
@@ -39,6 +41,8 @@ SECTIONS {
         __start_block_addr = .;
         KEEP(*(.start_block));
         KEEP(*(.boot_info));
+        /* the info block every image carries (picoclock_core::image), within the first KiB so the install finds it */
+        KEEP(*(.picoclock_info));
     } > FLASH
 
 } INSERT AFTER .vector_table;

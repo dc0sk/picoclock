@@ -86,6 +86,10 @@ pub struct Status {
     pub update: crate::update::Check,
     pub update_latest: Option<crate::update::Version>,
     pub update_checked_unix: Option<i64>,
+    /// Where an uploaded firmware image stands (ADR-0006).
+    pub install: crate::image::Install,
+    /// This is a custom build (cargo feature `custom-images`): uploaded images are not checked against the signing keys.
+    pub custom_images: bool,
 }
 
 /// One access point from the scan after a join.
@@ -130,12 +134,27 @@ pub enum Action {
     RootRemove(usize),
     /// `update check`: ask GitHub now whether a newer release exists (nothing is installed).
     UpdateCheck,
+    /// `update upload <bytes>`: the session now takes that many raw bytes (an update file: the image, then its 64-byte signature).
+    ImageUpload(usize),
+    /// `update apply`: the session asks for confirmation (see [`INSTALL_WORD`]), then swaps the staged image in and restarts.
+    ImageApply,
     /// `factory-reset`: the session asks for confirmation (see [`reset_confirmed`]) before anything is erased.
     FactoryReset,
 }
 
 /// What the user must type (terminal) or enter (web page) to confirm a factory reset.
 pub const RESET_WORD: &str = "RESET";
+
+/// Shown by `version`, `update` and `status` in a custom build.
+pub const CUSTOM_NOTICE: &str = "custom build: images you upload are NOT checked against the signing keys, and the update check only informs (README, \"Custom builds\")\n";
+
+/// What the user must type to confirm that a staged image is installed.
+pub const INSTALL_WORD: &str = "INSTALL";
+
+/// `true` if `answer` is exactly the install confirmation word.
+pub fn install_confirmed(answer: &str) -> bool {
+    answer.trim() == INSTALL_WORD
+}
 
 /// What a factory reset erases, shown before the confirmation on both interfaces.
 pub const RESET_WARNING: &str = "A factory reset erases ALL settings, every stored WiFi network and password, the web password, \
@@ -222,6 +241,7 @@ commands:
   root add              paste a CA certificate (PEM) to trust for NTS; then it ends at the END line
   root remove <n>       remove one of your own roots
   update [check]        show whether a newer release exists on GitHub; 'update check' asks now (nothing is installed)
+  update apply          install the uploaded image that waits in the download slot (asks you to confirm)
   version               show the software version, source repository and license
   cert                  show the HTTPS certificate (fingerprint, validity)
   cert new              replace the HTTPS certificate with a new self-signed one
@@ -407,6 +427,13 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             }
             let _ = out.write_str("\nupdate  : ");
             crate::update::describe(out, cfg.update_check, st.update, st.update_latest, st.update_checked_unix, st.utc_unix);
+            if st.install != crate::image::Install::Idle {
+                let _ = out.write_str("\n");
+                crate::image::describe_install(out, st.install);
+            }
+            if st.custom_images {
+                let _ = out.write_str("\nimages  : custom build, uploads are not signature-checked");
+            }
             let _ = write!(out, "\nsources : mode {}", cfg.time_mode.name());
             if cfg.time_mode == crate::sources::Mode::Vote {
                 let _ = write!(out, ", tolerance {} s", cfg.vote_tolerance);
@@ -524,6 +551,9 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
         },
         "version" | "about" => {
             let _ = writeln!(out, "picoclock {}\nsource : {}\nlicense: {}", crate::VERSION, crate::REPOSITORY, crate::LICENSE);
+            if st.custom_images {
+                let _ = out.write_str(CUSTOM_NOTICE);
+            }
             Action::None
         }
         "sync" => Action::SyncNow,
@@ -532,14 +562,38 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                 let _ = out.write_str("update  : ");
                 crate::update::describe(out, cfg.update_check, st.update, st.update_latest, st.update_checked_unix, st.utc_unix);
                 let _ = out.write_str("\n");
+                if st.install != crate::image::Install::Idle {
+                    crate::image::describe_install(out, st.install);
+                    let _ = out.write_str("\n");
+                }
+                if st.custom_images {
+                    let _ = out.write_str(CUSTOM_NOTICE);
+                }
                 Action::None
             }
             "check" => {
                 let _ = out.write_str("asking GitHub for the latest release (the answer shows in 'update' in a few seconds)\n");
                 Action::UpdateCheck
             }
+            "apply" => match st.install {
+                crate::image::Install::Staged(v, _) => {
+                    let _ = writeln!(out, "Install {v}? The clock restarts with it; if it does not start properly the bootloader brings the old version back.");
+                    Action::ImageApply
+                }
+                _ => {
+                    let _ = out.write_str("nothing is staged; upload an update file first (tools/upload_image.py, or the web page's Security tab)\n");
+                    Action::None
+                }
+            },
+            _ if rest.starts_with("upload ") => match rest[7..].trim().parse::<usize>() {
+                Ok(n) if n > 0 && n <= 4 * 1024 * 1024 => Action::ImageUpload(n),
+                _ => {
+                    let _ = out.write_str("usage: update upload <size of the update file in bytes> (use tools/upload_image.py)\n");
+                    Action::None
+                }
+            },
             _ => {
-                let _ = out.write_str("usage: update | update check\n");
+                let _ = out.write_str("usage: update | update check | update apply\n");
                 Action::None
             }
         },
@@ -974,5 +1028,61 @@ mod tests {
         let long = [b'a'; 32];
         assert!(run(&Status { nts_ke: 1, nts_ke_host: long, ..Default::default() }).contains(&format!("nts ke  : {}: ok", "a".repeat(32))));
         assert!(run(&Status { roots_user: 2, ..Default::default() }).contains("of your own"));
+    }
+
+    // VERIFIES: REQ-UPD-06
+    #[test]
+    fn update_upload_takes_a_size_and_refuses_nonsense() {
+        let mut c = Config::default();
+        let run = |c: &mut Config, line: &str| {
+            let mut out = heapless::String::<512>::new();
+            let a = execute(line, c, &Status::default(), &mut out);
+            (a, out)
+        };
+        assert_eq!(run(&mut c, "update upload 1352136").0, Action::ImageUpload(1_352_136));
+        for bad in ["update upload", "update upload 0", "update upload -5", "update upload abc", "update upload 99999999999", "update upload 5000000"] {
+            let (a, out) = run(&mut c, bad);
+            assert_eq!(a, Action::None, "{bad}");
+            assert!(out.contains("usage"), "{bad}: {out}");
+        }
+    }
+
+    // VERIFIES: REQ-UPD-06
+    #[test]
+    fn update_apply_needs_a_staged_image_and_the_install_word() {
+        let mut c = Config::default();
+        let mut out = heapless::String::<512>::new();
+        assert_eq!(execute("update apply", &mut c, &Status::default(), &mut out), Action::None);
+        assert!(out.contains("nothing is staged"), "{out}");
+        let st = Status { install: crate::image::Install::Staged(crate::update::Version { major: 0, minor: 3, patch: 0 }, 0), ..Default::default() };
+        let mut out = heapless::String::<512>::new();
+        assert_eq!(execute("update apply", &mut c, &st, &mut out), Action::ImageApply);
+        assert!(out.contains("0.3.0"), "{out}");
+        assert!(install_confirmed("INSTALL") && install_confirmed("  INSTALL ") && !install_confirmed("install") && !install_confirmed("yes") && !install_confirmed(""));
+        // the staged image shows in `update` and `status`
+        let mut out = heapless::String::<1500>::new();
+        execute("update", &mut c, &st, &mut out);
+        assert!(out.contains("0.3.0 is staged") && out.contains("update apply"), "{out}");
+        let mut out = heapless::String::<4000>::new();
+        execute("status", &mut c, &st, &mut out);
+        assert!(out.contains("image   : 0.3.0 is staged"), "{out}");
+    }
+
+    // VERIFIES: REQ-UPD-07
+    #[test]
+    fn a_custom_build_says_so_and_an_official_build_stays_quiet() {
+        let mut c = Config::default();
+        for (custom, shown) in [(true, true), (false, false)] {
+            let st = Status { custom_images: custom, ..Default::default() };
+            for line in ["version", "update"] {
+                let mut out = heapless::String::<1500>::new();
+                execute(line, &mut c, &st, &mut out);
+                assert_eq!(out.contains("custom build"), shown, "{line} with custom={custom}: {out}");
+            }
+            let mut out = heapless::String::<4000>::new();
+            execute("status", &mut c, &st, &mut out);
+            assert_eq!(out.contains("images  : custom build"), shown, "status with custom={custom}");
+        }
+        assert!(CUSTOM_NOTICE.contains("NOT checked") && CUSTOM_NOTICE.contains("only informs"));
     }
 }

@@ -2209,6 +2209,7 @@ dependencies = [
  "rand_core 0.6.4",
  "rustls",
  "rustls-rustcrypto",
+ "sha2 0.11.1",
  "static_cell",
 ]
 
@@ -2229,6 +2230,7 @@ name = "picoclock-core"
 version = "0.2.0"
 dependencies = [
  "aes-siv",
+ "ed25519-dalek 3.0.0",
  "embassy-crypto",
  "embassy-crypto-rand",
  "embassy-crypto-rustcrypto",

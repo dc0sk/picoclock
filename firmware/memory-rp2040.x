@@ -9,5 +9,18 @@ MEMORY {
 /* Offsets in flash, read by `FirmwareUpdaterConfig::from_linkerfile_blocking` (the state sector is where the bootloader keeps it) */
 __bootloader_state_start = 0x10010000 - 0x10000000;
 __bootloader_state_end = 0x10011000 - 0x10000000;
+__bootloader_active_start = 0x10011000 - 0x10000000;
+__bootloader_active_end = 0x10105000 - 0x10000000;
 __bootloader_dfu_start = 0x10105000 - 0x10000000;
 __bootloader_dfu_end = 0x101FA000 - 0x10000000;
+
+/* The info block every image carries (picoclock_core::image, firmware/src/main.rs), kept near the start so the install finds it */
+SECTIONS {
+    .picoclock_info : ALIGN(4)
+    {
+        KEEP(*(.picoclock_info));
+    } > FLASH
+} INSERT AFTER .vector_table;
+
+/* the program text starts after the info block */
+_stext = ADDR(.picoclock_info) + SIZEOF(.picoclock_info);

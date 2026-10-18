@@ -85,6 +85,16 @@ stays limited**. Points 4 to 7 stand except where this section says otherwise.
 14. **Boot confirmation** uses local health only (settings loaded, main loop running), never "WiFi joined", or a router outage
     would revert a good image. The watchdog is fed first thing in the application, since the bootloader's watchdog keeps running.
 
+15. **Custom builds (owner's requirement of 2026-10-19).** The signature protects the clocks of people who run the official release;
+    it must not stop others from running their own build. A cargo feature **`custom-images`** (off by default, never in an official
+    release) makes the clock install an uploaded image without the signature and the newer-version checks; the chip, the length and the
+    info block are still required. Such a build says so in `version`, `update`, `status` (and on the web page), the update check in it
+    only informs (it never downloads or installs a release), and the file format is unchanged (`tools/sign_image.py pack-unsigned` fills
+    the signature with zeros). Alternatives: a user-supplied key at build time (kept as a later option: it would let a fleet of
+    custom clocks keep the protection), and a runtime setting to switch the check off (REJECTED, assumed: anyone who reaches the web
+    page or the console with the password could then install anything, which is the attack the signature exists for). When the bootloader
+    gets its own signature check (second line of defence), it gets the same feature.
+
 Build order: release tooling and host verifier; memory maps and bootloader; upload path into the download slot (Pico W and Pico 2
 W, no network needed); streaming download with one redirect (Pico 2 W only); rollback rule and two-step confirmation; revocation.
 

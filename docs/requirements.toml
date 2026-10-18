@@ -63,6 +63,11 @@ name = "Firmware update check (GitHub releases)"
 code = ["core/src/update.rs"]
 
 [[cap]]
+id = "CAP-IMAGE"
+name = "Update files: info block, acceptance rules, Ed25519 check, staging in the download slot"
+code = ["core/src/image.rs", "firmware/src/install.rs"]
+
+[[cap]]
 id = "CAP-BOOT"
 name = "Bootloader: swap in a staged image, swap back an unconfirmed one"
 code = ["bootloader/src/main.rs", "bootloader/build.rs"]
@@ -600,6 +605,33 @@ criticality = "high"
 statement = "The clock shall start through a bootloader that keeps two flash slots (the running image and a staged one) and a state sector. When a staged image is marked, the bootloader swaps the two slots in steps that survive a power cut; the running image confirms itself only after its clock task has run for 20 seconds without a stall (never because WiFi joined), and an image that was swapped in but did not confirm is swapped back at the next start. The memory maps of the bootloader and the firmware shall describe the same layout, with the settings sectors at the end of flash outside both slots, and the one-time image shall carry an erased state sector."
 rationale = "Decided in ADR-0006 (points 4, 13, 14): an install that goes wrong must be recoverable without a debug probe, and the owner's clock sits in a case with only a USB cable. Confirming from local health only keeps a router outage from reverting a good image."
 cap = ["CAP-BOOT", "CAP-CONFIG", "CAP-APP"]
+
+[[req]]
+id = "REQ-UPD-05"
+area = "Update"
+status = "ratified"
+criticality = "high"
+statement = "An update file shall be a firmware image followed by a 64-byte Ed25519 signature made over the SHA-512 digest of the image. The clock shall accept it only if its length is plausible for the image slot, the info block within the first 4 KiB of the image names the chip the clock runs on, the version in that block is strictly newer than the running one (compared by number), and the signature is valid under one of the two built-in public keys (strict verification). The chip and the version shall be read from the signed image, never from a file name or a release tag, and nothing shall be marked for the bootloader's swap before every check passed."
+rationale = "ADR-0006 points 5, 6 and 9: the install is the one place where a wrong input replaces the whole firmware. Taking chip and version from the signed bytes stops a signed old image being presented as new (rollback) and an image for the other chip being installed; two keys let the owner keep one apart as a backup."
+cap = ["CAP-IMAGE"]
+
+[[req]]
+id = "REQ-UPD-06"
+area = "Update"
+status = "ratified"
+criticality = "high"
+statement = "On the USB terminal `update upload <size>` shall take an update file (REQ-UPD-05) and write it into the bootloader's download slot, then read it back from flash for the checks; the running image and the settings are untouched whatever happens; a transfer that stalls for 10 seconds is abandoned. A staged image is installed only by `update apply` and the confirmation word INSTALL, which marks the swap and restarts; it is refused while the running image has not yet confirmed itself to the bootloader. `update` and `status` show what is staged or why the last upload was refused."
+rationale = "ADR-0006 point 7 (two-step confirmation, as for the factory reset) and the owner's decision of 2026-10-18 that the Pico W installs by upload only. Reading back from flash catches a write error that checking the received bytes would miss."
+cap = ["CAP-IMAGE", "CAP-CLI", "CAP-CONFIG"]
+
+[[req]]
+id = "REQ-UPD-07"
+area = "Update"
+status = "ratified"
+criticality = "high"
+statement = "Anyone shall be able to run their own build: a build made with the cargo feature `custom-images` shall accept an uploaded image without the signature and the newer-version checks (the chip and the length are still checked), shall say so in `version`, `update` and `status`, and shall show an unsigned stage as such. The feature shall be off in every official build, and in a custom build the update check shall only inform and never fetch or install a release."
+rationale = "Requested by the owner (2026-10-19): the signature protects the owner's clocks from foreign firmware, but this is an open-source project and others must be able to install their own builds without the owner's key. A compile-time switch keeps the protection on by default, and a build that opens it says so wherever the version is shown."
+cap = ["CAP-IMAGE", "CAP-CLI"]
 
 # ---------------------------------------------------------------------------------------------------- terminal
 

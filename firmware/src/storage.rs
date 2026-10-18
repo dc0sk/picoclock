@@ -139,10 +139,7 @@ async fn factory_reset(flash: &mut Store) {
 /// swaps the old image back at the next start. "Works" is local only: the clock task has run for 20 s without a stall. WiFi
 /// is not part of it, or a router outage would revert a good image. A fresh install (no swap yet) is marked the same way,
 /// which writes the same magic again and is harmless.
-async fn confirm_boot(flash: &mut Store) {
-    use core::cell::RefCell;
-    use embassy_boot_rp::{AlignedBuffer, BlockingFirmwareState, FirmwareUpdaterConfig};
-    use embassy_sync::blocking_mutex::{Mutex, raw::NoopRawMutex};
+async fn confirm_boot_signal() {
     loop {
         embassy_time::Timer::after_secs(20).await;
         let age_ms = (embassy_time::Instant::now().as_millis() as u32).wrapping_sub(state::HEARTBEAT_MS.load(core::sync::atomic::Ordering::Relaxed));
@@ -150,6 +147,12 @@ async fn confirm_boot(flash: &mut Store) {
             break;
         }
     }
+}
+
+fn confirm_boot(flash: &mut Store) {
+    use core::cell::RefCell;
+    use embassy_boot_rp::{AlignedBuffer, BlockingFirmwareState, FirmwareUpdaterConfig};
+    use embassy_sync::blocking_mutex::{Mutex, raw::NoopRawMutex};
     let shared = Mutex::<NoopRawMutex, _>::new(RefCell::new(&mut *flash));
     let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&shared, &shared);
     let mut magic = AlignedBuffer([0; 1]);
@@ -160,12 +163,101 @@ async fn confirm_boot(flash: &mut Store) {
     }
 }
 
+/// One message of the install conversation (`crate::install`): the staged image waits here for `Apply`.
+async fn install_step(flash: &mut Store, msg: state::InstallMsg, stager: &mut Option<crate::install::Stager>, staged: &mut bool) {
+    use crate::install::{self, Failure};
+    use picoclock_core::image::Install;
+    use state::InstallMsg::*;
+    match msg {
+        Begin(len) => {
+            *staged = false;
+            *stager = None;
+            match install::begin(len) {
+                Ok(s) => {
+                    *stager = Some(s);
+                    state::set_install(Install::Receiving);
+                    state::INSTALL_REPLY.signal(true);
+                }
+                Err(why) => {
+                    warn!("install: refused: {}", why.message());
+                    state::set_install(Install::Refused(why));
+                    state::INSTALL_REPLY.signal(false);
+                }
+            }
+        }
+        Block(data) => {
+            if let Some(s) = stager.as_mut() {
+                if s.block(flash, &data).is_err() {
+                    warn!("install: flash write failed");
+                    state::set_install(Install::WriteFailed);
+                    *stager = None;
+                }
+            }
+        }
+        Finish => {
+            let result = match stager.take() {
+                Some(s) => s.finish(flash).await,
+                None => Err(Failure::Flash),
+            };
+            install::log_result(&result);
+            *staged = result.is_ok();
+            state::set_install(install::install_of(&result));
+            state::INSTALL_REPLY.signal(result.is_ok());
+        }
+        Abort => {
+            *stager = None;
+            *staged = false;
+            state::set_install(Install::Idle);
+        }
+        Apply => {
+            if !*staged {
+                state::INSTALL_REPLY.signal(false);
+            } else {
+                match install::mark_swap(flash) {
+                    Ok(()) => {
+                        info!("install: swap marked; restarting");
+                        embassy_time::Timer::after_millis(300).await;
+                        state::forget_watchdog_marker();
+                        cortex_m::peripheral::SCB::sys_reset();
+                    }
+                    Err(why) => {
+                        warn!("install: {}", why);
+                        state::INSTALL_REPLY.signal(false);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[embassy_executor::task]
 pub async fn storage_task(mut flash: Store) -> ! {
-    confirm_boot(&mut flash).await;
+    // the install conversation runs beside the 20-second wait for the boot confirmation, so an upload is never held up by it
+    let mut stager: Option<crate::install::Stager> = None;
+    let mut staged = false;
+    {
+        use embassy_futures::select::{Either, select};
+        let confirm = confirm_boot_signal();
+        let mut confirm = core::pin::pin!(confirm);
+        loop {
+            match select(&mut confirm, state::INSTALL_IN.receive()).await {
+                Either::First(()) => break,
+                Either::Second(msg) => install_step(&mut flash, msg, &mut stager, &mut staged).await,
+            }
+        }
+    }
+    confirm_boot(&mut flash);
     loop {
-        use embassy_futures::select::{Either4, select4};
-        let mut now = match select4(state::SAVE_REQUEST.wait(), tls_request(), state::ROOTS_SAVE.wait(), state::FACTORY_RESET.wait()).await {
+        use embassy_futures::select::{Either, Either4, select, select4};
+        let ev = select(state::INSTALL_IN.receive(), select4(state::SAVE_REQUEST.wait(), tls_request(), state::ROOTS_SAVE.wait(), state::FACTORY_RESET.wait())).await;
+        let ev = match ev {
+            Either::First(msg) => {
+                install_step(&mut flash, msg, &mut stager, &mut staged).await;
+                continue;
+            }
+            Either::Second(ev) => ev,
+        };
+        let mut now = match ev {
             Either4::First(now) => now,
             Either4::Fourth(()) => {
                 factory_reset(&mut flash).await;

@@ -850,3 +850,41 @@ application-only UF2 is gone, since that file is no longer a deliverable). Sizes
 
 Verifies: REQ-UPD-04
 
+### VR-71 · 2026-10-19 · host · Update file rules and the real keys' signatures (core::image)
+
+Unit tests in `core/src/image.rs` (REQ-UPD-05): the info block is found within the first 4 KiB on a 4-byte boundary and not after it,
+an unknown chip number is no image, the same or an older version is refused (0.9.9 against 0.10.0 by number), the length rules, a
+signature from either built-in key is accepted and one from a stranger, a damaged one, an all-zero one or a signature over another
+image is not, and the keys are valid distinct points. Two signatures made on 2026-10-18 by the owner's real primary and backup keys
+through `gpg-agent` (`tools/sign_image.py sign`, passphrase preset in a temporary agent, nothing printed) over a fixed message verify
+against the embedded keys in the Rust verifier, so the format the release script produces and the one the clock checks are the same.
+Custom-build policy tests (REQ-UPD-07): same and older versions and no signature are accepted under `Policy::CUSTOM`, the wrong chip
+never is. Terminal tests (REQ-UPD-06): `update upload` takes a size and refuses nonsense, `update apply` needs a staged image and the
+word INSTALL, the staged image shows in `update` and `status`; a custom build says so, an official one does not.
+
+Verifies: REQ-UPD-05, REQ-UPD-06, REQ-UPD-07
+
+### VR-72 · 2026-10-19 · hardware · Upload over the console: refusals and a signed install (Pico 2 W)
+
+Pico 2 W with the bootloader, official build (0.2.0) with the upload code, test images built from the same tree with other version
+numbers and signed with the owner's real primary key through a temporary `gpg-agent` (`tools/upload_image.py`, about 16 s for 1.3 MB).
+**Refused, each with its own message and nothing marked for the swap:** a file of 100 bytes (wrong length); the RP2040 image (other
+chip); an image of 0.1.0 (not newer than 0.2.0); the right image signed by a key the clock does not know; the right image with one byte
+changed after signing; the right file sent 100 bytes short (all three: signature not valid). **Accepted:** the 0.9.9 image signed by
+key 1: `update` showed it staged, `update apply` followed by `yes` cancelled and left it staged, `update apply` followed by `INSTALL`
+swapped it in, and the clock came back as 0.9.9 (the bootloader's swap, VR-68). A transfer that stopped after 5000 bytes was abandoned
+after 10.0 s and the console answered again. **Not verified:** `update apply` refused during the first 20 s after a swap (the code
+exists, I did not time it), an upload over the web page (not built), a power cut during the upload or the swap, the Pico W.
+
+Verifies: REQ-UPD-05, REQ-UPD-06
+
+### VR-73 · 2026-10-19 · hardware · A custom build installs an unsigned, older image (Pico 2 W)
+
+A build with `--features rp235x,custom-images` was flashed (combined image over BOOTSEL). `version`, `update` and `status` printed the
+custom-build notice. An image of 0.1.0 packed with 64 zero bytes (`tools/sign_image.py pack-unsigned`) was uploaded: the clock staged
+it ("0.1.0 is staged WITHOUT a signature check (custom build)"), `update apply` and INSTALL swapped it in and the clock came back as
+0.1.0, an older version than the build that ran, which an official build refuses (VR-72). **Not verified:** that a custom build still
+refuses an image for the other chip on hardware (host test only), the web page's banner for custom builds (not built).
+
+Verifies: REQ-UPD-07
+

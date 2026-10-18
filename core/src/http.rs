@@ -872,6 +872,8 @@ mod tests {
             update: crate::update::Check::Newer,
             update_latest: Some(crate::update::Version { major: 65535, minor: 65535, patch: 65535 }),
             update_checked_unix: Some(1_700_000_000),
+            install: crate::image::Install::Idle,
+            custom_images: false,
             geo: [crate::cli::GeoTry { stage: 5, bytes: 999, end: 1, addr: [255, 255, 255, 255] }; crate::geo::PROVIDERS.len()],
         };
         let mut c = Config::default();
