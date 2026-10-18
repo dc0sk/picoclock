@@ -737,3 +737,9 @@ answer there, hence `ntp: waiting`, and the Pi could not reach it) and three tim
 not choose between access points of one SSID and does not log the BSSID.
 
 Verifies: REQ-WEB-11
+
+### VR-62 · 2026-10-18 · hardware and network · A second DHCP answer and the access points the clock hears
+
+**Incident:** once, after a firmware flash, the Pico 2 W held 192.168.1.100 with gateway 192.168.1.1, no DHCP option 42 and no NTP answer, for about 15 minutes; its normal network is 192.168.121.x (gateway 192.168.121.1, which offers option 42). The code has no static or fallback address (searched `firmware/` and `core/`; xarxa has none; the 192.168.x literals are in tests), so a DHCP server answered. **Checks since:** about 25 further restarts and one reflash all requested from server-id 192.168.121.1 (a passive listener on the wired port saw the clock's DISCOVER and REQUEST); six broadcast DISCOVERs from the Pi's wired port were answered only by 192.168.121.1 (`b4:fc:7d:22:07:b0`); the Pi's WiFi scan lists only the six BSSIDs of the owner's two meshed AVM access points (checked every 40 s for an hour). The owner states the AVM fallbacks are 192.168.178.1 and 169.254.1.1, so 192.168.1.1 is not theirs; they also have Shelly and Anker devices and a devolo powerline adapter on the LAN, none yet identified as the source. **New logging (REQ-NET-10):** `status` now shows `dhcp:` and `ap:`; after the join the clock's own 2.4 GHz scan heard two access points with the SSID: `dc:39:6f:ce:6d:f9` channel 1, -51 dBm (the joined one, link -53 dBm) and `b4:fc:7d:22:07:a0` channel 1, -85 dBm, which shares its first five bytes with the router's LAN address and is presumably the Fritz!Box's own radio. **Not determined:** what answered with 192.168.1.1, and where it is; it has not reproduced.
+
+Verifies: REQ-NET-10

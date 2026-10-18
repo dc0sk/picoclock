@@ -72,6 +72,24 @@ pub struct Status {
     pub sources: [Option<crate::sources::Report>; 2],
     /// DCF77 receiver counters.
     pub dcf: crate::dcf77::Stats,
+    /// The DHCP server that gave the lease, the prefix length and the first DNS server (all from the lease).
+    pub dhcp_server: Option<[u8; 4]>,
+    pub prefix: u8,
+    pub dns: Option<[u8; 4]>,
+    /// How often the server, address or gateway changed while the link stayed up (a second DHCP server answering a renewal).
+    pub lease_changes: u8,
+    /// The signal of the joined access point (dBm) and the access points with the stored name that a scan right after the
+    /// join saw, strongest first.
+    pub link_rssi: Option<i16>,
+    pub aps: [Option<ApSeen>; 6],
+}
+
+/// One access point from the scan after a join.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ApSeen {
+    pub bssid: [u8; 6],
+    pub channel: u8,
+    pub rssi: i16,
 }
 
 /// One timezone-lookup attempt, as shown in `status`.
@@ -349,6 +367,27 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             ip(out, st.ip);
             let _ = out.write_str("\ngateway : ");
             ip(out, st.gateway);
+            if let Some(server) = st.dhcp_server {
+                let _ = write!(out, "\ndhcp    : server {}.{}.{}.{}, /{}", server[0], server[1], server[2], server[3], st.prefix);
+                if let Some(d) = st.dns {
+                    let _ = write!(out, ", dns {}.{}.{}.{}", d[0], d[1], d[2], d[3]);
+                }
+                if st.lease_changes > 0 {
+                    let _ = write!(out, ", CHANGED {} time(s) while connected", st.lease_changes);
+                }
+            }
+            if st.aps[0].is_some() || st.link_rssi.is_some() {
+                let _ = out.write_str("\nap      : ");
+                match st.link_rssi {
+                    Some(r) => { let _ = write!(out, "link {} dBm", r); }
+                    None => { let _ = out.write_str("link signal unknown"); }
+                }
+                let closest = st.link_rssi.and_then(|l| st.aps.iter().flatten().enumerate().min_by_key(|(_, a)| (a.rssi - l).abs()).map(|(i, _)| i));
+                for (i, a) in st.aps.iter().flatten().enumerate() {
+                    let b = a.bssid;
+                    let _ = write!(out, "{} {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} ch{} {}dBm{}", if i == 0 { ";" } else { "," }, b[0], b[1], b[2], b[3], b[4], b[5], a.channel, a.rssi, if closest == Some(i) { " <" } else { "" });
+                }
+            }
             let _ = out.write_str("\nsynced  : ");
             match (st.last_sync_unix, st.utc_unix) {
                 (Some(s), Some(now)) => {
@@ -627,6 +666,37 @@ mod tests {
     }
 
     // VERIFIES: REQ-HW-01 REQ-HW-02 REQ-NET-02
+        // VERIFIES: REQ-NET-10
+    #[test]
+    fn status_names_the_dhcp_server_the_access_points_and_a_changed_lease() {
+        let ap = |last: u8, ch, rssi| Some(ApSeen { bssid: [0xdc, 0x39, 0x6f, 0xce, 0x6d, last], channel: ch, rssi });
+        let st = Status {
+            wifi_up: true,
+            ip: Some([192, 168, 121, 41]),
+            gateway: Some([192, 168, 121, 1]),
+            dhcp_server: Some([192, 168, 121, 1]),
+            prefix: 24,
+            dns: Some([192, 168, 121, 1]),
+            link_rssi: Some(-53),
+            aps: [ap(0xf9, 1, -51), ap(0xa0, 1, -85), None, None, None, None],
+            ..Default::default()
+        };
+        let mut out = std::string::String::new();
+        execute("status", &mut Config::default(), &st, &mut out);
+        assert!(out.contains("dhcp    : server 192.168.121.1, /24, dns 192.168.121.1\n"), "{out}");
+        assert!(out.contains("ap      : link -53 dBm; dc:39:6f:ce:6d:f9 ch1 -51dBm <, dc:39:6f:ce:6d:a0 ch1 -85dBm\n"), "the access point closest to the link signal is marked: {out}");
+        assert!(!out.contains("CHANGED"));
+        // a lease that changed while the link stayed up is said loudly
+        let changed = Status { lease_changes: 2, ..st };
+        let mut out = std::string::String::new();
+        execute("status", &mut Config::default(), &changed, &mut out);
+        assert!(out.contains("CHANGED 2 time(s) while connected"), "{out}");
+        // nothing joined: no invented lines
+        let mut out = std::string::String::new();
+        execute("status", &mut Config::default(), &Status::default(), &mut out);
+        assert!(!out.contains("dhcp    :") && !out.contains("ap      :"), "{out}");
+    }
+
     #[test]
     fn negative_sub_degree_temperature() {
         let mut c = Config::default();

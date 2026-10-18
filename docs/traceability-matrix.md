@@ -16,12 +16,12 @@ last_updated: 2026-10-18
 
 | Measure                                                           | Count |
 |-------------------------------------------------------------------|-------|
-| Requirements                                                      | 91    |
-| Ratified                                                          | 89    |
+| Requirements                                                      | 92    |
+| Ratified                                                          | 90    |
 | Draft (roadmap)                                                   | 1     |
 | Retired                                                           | 1     |
 | Ratified with hardware evidence                                   | 67    |
-| Ratified with unit tests only (no hardware, host or build record) | 17    |
+| Ratified with unit tests only (no hardware, host or build record) | 18    |
 | Ratified and UNVERIFIED (stated reason)                           | 0     |
 | Unit tests bound to requirements                                  | 183   |
 | Verification records                                              | 59    |
@@ -76,6 +76,7 @@ last_updated: 2026-10-18
 | REQ-CFG-08  | ratified | medium | CONFIG, CLI, HTTP, NET, HTTPS | 1          | VR-54                                    | unit, hardware        |
 | REQ-CFG-09  | ratified | high   | CLI, HTTP, CONFIG, APP        | 3          | VR-55                                    | unit, hardware        |
 | REQ-CFG-10  | ratified | high   | CONFIG, APP                   | 3          | -                                        | unit                  |
+| REQ-NET-10  | ratified | medium | NET, CLI                      | 1          | -                                        | unit                  |
 | REQ-CLI-01  | ratified | medium | CLI                           | 7          | VR-01, VR-02                             | unit, hardware        |
 | REQ-CLI-02  | ratified | low    | CLI                           | 1          | -                                        | unit                  |
 | REQ-WEB-01  | ratified | medium | HTTP                          | 5          | VR-09, VR-27, VR-56                      | unit, hardware        |
@@ -137,6 +138,7 @@ These have never been seen working on the clock (they may still have unit tests)
 | REQ-NTS-08  | unit        |              |
 | REQ-CFG-04  | unit        |              |
 | REQ-CFG-10  | unit        |              |
+| REQ-NET-10  | unit        |              |
 | REQ-CLI-02  | unit        |              |
 | REQ-WEB-05  | unit        |              |
 | REQ-WEB-07  | unit, host  |              |
@@ -164,7 +166,7 @@ These have never been seen working on the clock (they may still have unit tests)
 | CAP-CONFIG  | Configuration model and flash storage                                              | core/src/config.rs, core/src/slots.rs, firmware/src/storage.rs                                          | REQ-TIME-02, REQ-TZ-03, REQ-TZ-04, REQ-TZ-05, REQ-NTP-01, REQ-NTS-01, REQ-NTS-03, REQ-SRV-01, REQ-NET-01, REQ-NET-02, REQ-NET-04, REQ-NET-05, REQ-NET-07, REQ-CFG-01, REQ-CFG-02, REQ-CFG-03, REQ-CFG-04, REQ-CFG-05, REQ-CFG-06, REQ-CFG-08, REQ-CFG-09, REQ-CFG-10, REQ-WEB-11, REQ-SRC-01, REQ-SRC-04, REQ-DCF-04, REQ-HAM-02, REQ-NFR-01 |
 | CAP-ENTROPY | Conditioning of the RP2040 ring-oscillator random bits                             | core/src/entropy.rs                                                                                     | REQ-RNG-01                                                                                                                                                                                                                                                                                                                                   |
 | CAP-SOURCES | Time source selection (order, vote) and the DCF77 receiver                         | core/src/dcf77.rs, core/src/sources.rs, firmware/src/dcf77.rs, firmware/src/sources.rs                  | REQ-SRC-01, REQ-SRC-02, REQ-SRC-03, REQ-SRC-04, REQ-SRC-05, REQ-DCF-01, REQ-DCF-02, REQ-DCF-03, REQ-DCF-04                                                                                                                                                                                                                                   |
-| CAP-CLI     | Terminal commands and USB serial console                                           | core/src/cli.rs, firmware/src/usb_cli.rs                                                                | REQ-TZ-02, REQ-NTP-03, REQ-NTS-04, REQ-NTS-09, REQ-NTS-10, REQ-NET-02, REQ-NET-04, REQ-NET-05, REQ-NET-07, REQ-CFG-01, REQ-CFG-03, REQ-CFG-05, REQ-CFG-06, REQ-CFG-07, REQ-CFG-08, REQ-CFG-09, REQ-CLI-01, REQ-CLI-02, REQ-WEB-08, REQ-SRC-05, REQ-DCF-04, REQ-DSP-02, REQ-HW-01, REQ-HW-02, REQ-NFR-03                                      |
+| CAP-CLI     | Terminal commands and USB serial console                                           | core/src/cli.rs, firmware/src/usb_cli.rs                                                                | REQ-TZ-02, REQ-NTP-03, REQ-NTS-04, REQ-NTS-09, REQ-NTS-10, REQ-NET-02, REQ-NET-04, REQ-NET-05, REQ-NET-07, REQ-CFG-01, REQ-CFG-03, REQ-CFG-05, REQ-CFG-06, REQ-CFG-07, REQ-CFG-08, REQ-CFG-09, REQ-NET-10, REQ-CLI-01, REQ-CLI-02, REQ-WEB-08, REQ-SRC-05, REQ-DCF-04, REQ-DSP-02, REQ-HW-01, REQ-HW-02, REQ-NFR-03                          |
 | CAP-HTTP    | HTTP parsing, settings page and web server                                         | core/src/http.rs, firmware/src/web.rs                                                                   | REQ-NTS-09, REQ-CFG-01, REQ-CFG-03, REQ-CFG-06, REQ-CFG-07, REQ-CFG-08, REQ-CFG-09, REQ-WEB-01, REQ-WEB-02, REQ-WEB-03, REQ-WEB-04, REQ-WEB-05, REQ-WEB-06, REQ-WEB-08, REQ-WEB-09, REQ-WEB-10, REQ-WEB-11, REQ-SRC-05                                                                                                                       |
 | CAP-HTTPS   | HTTPS server (Pico 2 W): heap, rustls glue, certificate lifecycle and flash record | core/src/tlsstore.rs, firmware/src/heap.rs, firmware/src/https.rs, firmware/src/tls.rs                  | REQ-CFG-08, REQ-WEB-06, REQ-WEB-08                                                                                                                                                                                                                                                                                                           |
 | CAP-CERT    | Web page TLS certificate: generate, inspect, validate                              | core/src/x509.rs                                                                                        | REQ-NTS-09, REQ-WEB-08, REQ-WEB-07                                                                                                                                                                                                                                                                                                           |
@@ -174,7 +176,7 @@ These have never been seen working on the clock (they may still have unit tests)
 | CAP-BUZZER  | Buzzer driver                                                                      | core/src/morse.rs, firmware/src/buzzer.rs                                                               | REQ-HAM-01, REQ-HAM-02, REQ-UI-05, REQ-UI-06, REQ-HW-03                                                                                                                                                                                                                                                                                      |
 | CAP-NETUTIL | WiFi order, DHCP option 42 and mDNS packet logic                                   | core/src/netutil.rs                                                                                     | REQ-NTS-08, REQ-NTS-09, REQ-NET-04, REQ-NET-05, REQ-NET-07, REQ-NET-08                                                                                                                                                                                                                                                                       |
 | CAP-RTC     | DS3231 driver                                                                      | firmware/src/rtc.rs                                                                                     | REQ-TIME-01, REQ-TIME-04, REQ-HW-01                                                                                                                                                                                                                                                                                                          |
-| CAP-NET     | WiFi, hourly sync, geolocation request and NTP server                              | firmware/src/net.rs                                                                                     | REQ-TZ-04, REQ-NTP-01, REQ-NTP-03, REQ-NTS-01, REQ-SRV-01, REQ-SRV-02, REQ-SRV-03, REQ-SRV-04, REQ-NET-01, REQ-NET-02, REQ-NET-03, REQ-NET-06, REQ-NET-04, REQ-NET-05, REQ-NET-07, REQ-NET-08, REQ-NET-09, REQ-CFG-07, REQ-CFG-08, REQ-SRC-01, REQ-HW-08                                                                                     |
+| CAP-NET     | WiFi, hourly sync, geolocation request and NTP server                              | firmware/src/net.rs                                                                                     | REQ-TZ-04, REQ-NTP-01, REQ-NTP-03, REQ-NTS-01, REQ-SRV-01, REQ-SRV-02, REQ-SRV-03, REQ-SRV-04, REQ-NET-01, REQ-NET-02, REQ-NET-03, REQ-NET-06, REQ-NET-04, REQ-NET-05, REQ-NET-07, REQ-NET-08, REQ-NET-09, REQ-CFG-07, REQ-CFG-08, REQ-NET-10, REQ-SRC-01, REQ-HW-08                                                                         |
 | CAP-APP     | Composition: task wiring, shared state, chip selection                             | core/src/lib.rs, firmware/build.rs, firmware/src/crypto.rs, firmware/src/main.rs, firmware/src/state.rs | REQ-TIME-01, REQ-TIME-04, REQ-SRV-04, REQ-CFG-09, REQ-CFG-10, REQ-DCF-03, REQ-DSP-02, REQ-HW-02, REQ-HW-04, REQ-HW-05, REQ-HW-06, REQ-NFR-01, REQ-NFR-02, REQ-NFR-03, REQ-RNG-01                                                                                                                                                             |
 
 ## Unit tests by requirement
@@ -205,7 +207,7 @@ These have never been seen working on the clock (they may still have unit tests)
 - **REQ-SRV-02**: `sntp::server_reply_is_accepted_by_our_own_client_and_echoes_the_nonce`, `sntp::server_ignores_everything_that_is_not_a_client_request`
 - **REQ-SRV-03**: `sntp::unsynchronised_server_is_rejected_by_clients`, `sntp::server_ignores_everything_that_is_not_a_client_request`, `sntp::server_reply_is_never_larger_than_the_request`
 - **REQ-NET-01**: `config::eight_wifi_slots_are_independent_and_bounded`, `config::all_slots_full_survive_a_flash_round_trip`
-- **REQ-NET-02**: `cli::negative_sub_degree_temperature`, `config::hostname_ends_in_last_mac_block`
+- **REQ-NET-02**: `cli::status_names_the_dhcp_server_the_access_points_and_a_changed_lease`, `config::hostname_ends_in_last_mac_block`
 - **REQ-NET-04**: `cli::status_shows_scan_dhcp_ntp_and_mdns`, `config::wifi_select_and_mdns_settings`, `netutil::wifi_order_by_slot_or_by_signal`
 - **REQ-NET-05**: `cli::status_shows_scan_dhcp_ntp_and_mdns`, `netutil::dhcp_option_42_gives_usable_unicast_servers`
 - **REQ-NET-07**: `cli::status_shows_scan_dhcp_ntp_and_mdns`, `config::wifi_select_and_mdns_settings`, `netutil::mdns_answers_only_for_its_own_name`
@@ -220,6 +222,7 @@ These have never been seen working on the clock (they may still have unit tests)
 - **REQ-CFG-08**: `config::hostname_setting_names_the_device`
 - **REQ-CFG-09**: `cli::factory_reset_is_a_request_and_needs_the_exact_word`, `http::factory_reset_takes_two_steps_on_the_web_page`, `slots::first_save_cut_off_leaves_defaults_never_garbage_and_erase_all_clears_both`
 - **REQ-CFG-10**: `slots::a_save_cut_off_at_any_step_leaves_the_old_or_the_new_settings`, `slots::first_save_cut_off_leaves_defaults_never_garbage_and_erase_all_clears_both`, `slots::the_backup_is_used_when_the_primary_is_blank_or_torn`
+- **REQ-NET-10**: `cli::status_names_the_dhcp_server_the_access_points_and_a_changed_lease`
 - **REQ-CLI-01**: `cli::set_get_show`, `cli::set_without_value_clears_text_settings`, `cli::actions`, `cli::time_shows_utc_and_local`, `cli::tz_listing_and_status`, `cli::help_lists_every_key`, `cli::status_shows_heap_use_only_where_there_is_a_heap`
 - **REQ-CLI-02**: `cli::tz_listing_is_capped`
 - **REQ-WEB-01**: `http::form_apply`, `http::page_with_all_slots_full_fits`, `http::status_block_of_a_busy_clock_is_not_cut_off`, `http::page_overflow_is_an_error_not_a_panic`, `http::the_busiest_pages_fit_with_room_to_spare`
@@ -251,8 +254,8 @@ These have never been seen working on the clock (they may still have unit tests)
 - **REQ-UI-05**: `ui::alarm_fires_once_per_minute_and_any_button_stops_it`, `ui::alarm_stops_by_itself_and_respects_disabled_and_unset_clock`, `ui::alarm_uses_local_time`, `ui::hourly_chime_once_and_not_over_alarm`
 - **REQ-UI-06**: `ui::key_beep_follows_config`, `ui::hourly_chime_once_and_not_over_alarm`
 - **REQ-UI-07**: `ui::colon_blinks_only_when_synced`, `ui::status_icons_reflect_config`
-- **REQ-HW-01**: `cli::negative_sub_degree_temperature`, `ui::temperature_view_handles_negative_fahrenheit_and_missing`
-- **REQ-HW-02**: `cli::negative_sub_degree_temperature`
+- **REQ-HW-01**: `cli::status_names_the_dhcp_server_the_access_points_and_a_changed_lease`, `ui::temperature_view_handles_negative_fahrenheit_and_missing`
+- **REQ-HW-02**: `cli::status_names_the_dhcp_server_the_access_points_and_a_changed_lease`
 - **REQ-NFR-01**: `config::serialisation_fits_one_sector_with_worst_case_values`, `config::all_slots_full_survive_a_flash_round_trip`
 - **REQ-RNG-01**: `entropy::output_depends_on_every_input_and_never_repeats`, `entropy::a_biased_source_comes_out_balanced`
 

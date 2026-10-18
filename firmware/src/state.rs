@@ -62,6 +62,12 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     sync_dcf: false,
     sources: [None; 2],
     dcf: picoclock_core::dcf77::Stats { pulses: 0, frames_ok: 0, frames_bad: 0, pulses_bad: 0 },
+    dhcp_server: None,
+    prefix: 0,
+    dns: None,
+    lease_changes: 0,
+    link_rssi: None,
+    aps: [None; 6],
 }));
 
 /// Milliseconds since boot at the last pass of the clock task (`ui_task`), which owns the RTC bus. The watchdog task feeds the

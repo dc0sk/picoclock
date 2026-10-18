@@ -13,6 +13,7 @@ use embassy_time::{Duration, Instant, Timer, with_timeout};
 use embedded_io_async::Write as _;
 use picoclock_core::config::Config;
 use picoclock_core::cli::GeoTry;
+use picoclock_core::cli::ApSeen;
 use picoclock_core::geo;
 use picoclock_core::netutil::{self, JoinPlan, Seen};
 use picoclock_core::sources::{Sample, Source};
@@ -117,6 +118,7 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
             continue;
         }
         info!("wifi: up on slot {}", slot + 1);
+        record_access_points(&mut control, &cfg.wifi[slot].ssid).await;
         // mDNS: listen for queries to the multicast group (the radio's filter follows the stack's memberships)
         let joined_group = iface.join_multicast_group(embassy_net::wire::Ipv4Addr::new(224, 0, 0, 251));
         state::with_runtime(|r| r.mdns_group = if joined_group.is_ok() { 1 } else { 2 });
@@ -127,6 +129,10 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
         online(stack, &iface, slot, &creds(&cfg, slot), &name, &mut nts).await;
         warn!("wifi: leaving network");
         state::with_runtime(|r| {
+            r.lease_changes = 0;
+            r.dhcp_server = None;
+            r.link_rssi = None;
+            r.aps = [None; 6];
             r.wifi_up = false;
             r.wifi_slot = None;
             r.ip = None;
@@ -135,6 +141,37 @@ pub async fn wifi_task(mut control: Control<'static>, stack: Stack<'static>, ifa
         control.gpio_set(0, false).await;
         let _ = control.leave().await;
     }
+}
+
+/// Records which access points advertise the joined network's name and the signal of the link, so that `status` shows which one
+/// the clock probably joined (the chip picks the access point; its address is not reported). The scan only listens for a moment.
+async fn record_access_points(control: &mut Control<'static>, ssid: &str) {
+    let link = control.get_rssi().await;
+    let mut found: heapless::Vec<ApSeen, 12> = heapless::Vec::new();
+    let mut opts = cyw43::ScanOptions::default();
+    opts.ssid = heapless::String::try_from(ssid).ok();
+    let mut scanner = control.scan(opts).await;
+    let _ = with_timeout(Duration::from_secs(3), async {
+        while let Some(bss) = scanner.next().await {
+            if bss.ssid_len as usize == ssid.len() && !found.is_full() && !found.iter().any(|a| a.bssid == bss.bssid) {
+                let _ = found.push(ApSeen { bssid: bss.bssid, channel: (bss.chanspec & 0xff) as u8, rssi: bss.rssi });
+            }
+        }
+    })
+    .await;
+    drop(scanner);
+    found.sort_unstable_by_key(|a| core::cmp::Reverse(a.rssi));
+    info!("wifi: link {} dBm; {} access point(s) with this name", link, found.len());
+    for a in found.iter() {
+        info!("wifi:   {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} channel {} {} dBm", a.bssid[0], a.bssid[1], a.bssid[2], a.bssid[3], a.bssid[4], a.bssid[5], a.channel, a.rssi);
+    }
+    state::with_runtime(|r| {
+        r.link_rssi = (link != 0).then_some(link as i16);
+        r.aps = [None; 6];
+        for (slot, a) in r.aps.iter_mut().zip(found.iter()) {
+            *slot = Some(*a);
+        }
+    });
 }
 
 /// Collects the networks in range (name and signal) with one passive scan, at most `SCAN_TIME` long.
@@ -168,6 +205,18 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
         }
         if let Some(lease) = iface.dhcpv4_lease() {
             let ntp = lease.options.get(42).map(netutil::dhcp_ntp_servers).unwrap_or_default();
+            let server = octets(lease.server.identifier);
+            let (addr, router) = (octets(lease.address.address()), lease.router.map(octets));
+            state::with_runtime(|r| {
+                // the server, address or gateway changing while the link stays up: a second DHCP server answered a renewal
+                if r.ip.is_some() && (r.dhcp_server != Some(server) || r.ip != Some(addr) || r.gateway != router) {
+                    r.lease_changes = r.lease_changes.saturating_add(1);
+                    warn!("net: the lease changed while connected: server {} address {} gateway {}", server, addr, router);
+                }
+                r.dhcp_server = Some(server);
+                r.prefix = lease.address.prefix_len();
+                r.dns = lease.dns_servers.first().map(|d| octets(*d));
+            });
             state::with_runtime(|r| {
                 r.dhcp_ntp_n = ntp.len() as u8;
                 for (slot, a) in r.dhcp_ntp.iter_mut().zip(ntp.iter()) {
@@ -177,6 +226,16 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
                 r.wifi_slot = Some(slot as u8 + 1);
                 r.ip = Some(octets(lease.address.address()));
                 r.gateway = lease.router.map(octets);
+            });
+        }
+        else {
+            // the lease ran out: do not go on showing the old address as if it were current
+            state::with_runtime(|r| {
+                if r.ip.take().is_some() {
+                    warn!("net: no DHCP lease any more");
+                }
+                r.gateway = None;
+                r.dhcp_server = None;
             });
         }
         if state::SYNC_NOW.try_take().is_some() {

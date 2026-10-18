@@ -243,6 +243,11 @@ The clock shall answer ICMP echo requests (ping) sent to its IPv4 address.
 *Why:* A first thing a user tries to see whether the clock is on the network; the web page and mDNS name worked while ping did not because the network stack's ping reply option was not enabled.  
 *Implemented by:* WiFi, hourly sync, geolocation request and NTP server
 
+**REQ-NET-10** (ratified, medium)  
+`status` shall show the DHCP server that gave the lease with the prefix length and the first DNS server, the signal of the WiFi link and the access points with the joined network's name that a scan right after the join saw (address, channel, signal, the one closest to the link signal marked), and say loudly when the server, address or gateway changed while the link stayed up; when the lease is gone the old address shall not be shown as current.  
+*Why:* Investigation of 2026-10-18: the clock once got an address from another network (192.168.1.x) and nothing recorded which access point or server it had used. The chip chooses the access point itself and reports no address for it, so the closest signal is the best available indicator.  
+*Implemented by:* WiFi, hourly sync, geolocation request and NTP server, Terminal commands and USB serial console
+
 
 ### 4.7 Configuration
 

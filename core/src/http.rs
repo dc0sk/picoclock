@@ -445,7 +445,7 @@ nav{display:flex;flex-wrap:wrap;gap:.3rem;margin:.5rem 0}nav a{padding:.6rem .9r
 
 /// Room for the `status` and `time` text on the page. A fully connected clock needs about 1 KB (a test keeps it honest);
 /// a smaller buffer cut the text off, mid-line, without a word.
-const STATUS_BUF: usize = 2048;
+const STATUS_BUF: usize = 2560;
 
 /// The pages of the web interface: one per group of settings, so that no page has to hold everything at once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -855,6 +855,12 @@ mod tests {
                 Some(crate::sources::Report { source: crate::sources::Source::Dcf77, state: crate::sources::State::Standby, offset_ms: Some(3_600_000), age_s: Some(900) }),
             ],
             dcf: crate::dcf77::Stats { pulses: 4_000_000_000, frames_ok: 4_000_000_000, frames_bad: 4_000_000_000, pulses_bad: 4_000_000_000 },
+            dhcp_server: Some([192, 168, 121, 1]),
+            prefix: 24,
+            dns: Some([192, 168, 121, 1]),
+            lease_changes: 255,
+            link_rssi: Some(-92),
+            aps: [Some(crate::cli::ApSeen { bssid: [0xdc, 0x39, 0x6f, 0xce, 0x6d, 0xf9], channel: 11, rssi: -92 }); 6],
             geo: [crate::cli::GeoTry { stage: 5, bytes: 999, end: 1, addr: [255, 255, 255, 255] }; crate::geo::PROVIDERS.len()],
         };
         let mut c = Config::default();

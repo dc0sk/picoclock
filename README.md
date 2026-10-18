@@ -349,7 +349,9 @@ because the networking APIs used here are newer than the crates.io releases. The
 
 ## Debugging
 
-`status` on the USB terminal shows more than the network: both temperatures, the light sensor's raw value, the display
+`status` on the USB terminal also names the DHCP server that gave the lease (`dhcp:`), and after each join the signal of the link and the
+access points that advertise the network's name (`ap:`, the one closest to the link signal marked `<`; the chip picks the access point
+itself and does not report which). If the server, address or gateway changes while the link stays up, `dhcp:` says so. `status` shows more than the network: both temperatures, the light sensor's raw value, the display
 scan's timing (`scan:` worst lateness of the row timer and the number of waits more than 100 µs late; a growing count
 means something is holding interrupts off) and the stage of the last location lookup (`geo:`).
 

@@ -546,6 +546,15 @@ statement = "The saved settings shall be kept in two flash sectors, written one 
 rationale = "Found by the full-code review of 2026-10-17: a save erased the only copy before writing the new one, so a power cut in that window brought the clock back with default settings, no WiFi networks and a new HTTPS certificate. Decided by the owner the same day."
 cap = ["CAP-CONFIG", "CAP-APP"]
 
+[[req]]
+id = "REQ-NET-10"
+area = "Network"
+status = "ratified"
+criticality = "medium"
+statement = "`status` shall show the DHCP server that gave the lease with the prefix length and the first DNS server, the signal of the WiFi link and the access points with the joined network's name that a scan right after the join saw (address, channel, signal, the one closest to the link signal marked), and say loudly when the server, address or gateway changed while the link stayed up; when the lease is gone the old address shall not be shown as current."
+rationale = "Investigation of 2026-10-18: the clock once got an address from another network (192.168.1.x) and nothing recorded which access point or server it had used. The chip chooses the access point itself and reports no address for it, so the closest signal is the best available indicator."
+cap = ["CAP-NET", "CAP-CLI"]
+
 # ---------------------------------------------------------------------------------------------------- terminal
 
 [[req]]
