@@ -265,6 +265,22 @@ the software version, the repository link and the license.
   password anyone on the LAN can change the settings. Set `web_password`, or `set web_enabled off`, if that matters to you.
 Password fields are never echoed; leave them blank to keep the current value. Cross-site form posts are refused.
 
+### Screenshots
+
+Made with invented data (names, addresses and fingerprints are not from a real clock); `tools/web_screens.sh` regenerates them.
+
+| Status | WiFi |
+|:------:|:----:|
+| ![Status page](docs/images/web-status.png) | ![WiFi settings](docs/images/web-wifi.png) |
+
+| Time | Clock |
+|:----:|:-----:|
+| ![Time settings](docs/images/web-time.png) | ![Clock settings](docs/images/web-clock.png) |
+
+| Web | Security |
+|:---:|:--------:|
+| ![Web settings](docs/images/web-web.png) | ![Security page](docs/images/web-security.png) |
+
 ## Buttons
 
 | | short press | hold |
