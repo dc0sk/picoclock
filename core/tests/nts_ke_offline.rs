@@ -53,7 +53,21 @@ fn built_in_roots_are_the_known_certificates() {
     for r in roots {
         assert!(r.len() > 400 && r[0] == 0x30, "a DER certificate");
     }
-    let mut sorted: Vec<_> = roots.iter().collect();
-    sorted.dedup();
-    assert_eq!(sorted.len(), roots.len(), "no root twice");
+    // no root twice, and each one is the certificate its comment in nts_ke.rs names (a swapped file must not pass)
+    let fps: Vec<String> = roots
+        .iter()
+        .map(|r| picoclock_core::x509::fingerprint_hex(&picoclock_core::x509::fingerprint(r)).to_string())
+        .collect();
+    let mut unique = fps.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), roots.len(), "no root twice");
+    let known = [
+        "69:72:9B:8E:15:A8:6E:FC:17:7A:57:AF:B7:17:1D:FC:64:AD:D2:8C:2F:CA:8C:F1:50:7E:34:45:3C:CB:14:70", // ISRG Root X2
+        "34:17:BB:06:CC:60:07:DA:1B:96:1C:92:0B:8A:B4:CE:3F:AD:82:0E:4A:A3:0B:9A:CB:C4:A7:4E:BD:CE:BC:65", // SSL.com ECC
+        "96:BC:EC:06:26:49:76:F3:74:60:77:9A:CF:28:C5:A7:CF:E8:A3:C0:AA:E1:1A:8F:FC:EE:05:C0:BD:DF:08:C6", // ISRG Root X1 (rsa)
+    ];
+    for fp in &fps {
+        assert!(known.contains(&fp.as_str()), "unknown built-in root {fp}");
+    }
 }

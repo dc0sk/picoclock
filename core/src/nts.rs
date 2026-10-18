@@ -687,7 +687,8 @@ mod tests {
         let replay = server.respond(&req3, &[], Some([0xEE; 8]));
         assert_eq!(s.handle_response(&replay, &pending3), Err(NtsError::Time(sntp::SntpError::OriginMismatch)));
         // nothing a refused packet carried may reach the cookie store
-        assert!(s.cookies_left() <= before);
+        // (the cookies went into the two requests built since `before`, never into anything a refused packet carried)
+        assert_eq!(s.cookies_left(), before - 2);
         // truncated, empty and oversized packets
         for n in [0, 10, 47, 48, 60, good.len() - 1] {
             assert!(s.handle_response(&good[..n], &pending).is_err(), "{n}");

@@ -77,7 +77,12 @@ async fn run_line(class: &mut Class, line: &str) -> Result<Action, Disconnected>
     let action = state::with_config(|cfg| cli::execute(line, cfg, &st, &mut out));
     // A full buffer truncates silently; make that visible instead of looking like a complete answer.
     if out.len() > 2000 {
-        out.truncate(2000);
+        // cut on a character boundary: an SSID or name may hold multi-byte characters, and `truncate` panics inside one
+        let mut end = 2000;
+        while !out.is_char_boundary(end) {
+            end -= 1;
+        }
+        out.truncate(end);
         let _ = out.push_str("\n[output truncated]\n");
     }
     let mut crlf = heapless::String::<2200>::new();

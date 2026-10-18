@@ -30,7 +30,8 @@ pub fn parse_response(buf: &[u8], nonce: [u8; 8]) -> Result<(u64, u16), SntpErro
     if buf[0] & 0x07 != 4 {
         return Err(SntpError::NotServerReply);
     }
-    if buf[0] >> 6 == 3 || buf[1] == 0 {
+    // stratum 0 is a kiss-o'-death, 16 and up means "unsynchronised" (RFC 5905 section 7.3; our own server sends 16 with LI 3)
+    if buf[0] >> 6 == 3 || buf[1] == 0 || buf[1] > 15 {
         return Err(SntpError::Unsynchronised);
     }
     if buf[24..32] != nonce {
@@ -137,6 +138,16 @@ mod tests {
         let mut b = ok;
         b[1] = 0; // kiss-o'-death
         assert_eq!(parse_response(&b, n), Err(SntpError::Unsynchronised));
+        for stratum in [16, 17, 255] {
+            let mut b = ok;
+            b[1] = stratum; // "unsynchronised" or invalid, as our own server says it; LI 0 does not make it usable
+            assert_eq!(parse_response(&b, n), Err(SntpError::Unsynchronised), "stratum {stratum}");
+        }
+        for stratum in [1, 2, 15] {
+            let mut b = ok;
+            b[1] = stratum;
+            assert!(parse_response(&b, n).is_ok(), "stratum {stratum}");
+        }
         let mut b = ok;
         b[0] |= 0xC0; // LI = 3
         assert_eq!(parse_response(&b, n), Err(SntpError::Unsynchronised));

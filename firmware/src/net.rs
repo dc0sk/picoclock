@@ -381,7 +381,7 @@ pub async fn ntp_server_task(stack: Stack<'static>) -> ! {
             let now = base + (us / 1_000_000) as i64;
             let frac = (((us % 1_000_000) << 32) / 1_000_000) as u32;
             let last = state::status().last_sync_unix;
-            let synced = matches!(last, Some(s) if now - s < FRESH_SECS);
+            let synced = matches!(last, Some(s) if (0..FRESH_SECS).contains(&(now - s)));
             if let Some(reply) = picoclock_core::sntp::build_server_reply(&buf[..n], now, frac, last, synced) {
                 let _ = socket.send_to(&reply, from).await;
             }

@@ -139,9 +139,7 @@ fn keys_and_certificates_made_by_openssl_are_read_and_matched() {
     let info = x509::validate_pair(&cert, &secret, now).expect("openssl's certificate with its key");
     assert_eq!(x509::validate_pair(&cert, &x509::parse_private_key(&read("b.sec1")).unwrap(), now), Err(X509Error::KeyMismatch));
     assert!(info.not_after > now && info.not_before <= now);
-    // ...and our public key is the one OpenSSL prints
-    let pubhex = openssl(d, &["ec", "-in", "a.sec1", "-pubout", "-outform", "DER"]).map(|_| ()).is_some();
-    assert!(pubhex);
+    // (that the public key we derive from the secret is the certificate's is what `validate_pair` just accepted)
 
     // a P-384 key and certificate are not supported (and the error says so rather than "mismatch")
     assert_eq!(x509::inspect(&read("p384.der")).err(), Some(X509Error::Unsupported));

@@ -61,6 +61,12 @@ pub fn parse_request(buf: &[u8]) -> Parse<'_> {
             return Parse::TooLarge;
         }
         let Some((name, value)) = line.split_once(':') else { return Parse::Bad };
+        // `Content-Length : 9` is not the Content-Length header (RFC 9112 section 5.1): refuse it rather than read it as an
+        // unknown header and drop the body it announces. A name that is empty or starts with a space (obsolete line folding)
+        // is refused too.
+        if name.is_empty() || name.starts_with([' ', '\t']) || name.ends_with([' ', '\t']) {
+            return Parse::Bad;
+        }
         let value = value.trim();
         if name.eq_ignore_ascii_case("content-length") {
             // A repeated Content-Length is a smuggling signal, not something to be lenient about.
@@ -429,6 +435,10 @@ input,select,textarea{width:100%;box-sizing:border-box;padding:.4rem;font:inheri
 @media(prefers-color-scheme:dark){body{background:#111;color:#eee}small{color:#aaa}pre{background:#222}.msg{background:#223}.err{background:#522}input,select,textarea{background:#222;color:#eee;border:1px solid #555}}textarea{font:12px monospace}\
 </style></head><body><h1>picoclock</h1>";
 
+/// Room for the `status` and `time` text on the page. A fully connected clock needs about 1 KB (a test keeps it honest);
+/// a smaller buffer cut the text off, mid-line, without a word.
+const STATUS_BUF: usize = 1536;
+
 /// Renders the status and settings page. Fails (`fmt::Error`) only if `out` is too small.
 pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure: bool, roots: &crate::rootstore::Roots, out: &mut impl Write) -> core::fmt::Result {
     out.write_str(PAGE_HEAD)?;
@@ -436,7 +446,7 @@ pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure:
         write!(out, "<p class=\"msg{}\">{}</p>", if is_err { " err" } else { "" }, Esc(m))?;
     }
     out.write_str("<pre>")?;
-    let mut status = heapless::String::<512>::new();
+    let mut status = heapless::String::<STATUS_BUF>::new();
     crate::cli::execute("status", &mut cfg.clone(), st, &mut status);
     let _ = crate::cli::execute("time", &mut cfg.clone(), st, &mut status);
     write!(out, "{}</pre><form method=post action=/save>", Esc(&status))?;
@@ -694,6 +704,73 @@ mod tests {
         assert_eq!(c.hostname.as_str(), "wohnzimmer");
         assert_eq!(apply_form(b"hostname=bad%20name", &mut c, &mut errors), 0);
         assert!(errors.contains("invalid hostname") && c.hostname.as_str() == "wohnzimmer");
+    }
+
+    // VERIFIES: REQ-WEB-01
+    #[test]
+    fn status_block_of_a_busy_clock_is_not_cut_off() {
+        // every optional line of `status` present, with long values: the longest the page can show
+        let st = Status {
+            utc_unix: Some(1_800_000_000),
+            last_sync_unix: Some(1_799_999_000),
+            wifi_up: true,
+            wifi_slot: Some(8),
+            wifi_scanned: Some(24),
+            mac: Some([0x2c, 0xcf, 0x67, 0xb8, 0x84, 0xd6]),
+            ip: Some([192, 168, 121, 41]),
+            gateway: Some([192, 168, 121, 1]),
+            temp_c10: Some(-123),
+            chip_temp_c10: Some(332),
+            light_raw: 4095,
+            scan_late_max_us: 123_456,
+            scan_late_count: 99_999,
+            uptime_s: 4_000_000,
+            sync_secure: true,
+            https_state: 2,
+            rng_hardware: true,
+            dhcp_ntp: [[192, 168, 121, 1], [10, 255, 255, 254], [172, 16, 100, 100], [192, 168, 100, 200]],
+            dhcp_ntp_n: 4,
+            roots_user: 4,
+            nts_ke: 1,
+            nts_ke_ms: 65_000,
+            nts_ke_host: [b'h'; 32],
+            mdns_group: 1,
+            mdns_seen: 65_000,
+            mdns_answered: 65_000,
+            heap_used: 147_456,
+            heap_peak: 147_456,
+            heap_size: 147_456,
+            cert_fp: [0xAB; 32],
+            cert_not_after: 2_100_000_000,
+            cert_uploaded: true,
+            unsaved: true,
+            geo: [crate::cli::GeoTry { stage: 5, bytes: 999, end: 1, addr: [255, 255, 255, 255] }; crate::geo::PROVIDERS.len()],
+        };
+        let mut c = Config::default();
+        c.set("hostname", &"h".repeat(crate::config::HOSTNAME_MAX)).unwrap();
+        c.set("timezone", "Europe/Berlin").unwrap();
+        let mut page = heapless::String::<12288>::new();
+        render_page(&c, &st, None, true, &crate::rootstore::Roots::new(), &mut page).unwrap();
+        let pre = page.split("<pre>").nth(1).unwrap().split("</pre>").next().unwrap();
+        // the last line of `status` and both lines of `time` must be whole
+        assert!(pre.contains("\nscan    :"), "{pre}");
+        assert!(pre.contains("\nlocal"), "{pre}");
+        assert!(pre.trim_end().lines().last().unwrap().starts_with("local"), "nothing torn after the last line: {pre}");
+        assert!(pre.len() < STATUS_BUF - 100, "keep headroom: {} of {}", pre.len(), STATUS_BUF);
+    }
+
+    // VERIFIES: REQ-WEB-02
+    #[test]
+    fn header_names_with_spaces_are_refused() {
+        for bad in [
+            "POST /save HTTP/1.1\r\nContent-Length : 9\r\n\r\nhour12=on",
+            "POST /save HTTP/1.1\r\nContent-Length\t: 9\r\n\r\nhour12=on",
+            "GET / HTTP/1.1\r\n Host: x\r\n\r\n",
+            "GET / HTTP/1.1\r\n: x\r\n\r\n",
+        ] {
+            assert_eq!(req(bad), Parse::Bad, "{bad:?}");
+        }
+        assert!(matches!(req("POST /save HTTP/1.1\r\nContent-Length: 9\r\n\r\nhour12=on"), Parse::Complete(_)));
     }
 
     // VERIFIES: REQ-WEB-02 REQ-WEB-01

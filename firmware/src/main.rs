@@ -103,6 +103,9 @@ fn merge(a: Out, b: Out) -> Out {
 
 /// Owns the RTC and the UI: applies NTP results, reads time and temperature, feeds buttons to the UI state machine,
 /// and draws the result.
+/// How late the wake-up for the RTC write may be before it waits for the next second instead.
+const MAX_LATE_MS: u64 = 5;
+
 #[embassy_executor::task]
 async fn ui_task(mut rtc: Rtc) -> ! {
     if rtc.init().await.is_err() {
@@ -116,8 +119,23 @@ async fn ui_task(mut rtc: Rtc) -> ! {
         if let Some((secs, ms, stamp)) = state::NTP_TIME.try_take() {
             // Set the RTC exactly on the next UTC second boundary: the DS3231 restarts its second at the write, so
             // writing mid-second would leave its seconds up to 1 s behind real time.
-            let (target, wait_ms) = next_second_boundary(secs, ms, stamp.elapsed().as_millis());
-            Timer::after_millis(wait_ms).await;
+            let (mut target, mut wait_ms) = next_second_boundary(secs, ms, stamp.elapsed().as_millis());
+            // The executor is cooperative: a TLS handshake or a flash save in another task can make this wake-up late, and
+            // a late write would leave the RTC (and the NTP server's anchor) behind real time by that much. If the wake-up
+            // missed its boundary by more than a few ms, aim for the next one (the sample's age is still known).
+            for attempt in 0..4 {
+                let planned = Instant::now() + Duration::from_millis(wait_ms);
+                Timer::at(planned).await;
+                let late_ms = planned.elapsed().as_millis();
+                if late_ms <= MAX_LATE_MS || attempt == 3 {
+                    if late_ms > MAX_LATE_MS {
+                        warn!("rtc: writing {} ms late; the executor stayed busy", late_ms);
+                    }
+                    break;
+                }
+                warn!("rtc: woke {} ms late; waiting for the next second", late_ms);
+                (target, wait_ms) = next_second_boundary(secs, ms, stamp.elapsed().as_millis());
+            }
             let at = Instant::now();
             match rtc.set(&unix_to_datetime(target)).await {
                 Ok(()) => {
@@ -137,7 +155,7 @@ async fn ui_task(mut rtc: Rtc) -> ! {
         let synced = state::with_runtime(|r| {
             r.utc_unix = now_unix;
             r.temp_c10 = temp_c10;
-            matches!((r.last_sync_unix, now_unix), (Some(s), Some(n)) if n - s < 3 * 3600)
+            matches!((r.last_sync_unix, now_unix), (Some(s), Some(n)) if (0..3 * 3600).contains(&(n - s)))
         });
         let ms = Instant::now().as_millis();
 

@@ -47,7 +47,16 @@ impl Rtc {
             month: unbcd(r[5] & 0x1F),
             year: 2000 + unbcd(r[6]) as u16,
         };
-        let sane = dt.month >= 1 && dt.month <= 12 && dt.day >= 1 && dt.day <= 31 && dt.hour < 24;
+        // bit 6 of the hour register selects 12-hour mode, which `set` never writes; a chip left that way by other software
+        // would read a wrong hour, so it counts as having no valid time until the next sync
+        let sane = dt.month >= 1
+            && dt.month <= 12
+            && dt.day >= 1
+            && dt.day <= 31
+            && dt.hour < 24
+            && dt.minute < 60
+            && dt.second < 60
+            && r[2] & 0x40 == 0;
         Ok(sane.then_some(dt))
     }
 

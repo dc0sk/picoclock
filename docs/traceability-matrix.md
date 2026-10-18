@@ -20,11 +20,11 @@ last_updated: 2026-10-17
 | Ratified                                                          | 72    |
 | Draft (roadmap)                                                   | 6     |
 | Retired                                                           | 1     |
-| Ratified with hardware evidence                                   | 57    |
+| Ratified with hardware evidence                                   | 58    |
 | Ratified with unit tests only (no hardware, host or build record) | 9     |
 | Ratified and UNVERIFIED (stated reason)                           | 0     |
-| Unit tests bound to requirements                                  | 145   |
-| Verification records                                              | 54    |
+| Unit tests bound to requirements                                  | 147   |
+| Verification records                                              | 55    |
 
 ## Forward: requirement to evidence
 
@@ -77,8 +77,8 @@ last_updated: 2026-10-17
 | REQ-CFG-09  | ratified | high   | CLI, HTTP, CONFIG, APP        | 2          | VR-55                                    | unit, hardware              |
 | REQ-CLI-01  | ratified | medium | CLI                           | 6          | VR-01, VR-02                             | unit, hardware              |
 | REQ-CLI-02  | ratified | low    | CLI                           | 1          | -                                        | unit                        |
-| REQ-WEB-01  | ratified | medium | HTTP                          | 3          | VR-09, VR-27                             | unit, hardware              |
-| REQ-WEB-02  | ratified | high   | HTTP                          | 5          | VR-10                                    | unit, host                  |
+| REQ-WEB-01  | ratified | medium | HTTP                          | 4          | VR-09, VR-27, VR-56                      | unit, hardware              |
+| REQ-WEB-02  | ratified | high   | HTTP                          | 6          | VR-10, VR-56                             | unit, host, hardware        |
 | REQ-WEB-03  | ratified | high   | HTTP                          | 1          | VR-09, VR-10                             | unit, host, hardware        |
 | REQ-WEB-04  | ratified | high   | HTTP                          | 1          | VR-15                                    | unit, hardware              |
 | REQ-WEB-05  | ratified | medium | HTTP                          | 2          | -                                        | unit                        |
@@ -125,7 +125,6 @@ These have never been seen working on the clock (they may still have unit tests)
 | REQ-NTS-08  | unit        |              |
 | REQ-CFG-04  | unit        |              |
 | REQ-CLI-02  | unit        |              |
-| REQ-WEB-02  | unit, host  |              |
 | REQ-WEB-05  | unit        |              |
 | REQ-WEB-07  | unit, host  |              |
 | REQ-UI-02   | unit        |              |
@@ -199,8 +198,8 @@ These have never been seen working on the clock (they may still have unit tests)
 - **REQ-CFG-09**: `cli::factory_reset_is_a_request_and_needs_the_exact_word`, `http::factory_reset_takes_two_steps_on_the_web_page`
 - **REQ-CLI-01**: `cli::set_get_show`, `cli::set_without_value_clears_text_settings`, `cli::actions`, `cli::time_shows_utc_and_local`, `cli::tz_listing_and_status`, `cli::help_lists_every_key`
 - **REQ-CLI-02**: `cli::tz_listing_is_capped`
-- **REQ-WEB-01**: `http::form_apply`, `http::page_with_all_slots_full_fits`, `http::page_overflow_is_an_error_not_a_panic`
-- **REQ-WEB-02**: `http::parses_get_and_post`, `http::incomplete_until_body_arrives`, `http::rejects_malformed_and_hostile_requests`, `http::enforces_size_limits`, `http::page_overflow_is_an_error_not_a_panic`
+- **REQ-WEB-01**: `http::form_apply`, `http::page_with_all_slots_full_fits`, `http::status_block_of_a_busy_clock_is_not_cut_off`, `http::page_overflow_is_an_error_not_a_panic`
+- **REQ-WEB-02**: `http::parses_get_and_post`, `http::incomplete_until_body_arrives`, `http::rejects_malformed_and_hostile_requests`, `http::enforces_size_limits`, `http::header_names_with_spaces_are_refused`, `http::page_overflow_is_an_error_not_a_panic`
 - **REQ-WEB-03**: `http::csrf_origin_check`
 - **REQ-WEB-04**: `http::basic_auth`
 - **REQ-WEB-05**: `http::page_escapes_and_hides_secrets`, `http::page_with_all_slots_full_fits`
@@ -278,3 +277,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-53  | 2026-10-17 | hardware | Pinned self-signed NTS server certificate                                          | REQ-NTS-09, REQ-NTS-11                                                                       |
 | VR-54  | 2026-10-17 | hardware | MAC address and custom host name                                                   | REQ-CFG-07, REQ-CFG-08                                                                       |
 | VR-55  | 2026-10-17 | hardware | Factory reset from both interfaces                                                 | REQ-CFG-09                                                                                   |
+| VR-56  | 2026-10-17 | hardware | Fixes from the full-code review (Fable, before the time-source phase)              | REQ-WEB-01, REQ-WEB-02                                                                       |

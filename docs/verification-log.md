@@ -632,3 +632,22 @@ then provisioned again with `tools/provision.py` and came back online. **Not ver
 pages, and a flash erase failure (the clock then stays up without restarting, by design).
 
 Verifies: REQ-CFG-09
+
+### VR-56 · 2026-10-17 · hardware · Fixes from the full-code review (Fable, before the time-source phase)
+
+Two read-only reviews (the core crate; the firmware and documents) found, among other things, a web status block cut off at
+512 bytes (the page lost the heap, HTTPS, scan and time lines of a running clock), header names with a space before the
+colon read as unknown headers, stratum 16 accepted in NTP replies, a possible panic in the terminal output cut, the RTC
+write not checked for a late wake-up, and tests that could not fail. Fixed: status buffer 1536 bytes with a test that fills
+every optional line; such headers answered `400` (checked on the clock with `nc`); stratum above 15 refused; the cut made
+on a character boundary; the RTC write waits for the next second if its wake-up is more than 5 ms late (up to three
+times, then writes with a warning); a negative age no longer counts as synchronised; a DS3231 in 12-hour mode or with
+minutes or seconds out of range reads as no time. Tests: the cookie assertion is exact, the worst-case configuration record
+holds a real 64-byte timezone rule and geo rule, the built-in roots are compared with their published SHA-256 fingerprints, and
+a vacuous OpenSSL key assertion was removed; each new check failed when its fix was taken out. On the Pico 2 W: the web page
+shows the whole status block down to `scan` and the `utc` and `local` lines, a normal `sync` set the clock (verified against
+the Raspberry Pi's time), and a sync issued while six HTTPS requests ran in parallel completed. **Not verified:** the late
+wake-up path itself (no way to provoke or observe it without a probe); no `defmt` log was read. Findings left open for the
+owner are listed in the README roadmap.
+
+Verifies: REQ-WEB-01, REQ-WEB-02

@@ -60,9 +60,9 @@ cp pico2w-s.uf2 /media/$USER/RP2350/      # hold BOOTSEL while plugging in the P
 ```
 (`picotool load -x` does the same in one step if you have it.)
 
-The two builds differ only in the chip feature (`rp2040` default / `rp235x`), the memory map (`firmware/memory-*.x`;
-the last sectors of the 2 MiB / 4 MiB flash are reserved for settings and certificates, see *Flash layout* below), the RP2350 `IMAGE_DEF` boot block and the WiFi
-SPI clock divider. Everything else, including the pin map, is shared.
+The two builds differ in the chip feature (`rp2040` default / `rp235x`), the memory map (`firmware/memory-*.x`;
+the last sectors of the 2 MiB / 4 MiB flash are reserved for settings, NTS roots and certificates, see *Flash layout* below), the RP2350 `IMAGE_DEF` boot block and the WiFi
+SPI clock divider, and in what the RP2350 can do that the RP2040 cannot: HTTPS (with an uploadable certificate), RSA certificate chains for NTS, and the hardware random number generator. The pin map and everything else is shared.
 
 To flash with a debug probe instead (for example the Raspberry Pi Debug Probe, CMSIS-DAP, with OpenOCD):
 
@@ -105,6 +105,10 @@ Changes apply immediately but are only written to flash by `save` (the web page 
 | `alarm_enabled`, `alarm_time` | daily alarm at `HH:MM` local time | off, 07:00 |
 | `web_enabled`, `web_password` | web page; if a password is set, user is `admin` | on, none |
 | `ntp_serve` | `on`: answer NTP requests from the LAN on UDP 123 (see below) | off |
+| `hostname` | the clock's name on the network (DHCP, mDNS, certificate); empty = `picoclock-<last MAC block>` (see *Network name*) | empty |
+| `https`, `http_redirect` | Pico 2 W only: serve the web page over HTTPS; redirect plain-HTTP page requests to it | on, on |
+| `wifi_select` | `order` (first stored network in slot order) or `strongest` (the strongest one in range) | `order` |
+| `mdns` | answer for `<device name>.local` on the LAN | on |
 
 ## Secure NTP (NTS)
 
@@ -388,6 +392,23 @@ Planned for future releases (requirements, not implemented):
   accuracy), which would also let the NTP server claim a low stratum. Delivering it bumps the software version again, after
   another full-code review.
 - Pico 2 W: run it for days; press the buttons and cover the light sensor on it.
+
+**Found by the full-code review of 2026-10-17 and not yet fixed** (the rest of its findings are fixed; each item here is a
+decision for the owner, not forgotten):
+
+- **A time that is not plausible is applied.** The first answer sets the RTC and there is no step limit or comparison with
+  the RTC; this is what REQ-SRC-03 (`vote`) is meant to close, and what the first extra source needs first.
+- **Web and button saves also write unsaved terminal edits** (REQ-CFG-05 says only `save` writes them).
+- **A certificate chain of the size the page promises (3 KB) may not fit the 4 KiB HTTP request limit** (the browser would
+  get a bare `413`); only a single self-signed certificate has been uploaded on the clock.
+- **RP2040 random numbers** read the ring-oscillator bit eight times back to back; the bits are probably correlated.
+  They feed the NTS-KE key exchange key and the NTS identifiers (not HTTPS, which is RP2350-only and uses the hardware TRNG).
+- **A power cut during a save** (tens of milliseconds) erases the old record: defaults, no roots, a new certificate follow.
+- **No watchdog:** an I2C bus that hangs freezes the display and buttons until power is cycled.
+- **The NTP server (`ntp_serve`) stays silent until the first sync after boot**, although the RTC may hold a good time (the
+  docs say it answers "unsynchronised").
+- **`POST /reset` is accepted over plain HTTP** when no HTTPS redirect is active, like every other setting; with no web
+  password any host on the LAN can reset the clock.
 
 ## Provisioning from a local file
 

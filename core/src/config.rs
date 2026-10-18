@@ -591,7 +591,11 @@ mod tests {
         c.set("wifi_password", &"p".repeat(63)).unwrap();
         c.set("web_password", &"w".repeat(64)).unwrap();
         c.set("ntp_servers", &"n".repeat(96)).unwrap();
-        c.set("timezone", &"CET-1CEST,M3.5.0,M10.5.0/3".repeat(2)).unwrap_or(());
+        // the longest rule the setting takes: bracketed names and hh:mm:ss offsets stretch a POSIX rule (a doubled one is refused)
+        let long = "<+1234>-12:30:15<+1235>-11:30:15,M10.5.0/-1:30:15,M3.5.0/3:30:15";
+        assert!(long.len() <= 64, "{}", long.len());
+        c.set("timezone", long).unwrap_or_else(|_| panic!("the long rule is accepted"));
+        c.geo_rule = String::try_from("X".repeat(64).as_str()).unwrap();
         let mut buf = [0u8; 1024];
         assert!(c.to_bytes(&mut buf).unwrap() < 1024);
     }

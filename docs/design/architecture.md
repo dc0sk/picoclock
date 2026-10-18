@@ -75,7 +75,7 @@ its unit tests run in milliseconds without hardware. `firmware` is kept thin: it
 | `rtc`       | DS3231 over I2C: read, write, temperature, oscillator-stopped flag                                |
 | `buttons`   | 10 ms polling, debounce, short / long / auto-repeat events                                        |
 | `buzzer`    | Beep patterns; the alarm pattern repeats until stopped                                            |
-| `storage`   | Load and save the config record in the last flash sector                                          |
+| `storage`   | Load and save the config record, the user's NTS roots and (Pico 2 W) the HTTPS key, each in its own flash sector; erase them all for a factory reset |
 | `net`       | WiFi join and slot handling, hourly sync, geolocation request, NTP server task                    |
 | `ntp`       | NTP transport: resolve, send, receive, half-round-trip correction; routes `nts:` entries to `nts`   |
 | `nts`       | NTS transport: sockets and buffers for NTS-KE, authenticated UDP exchange, sessions in RAM          |
@@ -101,6 +101,8 @@ its unit tests run in milliseconds without hardware. `firmware` is kept thin: it
    wifi_task    join, hourly NTP, geolocation, rejoin on credential change
    ntp_server_task       UDP 123, only while enabled and online
    web_task     TCP 80, only while enabled
+   https_task   TCP 443 (Pico 2 W): rustls, the certificate and its renewal
+   mdns_task    UDP 5353: answers for <device name>.local while online
 ```
 
 **Why two executors.** The matrix must be refreshed continuously or it flickers, and the WiFi driver and the TCP/IP
@@ -118,6 +120,9 @@ short: shift four bytes, latch, set the row address, open the output enable for 
 | `NTP_TIME`                    | signal                        | `wifi_task` -> `ui_task`: (seconds, ms, instant of reply)      |
 | `ANCHOR`                      | mutex                         | `ui_task` writes when it sets the RTC; NTP server reads        |
 | `SAVE_REQUEST`, `CONFIG_CHANGED`, `SYNC_NOW`, `GEO_NOW`, `BEEP` | signals | requests between tasks                       |
+| `ROOTS`, `TLS_MATERIAL`      | thread-mode mutexes           | the user's NTS roots and the HTTPS key and certificate; terminal, web, `nts` and `https_task` |
+| `ROOTS_SAVE`, `TLS_SAVE`, `FACTORY_RESET` | signals          | -> `storage_task`, the only task that writes flash             |
+| `CERT_NEW`, `CERT_RELOAD`    | signals                       | terminal / web -> `https_task`                                 |
 | `BUTTONS`                     | channel (8)                   | `button_task` -> `ui_task`                                     |
 | `FIXED_DUTY`, `AUTO_DUTY`, `ALARM_RINGING` | atomics          | single writer each                                             |
 
@@ -225,14 +230,17 @@ Design points:
   client that is silent for more than about two seconds during the handshake (measured, ADR-0001). The handshake itself is
   fast, and for NTS-KE the order does not change what is trusted: the client sends no secret, and the session is returned
   only after the real checks pass. The same trick would be wrong for a protocol with a login.
-- **What is trusted.** Two built-in roots (ISRG Root X2, SSL.com ECC), ECDSA chains only, the host name from the list entry,
-  and the RTC for the dates. Without a valid RTC time the key exchange is refused up front, because the TLS library would
+- **What is trusted.** The built-in roots (ISRG Root X2 and SSL.com ECC; on the Pico 2 W also ISRG Root X1, so RSA chains
+  verify there, ADR-0003) plus the roots the user added (`root add`), the host name from the list entry, and the RTC for
+  the dates. Without a valid RTC time the key exchange is refused up front, because the TLS library would
   skip the date check otherwise.
 - **State.** One session per `nts:` host (two at most): two keys, up to eight cookies of at most 256 bytes, the server
   name and port. RAM only. A cookie is spent per request and replaced from the encrypted fields of the reply.
 - **Cost.** The public-key operations do not yield, so the cooperative executor is busy for the 5 to 7 s of a key exchange;
   the interrupt-driven display scan is not. It happens once per boot.
-- **Randomness.** The `embassy-crypto` RNG driver is `RoscRng` (ring oscillator); the RP2040 has nothing better.
+- **Randomness.** The `embassy-crypto` RNG driver is `RoscRng` (ring oscillator jitter) on the RP2040 and the hardware TRNG on
+  the RP2350. The ring oscillator is not a certified source and its bits are sampled back to back (a review finding, see the
+  README's roadmap).
 
 ## 6. Networking
 
@@ -270,7 +278,7 @@ The device is a LAN appliance and the design says so plainly.
 | Hostile requests             | Hard limits on size, headers, path; deadline per request; no allocation.                        |
 | NTP server abuse             | Off by default; reply never larger than the request; non-requests are dropped; sequential.     |
 | NTP client spoofing          | Plain NTP: nonce origin check; unsynchronised and stratum-0 replies refused; not authenticated. With `nts:`: AES-SIV authenticator, unique identifier, origin timestamp; NAK and forged replies refused. |
-| NTS-KE server identity       | Certificate chain to a built-in root, host name, RTC dates and the CertificateVerify signature, all checked before the result is used (after the exchange, see 5a). |
+| NTS-KE server identity       | Certificate chain to a built-in or user-added root, host name, RTC dates and the CertificateVerify signature, all checked before the result is used (after the exchange, see 5a). |
 | Geolocation                  | Opt-in; reply must name a known zone; sends the public IP in clear to a third party.           |
 | Flash storage                | CRC; read-back verification after every write.                                                  |
 | Credentials in the repo      | None. `local/` is git-ignored; `tools/provision.py` pushes them over USB.                       |
@@ -298,8 +306,8 @@ wrong and are redefined.
 
 | Variant   | Chip / board          | Target                         | Feature  | Flash   | Settings sector       |
 |-----------|-----------------------|--------------------------------|----------|---------|-----------------------|
-| Pico W    | RP2040                | `thumbv6m-none-eabi`           | `rp2040` | 2 MiB   | last 4 KiB (`memory-rp2040.x`) |
-| Pico 2 W  | RP2350                | `thumbv8m.main-none-eabihf`    | `rp235x` | 4 MiB   | last 8 KiB (`memory-rp235x.x`): settings in the last sector, the HTTPS key and certificates before it |
+| Pico W    | RP2040                | `thumbv6m-none-eabi`           | `rp2040` | 2 MiB   | last 8 KiB (`memory-rp2040.x`): settings in the last sector, the user's NTS roots before it |
+| Pico 2 W  | RP2350                | `thumbv8m.main-none-eabihf`    | `rp235x` | 4 MiB   | last 12 KiB (`memory-rp235x.x`): settings in the last sector, the HTTPS key and certificates before it, the user's NTS roots before that |
 
 The chip feature selects the memory map and linker scripts (`build.rs`), the RP2350 boot block (`IMAGE_DEF`), the
 flash size constant and the WiFi SPI clock divider. Nothing else differs. Both images are about 440 KiB of code and
