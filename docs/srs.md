@@ -365,30 +365,46 @@ The web server shall accept a request of up to 8 KiB, so that an uploaded certif
 
 ### 4.10 Time sources
 
-**REQ-SRC-01** (draft, high)  
-The user shall be able to select which time sources the clock uses (NTP or NTS, and, when delivered, DCF77 and GPS), and choose one of two selection modes: `order` or `vote`. The RTC keeps the time between updates in both modes. With only NTP/NTS selected the clock shall behave as it does today.  
+**REQ-SRC-01** (ratified, high)  
+The user shall be able to select which time sources the clock uses (NTP or NTS and DCF77; GPS in a later release), and choose one of two selection modes: `order` or `vote`. The RTC keeps the time between updates in both modes. With only NTP/NTS selected the clock shall behave as it does today.  
 *Why:* Requested by the owner. Today the clock trusts NTP alone; more sources need an explicit rule for which of them sets the time.  
-*Implemented by:* none yet
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Configuration model and flash storage, WiFi, hourly sync, geolocation request and NTP server
 
-**REQ-SRC-02** (draft, high)  
+**REQ-SRC-02** (ratified, high)  
 In mode `order` the selected sources shall form an ordered list; the clock shall take the time from the first source that delivers a valid, fresh time and fall back to the next one when a source has no valid time, is too old, or fails; it shall return to a higher-ranked source as soon as that delivers again.  
 *Why:* Requested by the owner: a simple, predictable priority with fallbacks, the way the NTP server list works today.  
-*Implemented by:* none yet
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver
 
-**REQ-SRC-03** (draft, high)  
+**REQ-SRC-03** (ratified, high)  
 In mode `vote` the clock shall compare the times of all selected sources that currently deliver one (a plausibility check, or triage): sources whose times agree within a selectable tolerance form a group, and the time is accepted only if the best group holds more than half of the total vote power of the sources that deliver; sources outside that group are rejected and reported. If no group has a majority the RTC shall be left unchanged and the status shall say so.  
 *Why:* Requested by the owner. A wrong source (a spoofed NTP reply, a GPS fix with a wrong week, a DCF77 decoding error) must not set the clock when the others disagree.  
-*Implemented by:* none yet
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver
 
-**REQ-SRC-04** (draft, medium)  
+**REQ-SRC-04** (ratified, medium)  
 In mode `vote` every selected source shall have a selectable vote power (a whole number; 0 means the source is shown and compared but cannot decide), and the agreement tolerance shall be selectable, in seconds.  
 *Why:* Requested by the owner: sources differ in how much they can be trusted and in precision (the RTC has whole-second resolution, DCF77 second resolution, NTP milliseconds).  
-*Implemented by:* none yet
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Configuration model and flash storage
 
-**REQ-SRC-05** (draft, medium)  
+**REQ-SRC-05** (ratified, medium)  
 The terminal status and the web page shall show the selection mode and, for each selected source, its state, its last time and offset from the accepted time, its vote power in mode `vote`, and whether it was accepted or rejected; all of it shall be settable from the terminal and the web page and saved with the other settings.  
 *Why:* A rejected source is a fault the owner needs to see; hidden voting would be unexplainable.  
-*Implemented by:* none yet
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Terminal commands and USB serial console, HTTP parsing, settings page and web server
+
+**REQ-DCF-01** (ratified, high)  
+The DCF77 decoder shall turn the 59 bits of a minute into the UTC time of the minute they announce, and refuse a frame whose start bit, time-zone bits, three parity bits, BCD digits, calendar date (including the number of days in the month) or transmitted weekday are wrong.  
+*Why:* DCF77 is a plain bit stream with weak redundancy; a misread frame must not set the clock. The weekday against the date is an extra check on the whole date. Local time is German time, converted to UTC with the transmitted CET/CEST bits, independent of the clock's own timezone setting.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver
+
+**REQ-DCF-02** (ratified, high)  
+The DCF77 receiver pulses shall be classified by width (about 100 ms = 0, about 200 ms = 1, spikes under 50 ms ignored, other widths a fault), the minute mark found from the missing pulse of second 59, and a time shall be reported only when two frames in a row decoded and announce minutes exactly one minute apart; any broken pulse, wrong rhythm or refused frame restarts the confirmation.  
+*Why:* A receiver in poor reception gives noise; requiring two consecutive consistent frames keeps one lucky frame or a burst of interference from setting the clock (the vote mode cannot help when DCF77 is the only source).  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver
+
+**REQ-DCF-03** (ratified, medium)  
+The DCF77 receiver module shall be wired to GP0 (PON) and GP1 (TCO) and powered from the 3V3 pin; the receiver shall be switched on (PON low, after a high-to-low edge) only while `dcf77` is in `time_sources` and off (PON high) otherwise, and pulses shall be timed on the microsecond clock.  
+*Why:* Planned wiring in docs/design/architecture.md: the pins are free on the clock board, the module (1.2 to 3.3 V, PON low = on) needs no level shifting, and a receiver that is not used should not pick up or cause interference.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Composition: task wiring, shared state, chip selection  
+*Unverified:* no receiver module is wired to the clock yet; the decoder and selection are tested on the host and the settings and status on the Pico 2 W without a module (VR-58). A hardware record follows when the module is fitted.
 
 
 ### 4.11 Display

@@ -15,6 +15,7 @@ use picoclock_core::config::Config;
 use picoclock_core::cli::GeoTry;
 use picoclock_core::geo;
 use picoclock_core::netutil::{self, JoinPlan, Seen};
+use picoclock_core::sources::{Sample, Source};
 
 use crate::nts::Nts;
 use crate::{ntp, state};
@@ -186,13 +187,17 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
         }
         if Instant::now() >= next_sync {
             next_sync = Instant::now()
-                + match ntp::query(stack, iface, &cfg.ntp_servers, nts).await {
-                    Some((secs, ms, secure)) => {
-                        state::with_runtime(|r| r.sync_secure = secure);
-                        state::NTP_TIME.signal((secs, ms, Instant::now()));
-                        RESYNC
+                + if !cfg.time_sources.contains(&Source::Ntp) {
+                    NTP_RETRY // not a selected source: ask again later in case that changes
+                } else {
+                    match ntp::query(stack, iface, &cfg.ntp_servers, nts).await {
+                        Some((secs, ms, secure)) => {
+                            let sample = Sample { unix_ms: secs as i64 * 1000 + ms as i64, at_ms: Instant::now().as_millis() };
+                            let _ = state::SAMPLES.try_send(state::Offer { src: Source::Ntp, sample, secure });
+                            RESYNC
+                        }
+                        None => NTP_RETRY,
                     }
-                    None => NTP_RETRY,
                 };
         }
         if cfg.wants_geolocation() {

@@ -59,6 +59,9 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     cert_uploaded: false,
     unsaved: false,
     watchdog_reset: false,
+    sync_dcf: false,
+    sources: [None; 2],
+    dcf: picoclock_core::dcf77::Stats { pulses: 0, frames_ok: 0, frames_bad: 0, pulses_bad: 0 },
 }));
 
 /// Milliseconds since boot at the last pass of the clock task (`ui_task`), which owns the RTC bus. The watchdog task feeds the
@@ -115,8 +118,16 @@ pub fn feed_watchdog() {
 
 /// Button events from the button task to the UI.
 pub static BUTTONS: Channel<Cs, (Button, Press), 8> = Channel::new();
-/// Unix time (UTC) from the latest successful NTP exchange, for the clock task to write to the RTC.
-pub static NTP_TIME: Signal<Cs, (u64, u16, embassy_time::Instant)> = Signal::new();
+/// A time a source (NTP, DCF77) delivered, on its way to the source selection (`sources.rs`).
+pub struct Offer {
+    pub src: picoclock_core::sources::Source,
+    pub sample: picoclock_core::sources::Sample,
+    /// Authenticated (NTS).
+    pub secure: bool,
+}
+pub static SAMPLES: Channel<Cs, Offer, 4> = Channel::new();
+/// The time the selection chose, for the clock task to write to the RTC: (unix seconds, ms, the instant that time was true).
+pub static TIME_APPLY: Signal<Cs, (u64, u16, embassy_time::Instant)> = Signal::new();
 /// (unix seconds, instant) of the moment the RTC was last set exactly on a UTC second boundary. Time since then is
 /// `secs + anchor.elapsed()`, which is what the NTP server serves.
 static ANCHOR: Mutex<Cs, RefCell<Option<(i64, embassy_time::Instant)>>> = Mutex::new(RefCell::new(None));

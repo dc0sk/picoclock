@@ -28,6 +28,8 @@ serves the web page, the web password and the WiFi passphrases over plain HTTP. 
   resync; the RTC is set exactly on a UTC second boundary, so the displayed seconds match real time.
 - **Secure NTP (NTS, RFC 8915):** an `nts:<host>` entry in `ntp_servers` (for example `nts:time.cloudflare.com`)
   authenticates the time with TLS 1.3 and AES-SIV; see *Secure NTP* below.
+- **Time sources:** NTP/NTS and, since 0.2.0, a DCF77 radio receiver module, combined by an ordered list with
+  fallbacks or by a vote between them; see *Time sources*.
 - **NTP server (optional):** `ntp_serve on` lets other devices on the LAN use the clock as a time source. Off by default.
 - **WiFi:** up to 8 stored networks, tried in slot order, or with `set wifi_select strongest` the strongest one in range
   first (stored networks the scan did not see, such as hidden ones, still get their turn). The device name on the network is
@@ -109,6 +111,10 @@ Changes apply immediately but are only written to flash by `save` (the web page 
 | `https`, `http_redirect` | Pico 2 W only: serve the web page over HTTPS; redirect plain-HTTP page requests to it | on, on |
 | `wifi_select` | `order` (first stored network in slot order) or `strongest` (the strongest one in range) | `order` |
 | `mdns` | answer for `<device name>.local` on the LAN | on |
+| `time_sources` | the time sources in use, best first: `ntp`, `dcf77` (see *Time sources*) | `ntp` |
+| `time_mode` | `order` (first source with a fresh time) or `vote` (the sources must agree) | `order` |
+| `vote_ntp`, `vote_dcf77` | vote power 0 to 9 per source in mode `vote` (0 = compared and shown, cannot decide) | 1, 1 |
+| `vote_tolerance` | seconds within which two sources count as agreeing in mode `vote` | 2 |
 
 ## Secure NTP (NTS)
 
@@ -245,6 +251,34 @@ While the alarm rings, any button stops it. Menu and brightness edits are saved 
 Status icons: alarm = alarm enabled, bell = hourly chime, auto-light = auto brightness, AM/PM in 12 h mode,
 C/F = unit, **count-up icon = time was synced by NTP within the last 3 h**. The colon blinks once synced and stays
 solid before. The display shows `--:--` until the RTC holds a valid time.
+
+## Time sources
+
+Since software 0.2.0 the clock can take its time from NTP/NTS **and** from a DCF77 receiver module (GPS follows in a later
+release). `time_sources` lists the sources in use, best first; the default `ntp` behaves exactly as 0.1.0. `status` shows the
+state of every source: waiting, in use, standby, stale, rejected (outvoted) or no majority, how long ago it delivered, how far
+it is from the clock, and for DCF77 the pulse and frame counters.
+
+- **`time_mode order`** (default): a time from a source is used if no source ranked above it has a fresh time. A source counts
+  as fresh for 3 hours (NTP) or 15 minutes (DCF77). When the better source falls silent the next one takes over, and the better
+  one takes back at its next time.
+- **`time_mode vote`**: a plausibility check. The fresh times of all selected sources are compared; sources within
+  `vote_tolerance` seconds of each other form a group, and a time is used only if its source is in the group that holds **more
+  than half** of the vote power of the sources that deliver (`vote_ntp`, `vote_dcf77`, 0 to 9; 0 means compared and shown, but
+  it cannot decide). With equal powers two sources that disagree leave the clock alone and `status` says "no majority". A
+  source that is alone is a majority of itself. Example: `set time_sources ntp,dcf77`, `set time_mode vote`, `set vote_ntp 2`
+  lets NTP outvote a wrongly decoded DCF77 time, and DCF77 alone still sets the clock when the network is down.
+- **DCF77** is decoded from pulse width and rhythm; a frame needs a good start bit, time-zone bits, three parity bits, valid
+  digits, a real date and a weekday that fits the date, and the clock is only set when **two consecutive frames** announce
+  minutes exactly one minute apart. The receiver sends German time; the clock converts it with the transmitted CET/CEST bits,
+  so your `timezone` does not matter. A DCF77 time renews the sync time but rewrites the RTC only when the clock is more than
+  0.3 s off (the receiver has second resolution). Locking can take 20 minutes or more; reception is often better at night and
+  poor next to a display or a WiFi radio, so place the antenna away from them.
+- **Wiring** (module with the pins PON, TCO, GND, VCC, for example the Pollin DCF1): PON to GP0, TCO to GP1, GND, VCC from the
+  3V3 pin (the module takes 1.2 to 3.3 V), and a 10 µF capacitor across the supply. The receiver is only switched on while
+  `dcf77` is in `time_sources`. See the wiring plan in `docs/design/architecture.md`.
+- **Not verified on hardware yet:** the DCF77 receiver (no module is wired to the clock yet). The decoder, the selection and the
+  settings are tested on the host; the settings and `status` run on a Pico 2 W without a module.
 
 ## Timezone lookup by IP (`timezone=auto`)
 
@@ -385,15 +419,11 @@ The Pico 2 W build serves the web page over HTTPS on port 443 ([ADR-0002](docs/d
 
 ## Roadmap
 
-Planned for future releases (requirements, not implemented):
+Planned for future releases (not implemented). Delivered in 0.2.0: source selection (`order`, `vote`) and the DCF77 source.
 
 - **NTS:** the exporter patch to `embedded-tls` is offered upstream as https://github.com/embassy-rs/embedded-tls/pull/221 (open, 2026-10-17); the vendored copy stays until it is merged and released.
-- **Choosing between time sources** (requirements REQ-SRC-01 to 05, draft): two modes, `order` (an ordered list with
-  fallbacks, as for NTP servers today) and `vote` (a plausibility check between the selected sources, with a selectable
-  vote power per source and a tolerance). Delivered with the first additional source.
-- **DCF77 receiver module** as an additional time source (planned: the WHP0027V3 module with PON and TCO on GP0 and GP1, see the wiring plan in `docs/design/architecture.md`; it has to fit the clock's case). Delivering it bumps the software version, after a full-code review.
-- **GPS module (u-blox)** as a time source over UART (NMEA/UBX, optionally the PPS pulse for sub-millisecond
-  accuracy), which would also let the NTP server claim a low stratum. Delivering it bumps the software version again, after
+- **GPS module (u-blox NEO-M9N, SparkFun board)** as a time source over UART (NMEA/UBX, optionally the PPS pulse for sub-millisecond
+  accuracy; planned wiring UART1 on GP4/GP5 and PPS on GP3, or the I2C bus the RTC uses), which would also let the NTP server claim a low stratum. Delivering it bumps the software version again, after
   another full-code review.
 - Pico 2 W: run it for days; press the buttons and cover the light sensor on it.
 

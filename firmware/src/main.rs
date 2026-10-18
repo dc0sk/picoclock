@@ -19,9 +19,11 @@ mod https;
 #[cfg(feature = "https")]
 mod tls;
 mod display;
+mod dcf77;
 mod net;
 mod nts;
 mod ntp;
+mod sources;
 mod rtc;
 mod state;
 mod storage;
@@ -117,7 +119,7 @@ async fn ui_task(mut rtc: Rtc) -> ! {
     let mut next_temp = Instant::now();
     loop {
         state::heartbeat();
-        if let Some((secs, ms, stamp)) = state::NTP_TIME.try_take() {
+        if let Some((secs, ms, stamp)) = state::TIME_APPLY.try_take() {
             // Set the RTC exactly on the next UTC second boundary: the DS3231 restarts its second at the write, so
             // writing mid-second would leave its seconds up to 1 s behind real time.
             let (mut target, mut wait_ms) = next_second_boundary(secs, ms, stamp.elapsed().as_millis());
@@ -283,6 +285,9 @@ async fn main(spawner: Spawner) {
 
     let i2c = I2c::new(p.I2C1, p.PIN_7, p.PIN_6, Irqs, i2c::Config::default());
     spawner.spawn(unwrap!(ui_task(Rtc::new(i2c))));
+    spawner.spawn(unwrap!(sources::sources_task()));
+    // DCF77 receiver module: PON on GP0 (starts high = off), TCO on GP1.
+    spawner.spawn(unwrap!(dcf77::dcf77_task(Input::new(p.PIN_1, Pull::Down), Output::new(p.PIN_0, Level::High))));
     // After the reset reason is read: the watchdog is started once everything that can take long at boot (flash, USB) is done.
     let mut watchdog = embassy_rp::watchdog::Watchdog::new(p.WATCHDOG);
     let reset_by_watchdog = state::watchdog_caused_last_reset(&mut watchdog);

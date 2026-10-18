@@ -4,6 +4,7 @@
 use core::fmt::{self, Write};
 use heapless::String;
 
+use crate::sources::{Mode, Policy, Source, SOURCES};
 use crate::tz::Tz;
 
 pub type Text = String<64>;
@@ -64,9 +65,22 @@ pub struct Config {
     pub mdns: bool,
     /// Name on the network (DHCP, mDNS, HTTPS certificate). Empty = `picoclock-<last MAC block>`.
     pub hostname: String<HOSTNAME_MAX>,
+    /// How the time sources are combined (`order` or `vote`).
+    pub time_mode: Mode,
+    /// The time sources in use, best first.
+    pub time_sources: heapless::Vec<Source, { SOURCES.len() }>,
+    /// Vote power per source (`Source as usize`), 0 to 9.
+    pub vote_power: [u8; SOURCES.len()],
+    /// Seconds within which sources agree in mode `vote`.
+    pub vote_tolerance: u16,
 }
 
 impl Config {
+    /// The source selection as the selector wants it.
+    pub fn policy(&self) -> Policy {
+        Policy { mode: self.time_mode, order: self.time_sources.clone(), power: self.vote_power, tolerance_s: self.vote_tolerance }
+    }
+
     /// Copies every setting that differs between `before` and `after` into `self`, leaving the rest alone. The web page and
     /// the buttons save only what they changed; edits made in the terminal and not yet saved must not ride along (REQ-CFG-05).
     /// The destructuring names every field, so a new setting that is not listed here fails to compile.
@@ -92,13 +106,18 @@ impl Config {
             wifi_strongest,
             mdns,
             hostname,
+            time_mode,
+            time_sources,
+            vote_power,
+            vote_tolerance,
         } = after;
         macro_rules! carry {
             ($($f:ident),*) => { $( if before.$f != *$f { self.$f = $f.clone(); } )* };
         }
         carry!(
             ntp_servers, timezone, geo_rule, dst, hour12, fahrenheit, brightness, key_beep, hourly_chime, alarm_enabled,
-            alarm_minutes, web_password, web_enabled, ntp_serve, https, http_redirect, wifi_strongest, mdns, hostname
+            alarm_minutes, web_password, web_enabled, ntp_serve, https, http_redirect, wifi_strongest, mdns, hostname, time_mode,
+            time_sources, vote_power, vote_tolerance
         );
         for (i, net) in wifi.iter().enumerate() {
             if before.wifi[i] != *net {
@@ -131,6 +150,10 @@ impl Default for Config {
             wifi_strongest: false,
             mdns: true,
             hostname: String::new(),
+            time_mode: Mode::Order,
+            time_sources: heapless::Vec::from_slice(&[Source::Ntp]).unwrap(),
+            vote_power: [1; SOURCES.len()],
+            vote_tolerance: 2,
         }
     }
 }
@@ -176,6 +199,11 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { name: "wifi_select", help: "order|strongest: join the first stored network in slot order, or the strongest one in range (default order)", secret: false },
     KeyInfo { name: "mdns", help: "on|off: answer for <device name>.local on the LAN (multicast DNS, default on)", secret: false },
     KeyInfo { name: "hostname", help: "name of this clock on the network (DHCP, mDNS, HTTPS certificate): 1-24 lowercase letters, digits and hyphens; empty = picoclock-<last MAC block>", secret: false },
+    KeyInfo { name: "time_mode", help: "order|vote: take the time from the first source in time_sources that has one (order), or only when the sources agree by vote power (vote)", secret: false },
+    KeyInfo { name: "time_sources", help: "comma-separated, best first: ntp, dcf77 (a DCF77 receiver on GP0/GP1; default ntp)", secret: false },
+    KeyInfo { name: "vote_ntp", help: "0-9: vote power of NTP/NTS in mode vote (0 = compared and shown, cannot decide; default 1)", secret: false },
+    KeyInfo { name: "vote_dcf77", help: "0-9: vote power of DCF77 in mode vote (default 1)", secret: false },
+    KeyInfo { name: "vote_tolerance", help: "1-3600 seconds within which sources count as agreeing in mode vote (default 2)", secret: false },
     KeyInfo { name: "ntp_serve", help: "on|off: answer NTP requests from the LAN (accuracy about +-1 s)", secret: false },
 ];
 
@@ -348,6 +376,38 @@ impl Config {
                 }
             }
             "mdns" => self.mdns = parse_bool(value)?,
+            "time_mode" => {
+                self.time_mode = match value {
+                    "order" => Mode::Order,
+                    "vote" => Mode::Vote,
+                    _ => return Err(ConfigError::InvalidValue),
+                }
+            }
+            "time_sources" => {
+                let mut list = heapless::Vec::new();
+                for name in value.split(',') {
+                    let src = Source::from_name(name).ok_or(ConfigError::InvalidValue)?;
+                    if list.contains(&src) {
+                        return Err(ConfigError::InvalidValue);
+                    }
+                    list.push(src).map_err(|_| ConfigError::InvalidValue)?;
+                }
+                self.time_sources = list;
+            }
+            "vote_ntp" | "vote_dcf77" => {
+                let power: u8 = value.parse().map_err(|_| ConfigError::InvalidValue)?;
+                if power > 9 {
+                    return Err(ConfigError::InvalidValue);
+                }
+                self.vote_power[if key == "vote_ntp" { Source::Ntp } else { Source::Dcf77 } as usize] = power;
+            }
+            "vote_tolerance" => {
+                let secs: u16 = value.parse().map_err(|_| ConfigError::InvalidValue)?;
+                if !(1..=3600).contains(&secs) {
+                    return Err(ConfigError::InvalidValue);
+                }
+                self.vote_tolerance = secs;
+            }
             "hostname" => {
                 // DNS names are case-insensitive; keep them lowercase so the certificate and mDNS name are unambiguous
                 let mut name = String::<HOSTNAME_MAX>::new();
@@ -392,6 +452,11 @@ impl Config {
             "https" => out.write_str(on_off(self.https)),
             "wifi_select" => out.write_str(if self.wifi_strongest { "strongest" } else { "order" }),
             "mdns" => out.write_str(on_off(self.mdns)),
+            "time_mode" => out.write_str(self.time_mode.name()),
+            "time_sources" => self.time_sources.iter().enumerate().try_for_each(|(i, s)| write!(out, "{}{}", if i > 0 { "," } else { "" }, s.name())),
+            "vote_ntp" => write!(out, "{}", self.vote_power[Source::Ntp as usize]),
+            "vote_dcf77" => write!(out, "{}", self.vote_power[Source::Dcf77 as usize]),
+            "vote_tolerance" => write!(out, "{}", self.vote_tolerance),
             "hostname" => out.write_str(&self.hostname),
             "http_redirect" => out.write_str(on_off(self.http_redirect)),
             _ => return Err(ConfigError::UnknownKey),
@@ -532,6 +597,29 @@ mod tests {
         assert_eq!(val(&stored, "wifi2_ssid"), "other");
         assert_eq!(val(&stored, "timezone"), "utc", "the unsaved terminal edit is not written");
         assert_ne!(stored, live);
+    }
+
+    // VERIFIES: REQ-SRC-01 REQ-SRC-04
+    #[test]
+    fn time_source_settings_are_validated_and_survive_the_flash_record() {
+        let mut c = Config::default();
+        assert_eq!((val(&c, "time_mode"), val(&c, "time_sources"), val(&c, "vote_ntp"), val(&c, "vote_dcf77"), val(&c, "vote_tolerance")), ("order".into(), "ntp".into(), "1".into(), "1".into(), "2".into()), "defaults keep today's behaviour: NTP alone");
+        c.set("time_sources", "dcf77, NTP").unwrap();
+        c.set("time_mode", "vote").unwrap();
+        c.set("vote_ntp", "3").unwrap();
+        c.set("vote_dcf77", "0").unwrap();
+        c.set("vote_tolerance", "30").unwrap();
+        let p = c.policy();
+        assert_eq!((p.mode, p.order.as_slice(), p.power, p.tolerance_s), (Mode::Vote, &[Source::Dcf77, Source::Ntp][..], [3, 0], 30));
+        assert_eq!(val(&c, "time_sources"), "dcf77,ntp");
+        for (k, bad) in [("time_mode", "both"), ("time_sources", ""), ("time_sources", "ntp,ntp"), ("time_sources", "ntp,gps"), ("time_sources", "ntp,dcf77,ntp"), ("vote_ntp", "10"), ("vote_dcf77", "-1"), ("vote_tolerance", "0"), ("vote_tolerance", "3601"), ("vote_tolerance", "x")] {
+            let before = c.clone();
+            assert!(c.set(k, bad).is_err(), "{k}={bad:?}");
+            assert_eq!(c, before, "a refused value changes nothing");
+        }
+        let mut buf = [0xFFu8; 2048];
+        let n = c.to_bytes(&mut buf).unwrap();
+        assert_eq!(Config::from_bytes(&buf[..n]), Some(c));
     }
 
     // VERIFIES: REQ-CFG-04 REQ-NTP-01 REQ-TIME-02

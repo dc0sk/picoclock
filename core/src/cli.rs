@@ -66,6 +66,12 @@ pub struct Status {
     pub unsaved: bool,
     /// The previous start was a reset by the watchdog (a task hung or the program crashed).
     pub watchdog_reset: bool,
+    /// The clock was last set from DCF77 (otherwise from NTP, see `sync_secure`).
+    pub sync_dcf: bool,
+    /// What the source selection made of each source's last time (index = `Source as usize`); `None` before the first look.
+    pub sources: [Option<crate::sources::Report>; 2],
+    /// DCF77 receiver counters.
+    pub dcf: crate::dcf77::Stats,
 }
 
 /// One timezone-lookup attempt, as shown in `status`.
@@ -346,10 +352,35 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             let _ = out.write_str("\nsynced  : ");
             match (st.last_sync_unix, st.utc_unix) {
                 (Some(s), Some(now)) => {
-                    let _ = write!(out, "{} s ago ({})", (now - s).max(0), if st.sync_secure { "NTS, authenticated" } else { "plain NTP" });
+                    let how = if st.sync_dcf { "DCF77" } else if st.sync_secure { "NTS, authenticated" } else { "plain NTP" };
+                    let _ = write!(out, "{} s ago ({})", (now - s).max(0), how);
                 }
                 _ => {
                     let _ = out.write_str("never");
+                }
+            }
+            let _ = write!(out, "\nsources : mode {}", cfg.time_mode.name());
+            if cfg.time_mode == crate::sources::Mode::Vote {
+                let _ = write!(out, ", tolerance {} s", cfg.vote_tolerance);
+            }
+            for src in crate::sources::SOURCES {
+                let _ = write!(out, "\n  {:6}: ", src.name());
+                let Some(r) = st.sources[src as usize] else {
+                    let _ = out.write_str(if cfg.time_sources.contains(&src) { "waiting" } else { "off" });
+                    continue;
+                };
+                let _ = out.write_str(r.state.text());
+                if let Some(age) = r.age_s {
+                    let _ = write!(out, ", last {} s ago", age);
+                }
+                if let Some(o) = r.offset_ms {
+                    let _ = write!(out, ", {}{}.{:03} s from the clock", if o < 0 { "-" } else { "+" }, o.abs() / 1000, o.abs() % 1000);
+                }
+                if cfg.time_mode == crate::sources::Mode::Vote && cfg.time_sources.contains(&src) {
+                    let _ = write!(out, ", vote power {}", cfg.vote_power[src as usize]);
+                }
+                if src == crate::sources::Source::Dcf77 && cfg.time_sources.contains(&src) {
+                    let _ = write!(out, "; pulses {}, frames ok {}, bad {}, bad pulses {}", st.dcf.pulses, st.dcf.frames_ok, st.dcf.frames_bad, st.dcf.pulses_bad);
                 }
             }
             for (label, t) in [("temp    ", st.temp_c10), ("chip    ", st.chip_temp_c10)] {

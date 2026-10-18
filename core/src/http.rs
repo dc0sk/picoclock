@@ -752,11 +752,19 @@ mod tests {
             cert_uploaded: true,
             unsaved: true,
             watchdog_reset: false,
+            sync_dcf: false,
+            sources: [
+                Some(crate::sources::Report { source: crate::sources::Source::Ntp, state: crate::sources::State::NoMajority, offset_ms: Some(-3_600_000), age_s: Some(10_800) }),
+                Some(crate::sources::Report { source: crate::sources::Source::Dcf77, state: crate::sources::State::Standby, offset_ms: Some(3_600_000), age_s: Some(900) }),
+            ],
+            dcf: crate::dcf77::Stats { pulses: 4_000_000_000, frames_ok: 4_000_000_000, frames_bad: 4_000_000_000, pulses_bad: 4_000_000_000 },
             geo: [crate::cli::GeoTry { stage: 5, bytes: 999, end: 1, addr: [255, 255, 255, 255] }; crate::geo::PROVIDERS.len()],
         };
         let mut c = Config::default();
         c.set("hostname", &"h".repeat(crate::config::HOSTNAME_MAX)).unwrap();
         c.set("timezone", "Europe/Berlin").unwrap();
+        c.set("time_sources", "dcf77,ntp").unwrap();
+        c.set("time_mode", "vote").unwrap();
         let mut page = heapless::String::<12288>::new();
         render_page(&c, &st, None, true, &crate::rootstore::Roots::new(), &mut page).unwrap();
         let pre = page.split("<pre>").nth(1).unwrap().split("</pre>").next().unwrap();

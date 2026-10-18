@@ -674,3 +674,18 @@ the quality of the ring-oscillator bits is not measured; the backup sector's rea
 cuts a save off at every step (REQ-CFG-10), not by cutting power; the NTS key-exchange feed of the watchdog was not provoked.
 
 Verifies: REQ-CFG-05, REQ-WEB-09, REQ-WEB-10, REQ-NFR-03
+
+### VR-58 · 2026-10-18 · hardware · Software 0.2.0 on a Pico 2 W without a DCF77 module: source selection
+
+`version` printed 0.2.0. With the default settings (`time_sources ntp`, mode `order`) the clock synced as before ("synced : 17 s
+ago (plain NTP)", `ntp : in use ... +0.001 s from the clock`, `dcf77 : off`). The web page lists the five new settings. With
+`set time_sources dcf77,ntp` and `time_mode vote` the status showed `dcf77 : waiting, vote power 1; pulses 0, frames ok 0, bad 0,
+bad pulses 0` and an NTP sync (`sync`) still set the clock, because a source that has nothing to say does not block the
+other. With `time_sources dcf77` alone, `sync` made no NTP query (`ntp : off`). Invalid values (`gps`, power 12) were refused.
+The receiver pins were driven (PON high while `dcf77` is not selected). **Not verified:** everything that needs the module:
+pulse timing against a real receiver, a confirmed DCF77 time reaching the clock, the fallback and vote with two live sources,
+the receiver's reception next to the display and the WiFi radio, and PON switching the module. A hardware record for
+REQ-DCF-03 follows when the module is fitted; until then the decoder and the selection are evidenced only by host tests
+(each checked by sabotaging the rule it tests: majority threshold, tolerance, consecutive-minute check, parity 3).
+
+Verifies: REQ-SRC-01

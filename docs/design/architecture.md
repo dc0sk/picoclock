@@ -73,6 +73,8 @@ its unit tests run in milliseconds without hardware. `firmware` is kept thin: it
 
 | Module   | Responsibility                                                                                       |
 |----------|------------------------------------------------------------------------------------------------------|
+| `sources` | Source selection: `Selector` and `Policy` for the modes `order` and `vote`, freshness, per-source report |
+| `dcf77`  | DCF77 pulse classification, frame decoding with parity and calendar checks, two-frame confirmation |
 | `time`   | Unix time and civil date conversions, weekday, the next-second-boundary calculation                  |
 | `tz`     | POSIX TZ rule parser, `Tz::offset_at(utc)`, IANA name lookup, prefix listing                         |
 | `tzdb`   | Generated table of 486 IANA names to POSIX rules (`tools/gen_tzdb.py`)                               |
@@ -98,6 +100,8 @@ its unit tests run in milliseconds without hardware. `firmware` is kept thin: it
 | `buzzer`    | Beep patterns; the alarm pattern repeats until stopped                                            |
 | `storage`   | Load and save the config record (two sectors, `core::slots`), the user's NTS roots and (Pico 2 W) the HTTPS key, each in its own flash sector; erase them all for a factory reset |
 | `net`       | WiFi join and slot handling, hourly sync, geolocation request, NTP server task                    |
+| `sources`   | Receives the sources' times, asks `core::sources`, hands the winner to `ui_task`, keeps the per-source `status` lines |
+| `dcf77`     | PON/TCO pins of the DCF77 module: edge timing, switches the receiver on only when selected |
 | `ntp`       | NTP transport: resolve, send, receive, half-round-trip correction; routes `nts:` entries to `nts`   |
 | `nts`       | NTS transport: sockets and buffers for NTS-KE, authenticated UDP exchange, sessions in RAM          |
 | `crypto`    | Links the `embassy-crypto` drivers (RustCrypto primitives) and supplies the RNG driver              |
@@ -138,7 +142,8 @@ short: shift four bytes, latch, set the row address, open the output enable for 
 | `CONFIG`                      | thread-mode mutex             | terminal, web, UI menu write; everything reads (snapshot)      |
 | `RUNTIME` (`Status`)          | thread-mode mutex, `Copy`     | tasks write their own fields; terminal and web read            |
 | `FRAME`                       | critical-section mutex        | `ui_task` writes; `scan_task` reads                            |
-| `NTP_TIME`                    | signal                        | `wifi_task` -> `ui_task`: (seconds, ms, instant of reply)      |
+| `SAMPLES`                     | channel (4)                   | `wifi_task`, `dcf77_task` -> `sources_task`: (source, time, instant, authenticated) |
+| `TIME_APPLY`                  | signal                        | `sources_task` -> `ui_task`: the time that won, (seconds, ms, instant) |
 | `ANCHOR`                      | mutex                         | `ui_task` writes when it sets the RTC; NTP server reads        |
 | `SAVE_REQUEST`, `CONFIG_CHANGED`, `SYNC_NOW`, `GEO_NOW`, `BEEP` | signals | requests between tasks                       |
 | `ROOTS`, `TLS_MATERIAL`      | thread-mode mutexes           | the user's NTS roots and the HTTPS key and certificate; terminal, web, `nts` and `https_task` |
@@ -366,6 +371,15 @@ crates.io releases.
   before it starts. `reboot`, `bootsel` and the factory reset stop the watchdog and clear a marker in a watchdog scratch
   register; at start the marker plus the "timed out" reset reason mean "the watchdog fired" (the boot ROM also resets through the
   watchdog after a UF2 upload, so the reason alone is not enough), shown by `status` as `reset:`.
+- **Random numbers.** Pico 2 W: the chip's TRNG. Pico W: ring-oscillator bits read with a pause between them and hashed 2:1
+  with the time and the previous state (`core::entropy`, REQ-RNG-01); the quality of the raw bits is not measured.
+
+## 10. Extension points (roadmap)
+
+- **Further time sources (u-blox GPS).** Source selection and DCF77 are delivered (ADR-0004). GPS needs a `Source` variant, a
+  producer task sending to `SAMPLES`, and the wiring in the table above; a PPS pulse could replace the anchor's free-running
+  phase and allow a lower stratum. The reviewer's notes from 2026-10-17 still apply: take the RTC write out of `ui_task`
+  (its second-boundary wait stalls the display up to a second), and give the NTP server a form of `last_sync_unix` per source.
 - **Random numbers.** Pico 2 W: the chip's TRNG. Pico W: ring-oscillator bits read with a pause between them and hashed 2:1
   with the time and the previous state (`core::entropy`, REQ-RNG-01); the quality of the raw bits is not measured.
 

@@ -20,6 +20,7 @@ mod tests {
 }
 
 pub mod config;
+pub mod dcf77;
 pub mod entropy;
 pub mod font;
 pub mod geo;
@@ -29,6 +30,7 @@ pub mod nts;
 pub mod nts_ke;
 pub mod frame;
 pub mod rootstore;
+pub mod sources;
 pub mod slots;
 pub mod sntp;
 pub mod time;
