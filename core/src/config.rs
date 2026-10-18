@@ -66,6 +66,48 @@ pub struct Config {
     pub hostname: String<HOSTNAME_MAX>,
 }
 
+impl Config {
+    /// Copies every setting that differs between `before` and `after` into `self`, leaving the rest alone. The web page and
+    /// the buttons save only what they changed; edits made in the terminal and not yet saved must not ride along (REQ-CFG-05).
+    /// The destructuring names every field, so a new setting that is not listed here fails to compile.
+    pub fn carry_changes(&mut self, before: &Config, after: &Config) {
+        let Config {
+            wifi,
+            ntp_servers,
+            timezone,
+            geo_rule,
+            dst,
+            hour12,
+            fahrenheit,
+            brightness,
+            key_beep,
+            hourly_chime,
+            alarm_enabled,
+            alarm_minutes,
+            web_password,
+            web_enabled,
+            ntp_serve,
+            https,
+            http_redirect,
+            wifi_strongest,
+            mdns,
+            hostname,
+        } = after;
+        macro_rules! carry {
+            ($($f:ident),*) => { $( if before.$f != *$f { self.$f = $f.clone(); } )* };
+        }
+        carry!(
+            ntp_servers, timezone, geo_rule, dst, hour12, fahrenheit, brightness, key_beep, hourly_chime, alarm_enabled,
+            alarm_minutes, web_password, web_enabled, ntp_serve, https, http_redirect, wifi_strongest, mdns, hostname
+        );
+        for (i, net) in wifi.iter().enumerate() {
+            if before.wifi[i] != *net {
+                self.wifi[i] = net.clone();
+            }
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -471,6 +513,25 @@ mod tests {
         let mut s = std::string::String::new();
         c.write_value(k, &mut s).unwrap();
         s
+    }
+
+    // VERIFIES: REQ-CFG-05
+    #[test]
+    fn carried_changes_leave_other_unsaved_edits_behind() {
+        let saved = Config::default();
+        // the terminal edited the timezone, not yet saved
+        let mut live = saved.clone();
+        live.set("timezone", "Europe/Berlin").unwrap();
+        // then the web page changed the alarm and slot 2
+        let before = live.clone();
+        live.set("alarm_enabled", "on").unwrap();
+        live.set("wifi2_ssid", "other").unwrap();
+        let mut stored = saved.clone();
+        stored.carry_changes(&before, &live);
+        assert_eq!(val(&stored, "alarm_enabled"), "on");
+        assert_eq!(val(&stored, "wifi2_ssid"), "other");
+        assert_eq!(val(&stored, "timezone"), "utc", "the unsaved terminal edit is not written");
+        assert_ne!(stored, live);
     }
 
     // VERIFIES: REQ-CFG-04 REQ-NTP-01 REQ-TIME-02

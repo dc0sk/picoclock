@@ -215,7 +215,9 @@ source. It is off by default. The RTC is set exactly on a UTC second boundary af
 clock runs until the next hourly sync. Measured against an NTP-synced host right after a sync the offset was 1-2 ms;
 drift of the RP2040 crystal can add some 0.1 s by the next resync.
 
-Replies are marked stratum 5. If no NTP sync happened in the last 24 hours they are marked unsynchronised and clients
+Replies are marked stratum 5. After a boot the server stays silent until the first NTP sync (the software clock that
+gives it sub-second time starts there, although the RTC may already hold a good time; silence is safer than a guess, and
+clients simply try their next server). If the last sync is more than 24 hours old, replies are marked unsynchronised and clients
 ignore them. A reply is never larger than the request, and anything that is not a client request is dropped. Do not
 forward port 123 from the internet to the clock.
 
@@ -272,9 +274,11 @@ and both firmware builds; run it before committing.
 - `tools/gen_tzdb.py` regenerates `core/src/tzdb.rs` from the system tz database.
 
 Flash layout (4 KiB sectors at the end of flash, each a record with a CRC32; a corrupt or blank sector means "nothing
-stored"): **Pico W (2 MiB)** the last sector holds the settings (2 KiB record, blank = defaults) and the one before it the
-NTS trust anchors you added. **Pico 2 W (4 MiB)** the last sector holds the settings, the one before it the HTTPS key and
-certificates, and the one before that the NTS trust anchors. The program image ends before them (`firmware/memory-*.x`).
+stored"): **Pico W (2 MiB)** the last sector holds the settings (2 KiB record, blank = defaults), the one before it the
+NTS trust anchors you added, and the one before that a backup copy of the settings. **Pico 2 W (4 MiB)** the last sector
+holds the settings, the one before it the HTTPS key and certificates, then the NTS trust anchors, then the backup copy of the
+settings. A save writes the backup first and the main copy second, and at start the first valid copy is used, so a power
+cut during a save leaves the old or the new settings, never none. The program image ends before them (`firmware/memory-*.x`).
 A firmware from before this layout leaves these sectors blank or untouched, so updating loses nothing. Embassy is pinned by git revision in `firmware/Cargo.toml`
 because the networking APIs used here are newer than the crates.io releases. The CYW43 firmware blobs in
 `firmware/fw/` come from the Embassy repository under their own license.
@@ -359,7 +363,7 @@ the owner.
 **Not checked yet:** a location provider that connects but sends a bad reply. A known unknown: whether the count-up
 icon suits the sync indicator.
 
-Other limits: saving pauses the CPU for tens of milliseconds (the display blinks once; measured 34 ms); the hourly NTP sync pauses
+Other limits: saving pauses the CPU for tens of milliseconds (the display blinks once; 34 ms for one sector, about twice that now that two are written); the hourly NTP sync pauses
 the display for up to a second while the RTC is set on the second boundary; no countdown/stopwatch; the USB VID/PID
 is the pid.codes test pair `1209:0001`. The firmware image is about 440 KB of flash and 72 KB of static RAM.
 
@@ -393,22 +397,20 @@ Planned for future releases (requirements, not implemented):
   another full-code review.
 - Pico 2 W: run it for days; press the buttons and cover the light sensor on it.
 
-**Found by the full-code review of 2026-10-17 and not yet fixed** (the rest of its findings are fixed; each item here is a
-decision for the owner, not forgotten):
+**Found by the full-code review of 2026-10-17** (Fable, before the time-source phase). Fixed in that round: the web status
+block, header names with spaces, NTP stratum 16, the terminal output cut, the late RTC write, DS3231 12-hour mode, weak tests and
+documentation drift. Fixed after the owner decided on the rest: web and button saves write only their own change (REQ-CFG-05);
+a certificate chain of 3 KB uploads (8 KiB request limit, REQ-WEB-10); Pico W random numbers are spaced out and hashed
+(REQ-RNG-01, not measured on a Pico W); settings live in two sectors so a power cut during a save loses nothing
+(REQ-CFG-10); a hardware watchdog restarts a hung clock (REQ-NFR-03); a factory reset is refused over plain HTTP while HTTPS is
+on (REQ-WEB-09). Still open:
 
 - **A time that is not plausible is applied.** The first answer sets the RTC and there is no step limit or comparison with
-  the RTC; this is what REQ-SRC-03 (`vote`) is meant to close, and what the first extra source needs first.
-- **Web and button saves also write unsaved terminal edits** (REQ-CFG-05 says only `save` writes them).
-- **A certificate chain of the size the page promises (3 KB) may not fit the 4 KiB HTTP request limit** (the browser would
-  get a bare `413`); only a single self-signed certificate has been uploaded on the clock.
-- **RP2040 random numbers** read the ring-oscillator bit eight times back to back; the bits are probably correlated.
-  They feed the NTS-KE key exchange key and the NTS identifiers (not HTTPS, which is RP2350-only and uses the hardware TRNG).
-- **A power cut during a save** (tens of milliseconds) erases the old record: defaults, no roots, a new certificate follow.
-- **No watchdog:** an I2C bus that hangs freezes the display and buttons until power is cycled.
-- **The NTP server (`ntp_serve`) stays silent until the first sync after boot**, although the RTC may hold a good time (the
-  docs say it answers "unsynchronised").
-- **`POST /reset` is accepted over plain HTTP** when no HTTPS redirect is active, like every other setting; with no web
-  password any host on the LAN can reset the clock.
+  the RTC; this is what REQ-SRC-03 (`vote`) is meant to close, built together with the first extra source (DCF77).
+- **The NTP server is silent until the first sync after boot** (decided: stays, documented above).
+- **The NTS roots and the HTTPS certificate sectors have a single copy.** A power cut while one is saved loses it (the
+  certificate is made again, the roots are added again); only the settings have a backup copy.
+- **`cert new` is accepted while HTTPS is off** and makes a certificate that nothing uses until HTTPS is switched on.
 
 ## Provisioning from a local file
 

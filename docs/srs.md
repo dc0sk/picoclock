@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/srs.md
 status: living
-last_updated: 2026-10-17
+last_updated: 2026-10-18
 ---
 
 # Software requirements specification
@@ -291,6 +291,11 @@ A factory reset shall be possible from the terminal (`factory-reset`) and from t
 *Why:* Requested by the owner (2026-10-17), guarded by a second query because the erase cannot be undone and the clock is off the network afterwards until it is given WiFi over USB.  
 *Implemented by:* Terminal commands and USB serial console, HTTP parsing, settings page and web server, Configuration model and flash storage, Composition: task wiring, shared state, chip selection
 
+**REQ-CFG-10** (ratified, high)  
+The saved settings shall be kept in two flash sectors, written one after the other, so that a power cut at any moment during a save leaves either the previous or the new settings and never a blank record; at start the first valid copy is used. A factory reset erases both.  
+*Why:* Found by the full-code review of 2026-10-17: a save erased the only copy before writing the new one, so a power cut in that window brought the clock back with default settings, no WiFi networks and a new HTTPS certificate. Decided by the owner the same day.  
+*Implemented by:* Configuration model and flash storage, Composition: task wiring, shared state, chip selection
+
 
 ### 4.8 Terminal
 
@@ -346,6 +351,16 @@ The HTTPS certificate and key shall be kept in their own flash sector and surviv
 The device shall build a self-signed ECDSA P-256 server certificate that OpenSSL reads and verifies (valid for the given host names and the current time, for digital signatures and server authentication, not a CA, positive serial), and shall accept an uploaded P-256 certificate and key only if the key matches the certificate and the certificate is valid at the time; PEM and DER, PKCS#8 and SEC1 are read, and any other curve, RSA, or malformed input is refused without panicking.  
 *Why:* ADR-0002: the HTTPS certificate is generated on the device or uploaded; a wrong or mismatched certificate would fail at the first browser connection, or worse, be accepted when it should not be.  
 *Implemented by:* Web page TLS certificate: generate, inspect, validate
+
+**REQ-WEB-09** (ratified, medium)  
+While HTTPS is on, a factory reset requested over the plain HTTP port shall be refused even if the redirect to HTTPS is switched off; builds and settings without HTTPS keep the web reset.  
+*Why:* Found by the full-code review of 2026-10-17: with no web password, any host on the LAN could erase the clock over the plain port. Decided by the owner the same day.  
+*Implemented by:* HTTP parsing, settings page and web server
+
+**REQ-WEB-10** (ratified, medium)  
+The web server shall accept a request of up to 8 KiB, so that an uploaded certificate chain of the size the page promises (3 KB of DER data, four certificates) and its key fit in one request; a larger request shall be answered with 413 and a text that names the limits.  
+*Why:* Found by the full-code review of 2026-10-17: the request limit was 4 KiB and the form parser's text buffer 3.5 KB, while the PEM text of a 3 KB chain is about 4.3 KB, so the largest chain the page promised could not be uploaded.  
+*Implemented by:* HTTP parsing, settings page and web server
 
 
 ### 4.10 Time sources
@@ -476,3 +491,13 @@ The firmware image and the settings sector shall fit the flash of the target boa
 The display scan shall run at a priority above all networking tasks.  
 *Why:* WiFi activity must not make the display flicker.  
 *Implemented by:* Composition: task wiring, shared state, chip selection, LED matrix scan
+
+**REQ-NFR-03** (ratified, medium)  
+A hardware watchdog shall restart the clock if its clock task (which owns the RTC bus) has not run for 5 seconds or the executor is starved for 8 seconds; the restart is not caused by long operations (flash saves, the NTS key exchange); `status` shall say when the last restart was caused by the watchdog.  
+*Why:* Found by the full-code review of 2026-10-17: a hung RTC bus or a spinning task froze the clock until the power was cycled. Decided by the owner the same day.  
+*Implemented by:* Composition: task wiring, shared state, chip selection, Terminal commands and USB serial console
+
+**REQ-RNG-01** (ratified, high)  
+On the Pico W (RP2040), which has no hardware random number generator, random bytes shall be made from ring-oscillator bits read at spaced-out times and hashed together with the time, a counter and the previous state, using 64 raw bytes for every 32 output bytes; a stuck source must still give different blocks.  
+*Why:* Found by the full-code review of 2026-10-17: the bits were read back to back, so they are correlated, and they feed the NTS key exchange, nonces and the network stack. Decided by the owner the same day. The Pico 2 W uses the chip's TRNG.  
+*Implemented by:* Conditioning of the RP2040 ring-oscillator random bits, Composition: task wiring, shared state, chip selection

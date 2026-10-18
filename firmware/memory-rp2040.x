@@ -1,7 +1,7 @@
 MEMORY {
-    /* The last two 4 KiB sectors of the 2 MiB flash are kept free: the configuration (last) and the NTS roots (see storage.rs). */
+    /* The last three 4 KiB sectors of the 2 MiB flash are kept free: the configuration (last), the NTS roots and the configuration backup (see storage.rs). */
     BOOT2 : ORIGIN = 0x10000000, LENGTH = 0x100
-    FLASH : ORIGIN = 0x10000100, LENGTH = 2048K - 0x100 - 8K
+    FLASH : ORIGIN = 0x10000100, LENGTH = 2048K - 0x100 - 12K
 
     /* Pick one of the two options for RAM layout     */
 

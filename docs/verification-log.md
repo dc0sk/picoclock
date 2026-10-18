@@ -651,3 +651,26 @@ wake-up path itself (no way to provoke or observe it without a probe); no `defmt
 owner are listed in the README roadmap.
 
 Verifies: REQ-WEB-01, REQ-WEB-02
+
+### VR-57 · 2026-10-18 · hardware · Decisions after the review: unsaved edits, 8 KiB uploads, watchdog, reset over HTTP
+
+Pico 2 W `picoclock-d6`. **Unsaved edits (REQ-CFG-05):** `set hostname edited1` in the terminal, then a web `POST /save` with
+`hour12=off`; the web save answered "1 setting(s) changed and saved", `status` still said `unsaved changes` and `name : edited1`;
+after `reboot` the host name was back to the stored (empty) value and the web-saved setting had persisted. **Reset over plain
+HTTP (REQ-WEB-09):** `POST /reset` to port 80 answered `403` both with the redirect on and, with `http_redirect off`, with the
+text "only accepted over HTTPS while HTTPS is on"; the same request over HTTPS reached the confirmation page (`200`, nothing
+erased); the plain GET page still worked; the setting was put back. **Upload size (REQ-WEB-10):** a two-certificate chain of
+2959 bytes of DER (4589 bytes of form body, which the 4 KiB limit refused) uploaded over HTTPS and was served (`cert` showed it as
+`uploaded`); a chain of 3353 bytes was refused with the "too large (about 3 KB)" message; a 9 KB request got `413` and the text naming the
+limits; `cert new` restored the self-signed certificate. **Watchdog (REQ-NFR-03):** a temporary image hung the clock task 45 s
+after boot, alternately by a `loop {}` (console dead at once) and by awaiting forever (console answered for about 12 s, then the
+USB device vanished); both ended in a restart about 8 s after the last feed and `status` then showed `reset : the last restart
+was caused by the watchdog`; after `bootsel` and an upload, and after `reboot`, the line was absent (no false report from the boot
+ROM's own watchdog reset). The same image ran every random number (HTTPS handshakes, `cert new`) through the new ring-oscillator
+conditioner on the RP2350: it works and is fast enough (`cert new` 3.5 s, 160 ms per HTTPS request). It was removed again; the
+image now on the clock is the normal build. **Not verified:** the Pico W (RP2040) was not attached, so the conditioned random
+bytes, the second settings sector's layout on that chip and the 8.3 s watchdog limit with an NTS key exchange there are untested;
+the quality of the ring-oscillator bits is not measured; the backup sector's read path is verified only by the host test that
+cuts a save off at every step (REQ-CFG-10), not by cutting power; the NTS key-exchange feed of the watchdog was not provoked.
+
+Verifies: REQ-CFG-05, REQ-WEB-09, REQ-WEB-10, REQ-NFR-03

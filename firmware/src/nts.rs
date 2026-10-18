@@ -123,6 +123,8 @@ impl Nts {
         }
         info!("nts: key exchange with {} (the clock is busy for a few seconds)", host);
         let started = Instant::now();
+        // the handshake holds the executor for seconds on the RP2040: start it with a full watchdog period
+        state::feed_watchdog();
         let outcome = with_timeout(KE_TIMEOUT, nts_ke::key_exchange::<_, DeviceClock>(socket, host, &roots, &mut tls_read[..], &mut tls_write[..])).await;
         let code = match &outcome {
             Ok(Ok(_)) => 1,

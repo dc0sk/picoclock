@@ -6,7 +6,7 @@ use core::fmt::Write;
 use crate::cli::Status;
 use crate::config::{Config, KEYS};
 
-pub const MAX_REQUEST: usize = 4096;
+pub const MAX_REQUEST: usize = 8192;
 const MAX_HEADERS: usize = 32;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -34,6 +34,12 @@ pub enum Parse<'a> {
     /// Larger than the receive buffer; answer 413.
     TooLarge,
     Complete(Request<'a>),
+}
+
+/// Whether a factory reset request may be served: not over the plain port while HTTPS is on, because without a web password
+/// nothing else would stop any host on the LAN from erasing the clock. (A build without TLS passes `https_on = false`.)
+pub fn reset_allowed(secure: bool, https_on: bool) -> bool {
+    secure || !https_on
 }
 
 pub fn parse_request(buf: &[u8]) -> Parse<'_> {
@@ -374,7 +380,8 @@ impl CertFormError {
 /// Reads the certificate upload form (`cert` = PEM chain, `key` = PEM key) and checks it against the time `now_unix`.
 pub fn parse_cert_form(body: &[u8], now_unix: i64) -> Result<crate::tlsstore::Material, CertFormError> {
     let body = core::str::from_utf8(body).map_err(|_| CertFormError::BadCertificate)?;
-    let (mut cert_buf, mut key_buf) = ([0u8; crate::x509::MAX_CHAIN + 512], [0u8; 1024]);
+    // the PEM text of a full chain: base64 is 4/3 of the DER size, plus line breaks and the BEGIN/END lines of four certificates
+    let (mut cert_buf, mut key_buf) = ([0u8; crate::x509::MAX_CHAIN * 3 / 2 + 512], [0u8; 1024]);
     let (mut cert, mut key) = (None, None);
     for pair in body.split('&').filter(|p| !p.is_empty()) {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
@@ -744,6 +751,7 @@ mod tests {
             cert_not_after: 2_100_000_000,
             cert_uploaded: true,
             unsaved: true,
+            watchdog_reset: false,
             geo: [crate::cli::GeoTry { stage: 5, bytes: 999, end: 1, addr: [255, 255, 255, 255] }; crate::geo::PROVIDERS.len()],
         };
         let mut c = Config::default();
@@ -899,6 +907,35 @@ mod tests {
         for e in [CertFormError::Missing, CertFormError::TooLarge, CertFormError::BadCertificate, CertFormError::BadKey, CertFormError::Mismatch, CertFormError::Expired, CertFormError::NotYetValid] {
             assert!(e.message().len() > 20);
         }
+    }
+
+    // VERIFIES: REQ-WEB-10
+    #[test]
+    fn a_full_size_certificate_upload_fits_one_request() {
+        // the largest chain the page promises: 3 KB of DER in two certificates (stand-ins, not certificates) as PEM, percent-encoded as a
+        // browser sends it, and a key
+        let der = vec![0x30u8; crate::x509::MAX_CHAIN / 2];
+        let (cert, key) = (format!("{}{}", pem("CERTIFICATE", &der), pem("CERTIFICATE", &der)), pem("PRIVATE KEY", &[0x31u8; 138]));
+        let body = format!("cert={}&key={}", enc(&cert), enc(&key));
+        assert!(body.len() > 4096, "{} bytes: this is what the old 4 KiB limit refused", body.len());
+        let head = format!("POST /cert HTTP/1.1\r\nHost: 192.168.1.2\r\nContent-Length: {}\r\n\r\n", body.len());
+        let request = format!("{head}{body}");
+        assert!(request.len() < MAX_REQUEST);
+        assert!(matches!(parse_request(request.as_bytes()), Parse::Complete(_)));
+        // the form parser gets as far as judging the certificate: the size is not what it objects to
+        assert_ne!(parse_cert_form(body.as_bytes(), NOW).err(), Some(CertFormError::TooLarge));
+        // anything over the limit is refused as too large, whatever it is
+        let over = format!("POST /cert HTTP/1.1\r\nContent-Length: {}\r\n\r\n", MAX_REQUEST);
+        assert_eq!(parse_request(over.as_bytes()), Parse::TooLarge);
+    }
+
+    // VERIFIES: REQ-WEB-09
+    #[test]
+    fn a_factory_reset_is_not_served_over_plain_http_while_https_is_on() {
+        assert!(reset_allowed(true, true));
+        assert!(!reset_allowed(false, true));
+        assert!(reset_allowed(false, false), "a build or setting without HTTPS keeps the web reset");
+        assert!(reset_allowed(true, false));
     }
 
     // VERIFIES: REQ-NTS-09

@@ -19,6 +19,10 @@ use picoclock_core::ui::{Beep, Button, Press};
 // microseconds and made the display scan run late (visible as a flickering row). `ThreadModeRawMutex` panics if it is
 // ever locked from an interrupt, so a wrong use cannot go unnoticed.
 static CONFIG: Mutex<Tm, RefCell<Option<Config>>> = Mutex::new(RefCell::new(None));
+/// What flash holds (or will hold after the pending save). The terminal edits `CONFIG` only; the web page, the buttons and the
+/// location cache carry their own changes into this copy too, and the storage task writes this copy, so a save never takes
+/// along terminal edits that were not saved (REQ-CFG-05).
+static PERSISTED: Mutex<Tm, RefCell<Option<Config>>> = Mutex::new(RefCell::new(None));
 static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     utc_unix: None,
     last_sync_unix: None,
@@ -54,7 +58,60 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     cert_not_after: 0,
     cert_uploaded: false,
     unsaved: false,
+    watchdog_reset: false,
 }));
+
+/// Milliseconds since boot at the last pass of the clock task (`ui_task`), which owns the RTC bus. The watchdog task feeds the
+/// hardware watchdog only while this keeps moving.
+pub static HEARTBEAT_MS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// How long the chip waits for a feed before it restarts. 8 s is under the RP2040's limit (8.38 s). The NTS key exchange
+/// keeps the executor busy for up to about 7 s on the RP2040, so it feeds the watchdog itself before it starts.
+pub const WATCHDOG_TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(8);
+static WATCHDOG: Mutex<Cs, RefCell<Option<embassy_rp::watchdog::Watchdog<'static>>>> = Mutex::new(RefCell::new(None));
+
+pub fn heartbeat() {
+    HEARTBEAT_MS.store(embassy_time::Instant::now().as_millis() as u32, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Kept in a watchdog scratch register (which survives a watchdog reset) while the program runs. The boot ROM also resets
+/// through the watchdog (after a UF2 upload, `bootsel`), so the reset reason alone cannot tell a hang from that; our own
+/// deliberate resets clear the marker first (`forget_watchdog_marker`).
+const WATCHDOG_MARKER: u32 = 0x7C10_C10C;
+
+pub fn watchdog_start(mut w: embassy_rp::watchdog::Watchdog<'static>) {
+    heartbeat();
+    w.start(WATCHDOG_TIMEOUT);
+    w.set_scratch(0, WATCHDOG_MARKER);
+    WATCHDOG.lock(|d| *d.borrow_mut() = Some(w));
+}
+
+/// Whether the last restart was the watchdog firing while the program ran. Clears the marker; reads it from `w` before the
+/// watchdog is started again.
+pub fn watchdog_caused_last_reset(w: &mut embassy_rp::watchdog::Watchdog<'static>) -> bool {
+    let marked = w.scratch(0) == WATCHDOG_MARKER;
+    w.set_scratch(0, 0);
+    marked && matches!(w.reset_reason(), Some(embassy_rp::watchdog::ResetReason::TimedOut))
+}
+
+/// Call before a deliberate restart (`reboot`, `bootsel`, factory reset) so it is not reported as a hang. The watchdog is
+/// stopped too: a core reset does not reset it, and its countdown must not run on into the next start.
+pub fn forget_watchdog_marker() {
+    WATCHDOG.lock(|d| {
+        if let Some(w) = d.borrow_mut().as_mut() {
+            w.set_scratch(0, 0);
+            w.stop();
+        }
+    });
+}
+
+pub fn feed_watchdog() {
+    WATCHDOG.lock(|d| {
+        if let Some(w) = d.borrow_mut().as_mut() {
+            w.feed(WATCHDOG_TIMEOUT)
+        }
+    });
+}
 
 /// Button events from the button task to the UI.
 pub static BUTTONS: Channel<Cs, (Button, Press), 8> = Channel::new();
@@ -143,8 +200,27 @@ pub fn config_snapshot() -> Config {
     with_config(|c| c.clone())
 }
 
+/// At boot: the configuration read from flash (or the defaults).
 pub fn set_config(cfg: Config) {
+    PERSISTED.lock(|p| *p.borrow_mut() = Some(cfg.clone()));
     with_config(|c| *c = cfg);
+}
+
+/// The configuration the storage task writes.
+pub fn persisted_snapshot() -> Config {
+    PERSISTED.lock(|p| p.borrow_mut().get_or_insert_with(Config::default).clone())
+}
+
+/// `save` in the terminal: everything, including the terminal's own edits, is to be written.
+pub fn persist_all() {
+    let live = config_snapshot();
+    PERSISTED.lock(|p| *p.borrow_mut() = Some(live));
+}
+
+/// Whether the live configuration differs from what flash holds, for `status`.
+pub fn refresh_unsaved() {
+    let differs = persisted_snapshot() != config_snapshot();
+    with_runtime(|r| r.unsaved = differs);
 }
 
 pub fn with_runtime<R>(f: impl FnOnce(&mut Status) -> R) -> R {
@@ -161,26 +237,30 @@ pub fn status() -> Status {
 
 /// A terminal edit: takes effect at once (tasks re-read the configuration) and is marked unsaved, but is **not** written
 /// to flash; that happens only on `save` (as the terminal says). The web page and the buttons save for you, see
-/// [`mark_changed`].
+/// [`save_change`].
 pub fn mark_edited() {
-    with_runtime(|r| r.unsaved = true);
+    refresh_unsaved();
     CONFIG_CHANGED.signal(());
 }
 
-/// A change to the cached location rule: written to flash (so it need not be fetched again after a reboot) unless there
-/// are unsaved terminal edits, which a background event must not write behind the user's back.
-pub fn mark_cache_changed() {
-    if with_runtime(|r| r.unsaved) {
-        CONFIG_CHANGED.signal(());
-    } else {
-        mark_changed(false);
+/// Runs `f` on the live configuration and, if it changed something, saves exactly that change (web page, location cache).
+/// Unsaved terminal edits stay unsaved. `save_now` skips the quiet-period debounce. Returns what `f` returned.
+pub fn edit_and_save<R>(save_now: bool, f: impl FnOnce(&mut Config) -> R) -> R {
+    let (r, before, after) = with_config(|c| {
+        let before = c.clone();
+        let r = f(c);
+        (r, before, c.clone())
+    });
+    if before != after {
+        carry_to_persisted(&before, &after, save_now);
     }
+    r
 }
 
-/// Call after an edit that is saved for the user (web page, buttons). `save_now` skips the quiet-period debounce. It
-/// writes the whole configuration, including any unsaved terminal edits.
-pub fn mark_changed(save_now: bool) {
-    with_runtime(|r| r.unsaved = true);
+/// For a change already made to the live configuration (the buttons): save exactly the difference.
+pub fn carry_to_persisted(before: &Config, after: &Config, save_now: bool) {
+    PERSISTED.lock(|p| p.borrow_mut().get_or_insert_with(Config::default).carry_changes(before, after));
+    refresh_unsaved();
     SAVE_REQUEST.signal(save_now);
     CONFIG_CHANGED.signal(());
 }

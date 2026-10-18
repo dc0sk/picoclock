@@ -1,5 +1,6 @@
-//! Configuration persistence in the last 4 KiB flash sector (excluded from the program image by `memory.x`).
-//! The record carries a magic, length and CRC32, so erased or torn flash simply reads as "no config".
+//! Configuration persistence in the last 4 KiB flash sector plus a backup sector (both excluded from the program image by
+//! `memory-*.x`). The record carries a magic, length and CRC32, so erased or torn flash simply reads as "no config"; the
+//! two copies are written one after the other (`picoclock_core::slots`), so a power cut during a save loses nothing.
 
 use defmt::{info, warn};
 use embassy_rp::flash::{ERASE_SIZE, Flash};
@@ -25,6 +26,11 @@ const TLS_OFFSET: u32 = (FLASH_SIZE - 2 * ERASE_SIZE) as u32;
 const ROOTS_OFFSET: u32 = (FLASH_SIZE - 3 * ERASE_SIZE) as u32;
 #[cfg(not(feature = "https"))]
 const ROOTS_OFFSET: u32 = (FLASH_SIZE - 2 * ERASE_SIZE) as u32;
+/// The second copy of the settings, below all the other records. Written before the primary sector, read when that is invalid.
+#[cfg(feature = "https")]
+const BACKUP_OFFSET: u32 = (FLASH_SIZE - 4 * ERASE_SIZE) as u32;
+#[cfg(not(feature = "https"))]
+const BACKUP_OFFSET: u32 = (FLASH_SIZE - 3 * ERASE_SIZE) as u32;
 const RECORD: usize = 2048;
 /// Edits via buttons arrive in bursts; wait for this long without a new one before writing flash.
 const QUIET: Duration = Duration::from_secs(3);
@@ -35,10 +41,28 @@ pub fn new(flash: Peri<'static, FLASH>) -> Store {
     Flash::new_blocking(flash)
 }
 
+/// The settings sector and its backup, as `picoclock_core::slots` sees them.
+struct Settings<'a>(&'a mut Store);
+
+impl picoclock_core::slots::Sectors for Settings<'_> {
+    type Error = embassy_rp::flash::Error;
+    fn read(&mut self, slot: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+        self.0.blocking_read(slot_offset(slot), buf)
+    }
+    fn erase(&mut self, slot: usize) -> Result<(), Self::Error> {
+        self.0.blocking_erase(slot_offset(slot), slot_offset(slot) + ERASE_SIZE as u32)
+    }
+    fn write(&mut self, slot: usize, data: &[u8]) -> Result<(), Self::Error> {
+        self.0.blocking_write(slot_offset(slot), data)
+    }
+}
+
+fn slot_offset(slot: usize) -> u32 {
+    if slot == picoclock_core::slots::PRIMARY { OFFSET } else { BACKUP_OFFSET }
+}
+
 pub fn load(flash: &mut Store) -> Option<Config> {
-    let mut buf = [0u8; RECORD];
-    flash.blocking_read(OFFSET, &mut buf).ok()?;
-    Config::from_bytes(&buf)
+    picoclock_core::slots::load(&mut Settings(flash), &mut [0u8; RECORD], Config::from_bytes)
 }
 
 #[cfg(feature = "https")]
@@ -83,9 +107,8 @@ fn save(flash: &mut Store, cfg: &Config) -> Result<(), embassy_rp::flash::Error>
         warn!("storage: config does not fit the record");
         return Err(embassy_rp::flash::Error::OutOfBounds);
     }
-    // The CPU stalls while flash is erased (tens of ms); the display blinks once, which is acceptable.
-    flash.blocking_erase(OFFSET, OFFSET + ERASE_SIZE as u32)?;
-    flash.blocking_write(OFFSET, &buf)
+    // The CPU stalls while flash is erased (tens of ms per sector, two sectors); the display blinks once, which is acceptable.
+    picoclock_core::slots::save(&mut Settings(flash), &buf)
 }
 
 /// Erases the settings, the user's NTS roots and (Pico 2 W) the HTTPS key and certificate, then restarts. Only the erased
@@ -96,9 +119,9 @@ async fn factory_reset(flash: &mut Store) {
     embassy_time::Timer::after_millis(1500).await;
     warn!("storage: factory reset");
     let mut ok = true;
-    for offset in [OFFSET, ROOTS_OFFSET] {
-        ok &= flash.blocking_erase(offset, offset + ERASE_SIZE as u32).is_ok();
-    }
+    // both copies of the settings: the backup would otherwise bring them back at the next start
+    ok &= picoclock_core::slots::erase_all(&mut Settings(flash)).is_ok();
+    ok &= flash.blocking_erase(ROOTS_OFFSET, ROOTS_OFFSET + ERASE_SIZE as u32).is_ok();
     #[cfg(feature = "https")]
     {
         ok &= flash.blocking_erase(TLS_OFFSET, TLS_OFFSET + ERASE_SIZE as u32).is_ok();
@@ -106,6 +129,7 @@ async fn factory_reset(flash: &mut Store) {
     }
     ok &= load(flash).is_none() && load_roots(flash).is_none();
     if ok {
+        state::forget_watchdog_marker();
         cortex_m::peripheral::SCB::sys_reset();
     }
     warn!("storage: factory reset failed; not restarting");
@@ -150,12 +174,12 @@ pub async fn storage_task(mut flash: Store) -> ! {
                 Err(_) => break,
             }
         }
-        let cfg = state::config_snapshot();
+        let cfg = state::persisted_snapshot();
         match save(&mut flash, &cfg) {
             Ok(()) => {
                 // Read back: a silent write failure must not be reported as saved.
                 if load(&mut flash).as_ref() == Some(&cfg) {
-                    state::with_runtime(|r| r.unsaved = false);
+                    state::refresh_unsaved();
                     info!("storage: saved");
                 } else {
                     warn!("storage: verify failed");

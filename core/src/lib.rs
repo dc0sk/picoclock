@@ -20,6 +20,7 @@ mod tests {
 }
 
 pub mod config;
+pub mod entropy;
 pub mod font;
 pub mod geo;
 pub mod http;
@@ -28,6 +29,7 @@ pub mod nts;
 pub mod nts_ke;
 pub mod frame;
 pub mod rootstore;
+pub mod slots;
 pub mod sntp;
 pub mod time;
 pub mod tlsstore;

@@ -97,6 +97,7 @@ async fn run_line(class: &mut Class, line: &str) -> Result<Action, Disconnected>
         Action::None => {}
         Action::Changed => state::mark_edited(),
         Action::Save => {
+            state::persist_all();
             state::SAVE_REQUEST.signal(true);
             send(class, "saving...\r\n").await?;
         }
@@ -138,11 +139,13 @@ async fn run_line(class: &mut Class, line: &str) -> Result<Action, Disconnected>
         Action::Reboot => {
             send(class, "rebooting\r\n").await?;
             Timer::after_millis(200).await;
+            state::forget_watchdog_marker();
             cortex_m::peripheral::SCB::sys_reset();
         }
         Action::Bootsel => {
             send(class, "entering USB flashing mode (BOOTSEL)\r\n").await?;
             Timer::after_millis(200).await;
+            state::forget_watchdog_marker();
             embassy_rp::rom_data::reset_to_usb_boot(0, 0);
         }
     }

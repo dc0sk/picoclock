@@ -75,7 +75,7 @@ its unit tests run in milliseconds without hardware. `firmware` is kept thin: it
 | `rtc`       | DS3231 over I2C: read, write, temperature, oscillator-stopped flag                                |
 | `buttons`   | 10 ms polling, debounce, short / long / auto-repeat events                                        |
 | `buzzer`    | Beep patterns; the alarm pattern repeats until stopped                                            |
-| `storage`   | Load and save the config record, the user's NTS roots and (Pico 2 W) the HTTPS key, each in its own flash sector; erase them all for a factory reset |
+| `storage`   | Load and save the config record (two sectors, `core::slots`), the user's NTS roots and (Pico 2 W) the HTTPS key, each in its own flash sector; erase them all for a factory reset |
 | `net`       | WiFi join and slot handling, hourly sync, geolocation request, NTP server task                    |
 | `ntp`       | NTP transport: resolve, send, receive, half-round-trip correction; routes `nts:` entries to `nts`   |
 | `nts`       | NTS transport: sockets and buffers for NTS-KE, authenticated UDP exchange, sessions in RAM          |
@@ -197,8 +197,14 @@ One model serves three front ends, so there is exactly one place that validates 
   the first version migrated into slot 1 of the eight-slot version).
 - A blank or corrupt record yields the defaults. The record is 2 KiB inside the last 4 KiB sector; a test checks that
   the worst case (every field at maximum length) fits.
-- Saving erases and writes a flash sector, during which the CPU stalls (the display blinks once). `storage_task`
-  debounces requests by three seconds, writes, then reads the record back and compares before reporting success.
+- Saving erases and writes two flash sectors, during which the CPU stalls (the display blinks once). `core::slots` writes
+  the backup sector first and the main sector second and loads the first valid one, so a save cut off by a power loss leaves
+  the old or the new record (a host test cuts it off at every step). `storage_task` debounces requests by three seconds,
+  writes, then reads the record back and compares before reporting success.
+- The terminal edits the live configuration only. `state.rs` keeps a second copy (`PERSISTED`) of what flash holds; the web
+  page, the buttons and the location cache carry their own change into it (`Config::carry_changes`, which names every field
+  so a new setting cannot be forgotten) and the storage task writes that copy. `save` copies everything. `status` shows
+  "unsaved" while the two differ (REQ-CFG-05).
 - WiFi networks are eight slots (`wifiN_ssid`, `wifiN_password`). `wifi_ssid` / `wifi_password` remain aliases for
   slot 1. The device joins the first reachable slot in order and leaves only when the credentials of the slot in use
   change, so editing another slot does not disconnect it.
@@ -259,7 +265,7 @@ Design points:
   stratum 5 (the upstream stratum is not tracked, so it is deliberately high), root dispersion 0.25 s, and never
   returns more than 48 bytes. With no sync in 24 hours it answers LI 3 / stratum 16.
 - **Web.** One connection at a time on port 80 with a six-second request deadline, 1.5 KiB receive and 2 KiB transmit
-  buffers. `core::http::parse_request` is bounded (4 KiB request, 32 headers, 64-byte path), rejects duplicate
+  buffers. `core::http::parse_request` is bounded (8 KiB request, 32 headers, 64-byte path), rejects duplicate
   `Content-Length`, and never panics on any input. The page is rendered into a 12 KiB buffer; a render that does not
   fit is an error response, not a panic.
 - **Terminal.** CDC-ACM serial; `usb_cli` does line editing only, commands are `core::cli::execute`.
@@ -306,8 +312,8 @@ wrong and are redefined.
 
 | Variant   | Chip / board          | Target                         | Feature  | Flash   | Settings sector       |
 |-----------|-----------------------|--------------------------------|----------|---------|-----------------------|
-| Pico W    | RP2040                | `thumbv6m-none-eabi`           | `rp2040` | 2 MiB   | last 8 KiB (`memory-rp2040.x`): settings in the last sector, the user's NTS roots before it |
-| Pico 2 W  | RP2350                | `thumbv8m.main-none-eabihf`    | `rp235x` | 4 MiB   | last 12 KiB (`memory-rp235x.x`): settings in the last sector, the HTTPS key and certificates before it, the user's NTS roots before that |
+| Pico W    | RP2040                | `thumbv6m-none-eabi`           | `rp2040` | 2 MiB   | last 12 KiB (`memory-rp2040.x`): settings in the last sector, the user's NTS roots before it, the settings backup before that |
+| Pico 2 W  | RP2350                | `thumbv8m.main-none-eabihf`    | `rp235x` | 4 MiB   | last 16 KiB (`memory-rp235x.x`): settings in the last sector, the HTTPS key and certificates before it, the user's NTS roots before that, the settings backup before that |
 
 The chip feature selects the memory map and linker scripts (`build.rs`), the RP2350 boot block (`IMAGE_DEF`), the
 flash size constant and the WiFi SPI clock divider. Nothing else differs. Both images are about 440 KiB of code and
@@ -331,6 +337,17 @@ crates.io releases.
 | Single-connection web server               | Tiny RAM use; adequate for a settings page                                                  | Concurrent connections                 |
 | Verification records beside unit tests     | Hardware runs are evidence too and must be dated and tied to requirements                   | Claims in the README only              |
 
+### Watchdog and random numbers
+
+- **Watchdog.** `watchdog_task` (main.rs) feeds the hardware watchdog (8 s) once a second as long as `ui_task`, which owns the
+  RTC bus, has run in the last 5 s (`state::HEARTBEAT_MS`); a hung bus, a spinning task or a starved executor lets it expire and
+  the chip restarts. The NTS key exchange holds the executor for seconds on the RP2040, so it feeds the watchdog itself just
+  before it starts. `reboot`, `bootsel` and the factory reset stop the watchdog and clear a marker in a watchdog scratch
+  register; at start the marker plus the "timed out" reset reason mean "the watchdog fired" (the boot ROM also resets through the
+  watchdog after a UF2 upload, so the reason alone is not enough), shown by `status` as `reset:`.
+- **Random numbers.** Pico 2 W: the chip's TRNG. Pico W: ring-oscillator bits read with a pause between them and hashed 2:1
+  with the time and the previous state (`core::entropy`, REQ-RNG-01); the quality of the raw bits is not measured.
+
 ## 10. Extension points (roadmap)
 
 - **Further time sources (DCF77, u-blox GPS).** Today the only producer of time is `wifi_task` through `NTP_TIME`.
@@ -347,7 +364,7 @@ crates.io releases.
   stored certificate was uploaded). The MAC address is in `Status.mac` and printed by `status`, hence on the web page.
 - **Factory reset.** `factory-reset` (terminal session asks for `RESET` on the next line) and `POST /reset` (two pages,
   same-origin check) both end in `state::FACTORY_RESET`; the storage task waits 1.5 s, erases the settings, roots and (Pico
-  2 W) certificate sectors, checks they read back empty, and resets the chip. On an erase failure it does not restart.
+  2 W) certificate sectors (both copies of the settings), checks they read back empty, and resets the chip. On an erase failure it does not restart. Over plain HTTP the request is refused while HTTPS is on (`http::reset_allowed`).
 
 ## 11. Testing strategy
 

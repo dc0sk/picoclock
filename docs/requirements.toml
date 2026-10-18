@@ -45,7 +45,12 @@ code = ["core/src/nts.rs", "core/src/nts_ke.rs", "core/src/rootstore.rs", "firmw
 [[cap]]
 id = "CAP-CONFIG"
 name = "Configuration model and flash storage"
-code = ["core/src/config.rs", "firmware/src/storage.rs"]
+code = ["core/src/config.rs", "core/src/slots.rs", "firmware/src/storage.rs"]
+
+[[cap]]
+id = "CAP-ENTROPY"
+name = "Conditioning of the RP2040 ring-oscillator random bits"
+code = ["core/src/entropy.rs"]
 
 [[cap]]
 id = "CAP-CLI"
@@ -527,6 +532,15 @@ statement = "A factory reset shall be possible from the terminal (`factory-reset
 rationale = "Requested by the owner (2026-10-17), guarded by a second query because the erase cannot be undone and the clock is off the network afterwards until it is given WiFi over USB."
 cap = ["CAP-CLI", "CAP-HTTP", "CAP-CONFIG", "CAP-APP"]
 
+[[req]]
+id = "REQ-CFG-10"
+area = "Configuration"
+status = "ratified"
+criticality = "high"
+statement = "The saved settings shall be kept in two flash sectors, written one after the other, so that a power cut at any moment during a save leaves either the previous or the new settings and never a blank record; at start the first valid copy is used. A factory reset erases both."
+rationale = "Found by the full-code review of 2026-10-17: a save erased the only copy before writing the new one, so a power cut in that window brought the clock back with default settings, no WiFi networks and a new HTTPS certificate. Decided by the owner the same day."
+cap = ["CAP-CONFIG", "CAP-APP"]
+
 # ---------------------------------------------------------------------------------------------------- terminal
 
 [[req]]
@@ -620,6 +634,24 @@ criticality = "high"
 statement = "The device shall build a self-signed ECDSA P-256 server certificate that OpenSSL reads and verifies (valid for the given host names and the current time, for digital signatures and server authentication, not a CA, positive serial), and shall accept an uploaded P-256 certificate and key only if the key matches the certificate and the certificate is valid at the time; PEM and DER, PKCS#8 and SEC1 are read, and any other curve, RSA, or malformed input is refused without panicking."
 rationale = "ADR-0002: the HTTPS certificate is generated on the device or uploaded; a wrong or mismatched certificate would fail at the first browser connection, or worse, be accepted when it should not be."
 cap = ["CAP-CERT"]
+
+[[req]]
+id = "REQ-WEB-09"
+area = "Web"
+status = "ratified"
+criticality = "medium"
+statement = "While HTTPS is on, a factory reset requested over the plain HTTP port shall be refused even if the redirect to HTTPS is switched off; builds and settings without HTTPS keep the web reset."
+rationale = "Found by the full-code review of 2026-10-17: with no web password, any host on the LAN could erase the clock over the plain port. Decided by the owner the same day."
+cap = ["CAP-HTTP"]
+
+[[req]]
+id = "REQ-WEB-10"
+area = "Web"
+status = "ratified"
+criticality = "medium"
+statement = "The web server shall accept a request of up to 8 KiB, so that an uploaded certificate chain of the size the page promises (3 KB of DER data, four certificates) and its key fit in one request; a larger request shall be answered with 413 and a text that names the limits."
+rationale = "Found by the full-code review of 2026-10-17: the request limit was 4 KiB and the form parser's text buffer 3.5 KB, while the PEM text of a 3 KB chain is about 4.3 KB, so the largest chain the page promised could not be uploaded."
+cap = ["CAP-HTTP"]
 
 # ---------------------------------------------------------------------------------------------------- time source selection
 # Draft: requested by the owner on 2026-10-16 ahead of the DCF77 and GPS sources. Nothing implements these yet; they are
@@ -846,3 +878,21 @@ criticality = "high"
 statement = "The display scan shall run at a priority above all networking tasks."
 rationale = "WiFi activity must not make the display flicker."
 cap = ["CAP-APP", "CAP-DISPLAY"]
+
+[[req]]
+id = "REQ-NFR-03"
+area = "Non-functional"
+status = "ratified"
+criticality = "medium"
+statement = "A hardware watchdog shall restart the clock if its clock task (which owns the RTC bus) has not run for 5 seconds or the executor is starved for 8 seconds; the restart is not caused by long operations (flash saves, the NTS key exchange); `status` shall say when the last restart was caused by the watchdog."
+rationale = "Found by the full-code review of 2026-10-17: a hung RTC bus or a spinning task froze the clock until the power was cycled. Decided by the owner the same day."
+cap = ["CAP-APP", "CAP-CLI"]
+
+[[req]]
+id = "REQ-RNG-01"
+area = "Non-functional"
+status = "ratified"
+criticality = "high"
+statement = "On the Pico W (RP2040), which has no hardware random number generator, random bytes shall be made from ring-oscillator bits read at spaced-out times and hashed together with the time, a counter and the previous state, using 64 raw bytes for every 32 output bytes; a stuck source must still give different blocks."
+rationale = "Found by the full-code review of 2026-10-17: the bits were read back to back, so they are correlated, and they feed the NTS key exchange, nonces and the network stack. Decided by the owner the same day. The Pico 2 W uses the chip's TRNG."
+cap = ["CAP-ENTROPY", "CAP-APP"]

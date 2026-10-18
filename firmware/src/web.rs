@@ -89,15 +89,21 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
                 return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
             }
             let mut errors = heapless::String::<256>::new();
-            let changed = state::with_config(|c| http::apply_form(req.body, c, &mut errors));
-            if changed > 0 {
-                state::mark_changed(true);
-            }
+            let changed = state::edit_and_save(true, |c| http::apply_form(req.body, c, &mut errors));
             let mut msg = heapless::String::<320>::new();
             let _ = write!(msg, "{changed} setting(s) changed and saved. {errors}");
             page(io, Some((&msg, !errors.is_empty())), secure).await
         }
         (Method::Post, "/reset") => {
+            // With HTTPS on, the plain port may not erase the clock even when the redirect is switched off: without a web
+            // password nothing else stops a host on the LAN. (Builds without TLS have no other way to offer this.)
+            #[cfg(feature = "https")]
+            let https_on = cfg.https;
+            #[cfg(not(feature = "https"))]
+            let https_on = false;
+            if !http::reset_allowed(secure, https_on) {
+                return respond(io, "403 Forbidden", "text/plain", "", "a factory reset is only accepted over HTTPS while HTTPS is on\n").await;
+            }
             if !http::same_origin(req, secure) {
                 return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
             }
@@ -184,7 +190,7 @@ pub async fn serve<S: Read + Write>(io: &mut S, secure: bool) {
                 Parse::Complete(req) => return handle(io, &req, secure).await.map_err(|_| ()),
                 Parse::Incomplete => {}
                 Parse::Bad => return respond(io, "400 Bad Request", "text/plain", "", "bad request\n").await.map_err(|_| ()),
-                Parse::TooLarge => return respond(io, "413 Payload Too Large", "text/plain", "", "too large\n").await.map_err(|_| ()),
+                Parse::TooLarge => return respond(io, "413 Payload Too Large", "text/plain", "", "request too large: the limit is 8 KiB (a certificate chain may hold at most about 3 KB of DER data, four certificates)\n").await.map_err(|_| ()),
             }
             match io.read(&mut buf[len..]).await {
                 Ok(0) | Err(_) => return Err(()),

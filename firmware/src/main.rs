@@ -116,6 +116,7 @@ async fn ui_task(mut rtc: Rtc) -> ! {
     let mut temp_c10 = None;
     let mut next_temp = Instant::now();
     loop {
+        state::heartbeat();
         if let Some((secs, ms, stamp)) = state::NTP_TIME.try_take() {
             // Set the RTC exactly on the next UTC second boundary: the DS3231 restarts its second at the write, so
             // writing mid-second would leave its seconds up to 1 s behind real time.
@@ -159,7 +160,9 @@ async fn ui_task(mut rtc: Rtc) -> ! {
         });
         let ms = Instant::now().as_millis();
 
+        let mut before = None;
         let out = state::with_config(|cfg| {
+            before = Some(cfg.clone());
             let offset_secs = match (now_unix, cfg.shows_utc()) {
                 (Some(t), false) => cfg.effective_tz().offset_at(t),
                 _ => 0,
@@ -185,8 +188,8 @@ async fn ui_task(mut rtc: Rtc) -> ! {
         if let Some(b) = out.beep {
             state::BEEP.signal(b);
         }
-        if out.config_changed {
-            state::mark_changed(false);
+        if let (true, Some(before)) = (out.config_changed, before) {
+            state::carry_to_persisted(&before, &state::config_snapshot(), false);
         }
         select(Timer::after_millis(250), state::BUTTONS.ready_to_receive()).await;
     }
@@ -208,6 +211,20 @@ async fn light_task(mut adc: Adc<'static, Async>, mut ch: Channel<'static>, mut 
             let duty = (100 - (v - 1500).clamp(0, 2000) * 85 / 2000) as u8;
             display::AUTO_DUTY.store(duty, Ordering::Relaxed);
             state::with_runtime(|r| r.light_raw = v as u16);
+        }
+        Timer::after_secs(1).await;
+    }
+}
+
+/// Feeds the hardware watchdog once a second while the clock task keeps running. If the clock task hangs (the RTC bus
+/// stalls, a task spins) or this task itself is starved, the chip restarts after `WATCHDOG_TIMEOUT` and the clock comes
+/// back by itself from the RTC.
+#[embassy_executor::task]
+async fn watchdog_task() -> ! {
+    loop {
+        let age_ms = (Instant::now().as_millis() as u32).wrapping_sub(state::HEARTBEAT_MS.load(Ordering::Relaxed));
+        if age_ms < 5_000 {
+            state::feed_watchdog();
         }
         Timer::after_secs(1).await;
     }
@@ -266,6 +283,13 @@ async fn main(spawner: Spawner) {
 
     let i2c = I2c::new(p.I2C1, p.PIN_7, p.PIN_6, Irqs, i2c::Config::default());
     spawner.spawn(unwrap!(ui_task(Rtc::new(i2c))));
+    // After the reset reason is read: the watchdog is started once everything that can take long at boot (flash, USB) is done.
+    let mut watchdog = embassy_rp::watchdog::Watchdog::new(p.WATCHDOG);
+    let reset_by_watchdog = state::watchdog_caused_last_reset(&mut watchdog);
+    state::with_runtime(|r| r.watchdog_reset = reset_by_watchdog);
+    if reset_by_watchdog {
+        warn!("watchdog: the last restart was a watchdog reset");
+    }
     let adc = Adc::new(p.ADC, Irqs, adc::Config::default());
     spawner.spawn(unwrap!(light_task(adc, Channel::new_pin(p.PIN_26, Pull::None), Channel::new_temp_sensor(p.ADC_TEMP_SENSOR))));
 
@@ -336,4 +360,6 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(web::web_task(stack)));
     #[cfg(feature = "https")]
     spawner.spawn(unwrap!(https::https_task(stack)));
+    state::watchdog_start(watchdog);
+    spawner.spawn(unwrap!(watchdog_task()));
 }

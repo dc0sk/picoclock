@@ -2,8 +2,8 @@
 //! `embassy-crypto-rustcrypto` (features listed in Cargo.toml), the random numbers from here.
 //!
 //! Pico 2 W (RP2350): the chip's true random number generator (TRNG, with its built-in health tests), started once in
-//! `init_trng`. Pico W (RP2040): the chip has none, so `RoscRng` is used, bits sampled from the ring oscillator's jitter.
-//! That is the best entropy the RP2040 offers, but it is not a certified TRNG. Either source feeds the TLS ephemeral keys,
+//! `init_trng`. Pico W (RP2040): the chip has none, so bits are sampled from the ring oscillator's jitter, spaced out in time
+//! and hashed (`picoclock_core::entropy`). That is the best entropy the RP2040 offers, but it is not a certified TRNG. Either source feeds the TLS ephemeral keys,
 //! the HTTPS private key, the NTS unique identifiers, the AEAD nonces and the network stack's seed.
 
 use embassy_crypto::driver::Rng;
@@ -56,10 +56,30 @@ mod source {
 
 #[cfg(not(feature = "rp235x"))]
 mod source {
-    use embassy_rp::clocks::RoscRng;
+    use core::cell::RefCell;
 
+    use embassy_rp::clocks::RoscRng;
+    use embassy_sync::blocking_mutex::Mutex;
+    use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+    use picoclock_core::entropy::{Pool, RAW_PER_BLOCK};
+
+    static POOL: Mutex<CriticalSectionRawMutex, RefCell<Pool>> = Mutex::new(RefCell::new(Pool::new()));
+
+    /// The ring oscillator's bits are jitter, correlated when read back to back. Each raw byte is taken after a pause of
+    /// about a microsecond (so the oscillators drift apart between readings), and every 32 output bytes are a hash over 64
+    /// raw bytes and the time (`picoclock_core::entropy`). Slower than the register read (about 0.1 ms per 32 bytes), which
+    /// is nothing next to a key exchange.
     pub fn fill(buf: &mut [u8]) {
-        RoscRng.fill_bytes(buf)
+        for chunk in buf.chunks_mut(32) {
+            let mut raw = [0u8; RAW_PER_BLOCK];
+            for b in raw.iter_mut() {
+                cortex_m::asm::delay(125);
+                *b = RoscRng::next_u8();
+            }
+            let now = embassy_time::Instant::now().as_micros();
+            let out = POOL.lock(|p| p.borrow_mut().block(&raw, now));
+            chunk.copy_from_slice(&out[..chunk.len()]);
+        }
     }
 }
 

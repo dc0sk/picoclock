@@ -64,6 +64,8 @@ pub struct Status {
     pub cert_uploaded: bool,
     /// Config differs from what is saved in flash.
     pub unsaved: bool,
+    /// The previous start was a reset by the watchdog (a task hung or the program crashed).
+    pub watchdog_reset: bool,
 }
 
 /// One timezone-lookup attempt, as shown in `status`.
@@ -418,6 +420,9 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                 }
             }
             let _ = write!(out, "\nscan    : worst late {} us, {} waits > 100 us in {} s\n", st.scan_late_max_us, st.scan_late_count, st.uptime_s);
+            if st.watchdog_reset {
+                let _ = out.write_str("reset   : the last restart was caused by the watchdog (the clock had hung)\n");
+            }
             if st.unsaved {
                 let _ = out.write_str("unsaved changes: type 'save'\n");
             }
@@ -577,7 +582,7 @@ mod tests {
         assert!(out.contains("not set"));
     }
 
-    // VERIFIES: REQ-TZ-02 REQ-NET-02 REQ-CLI-01
+    // VERIFIES: REQ-TZ-02 REQ-CLI-01
     #[test]
     fn tz_listing_and_status() {
         let mut c = Config::default();
@@ -737,7 +742,7 @@ mod tests {
         assert!(out.contains("version "), "{out}");
     }
 
-    // VERIFIES: REQ-WEB-06
+    // VERIFIES: REQ-CLI-01
     #[test]
     fn status_shows_heap_use_only_where_there_is_a_heap() {
         let mut out = String::new();

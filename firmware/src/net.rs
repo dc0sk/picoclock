@@ -202,10 +202,10 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
                     + match geolocate(stack).await {
                         Some((name, rule)) => {
                             info!("geo: {} -> {}", name.as_str(), rule);
-                            state::with_config(|c| {
+                            // the cache is written to flash, but unsaved terminal edits are not
+                            state::edit_and_save(false, |c| {
                                 let _ = c.set("geo_rule", rule);
                             });
-                            state::mark_cache_changed();
                             GEO_REFRESH
                         }
                         None => GEO_RETRY,

@@ -1,10 +1,10 @@
 MEMORY {
     /*
-     * The Pico 2 W has 4 MiB of flash. The last three 4 KiB sectors are kept free (see storage.rs): the last one holds the
-     * saved configuration, the one before it the HTTPS key and certificate chain, and the one before that the NTS roots
-     * the user added.
+     * The Pico 2 W has 4 MiB of flash. The last four 4 KiB sectors are kept free (see storage.rs): the last one holds the
+     * saved configuration, the one before it the HTTPS key and certificate chain, the one before that the NTS roots
+     * the user added, and the one before that the backup copy of the configuration.
      */
-    FLASH : ORIGIN = 0x10000000, LENGTH = 4096K - 12K
+    FLASH : ORIGIN = 0x10000000, LENGTH = 4096K - 16K
     /*
      * RAM consists of 8 banks, SRAM0-SRAM7, with a striped mapping.
      * This is usually good for performance, as it distributes load on
