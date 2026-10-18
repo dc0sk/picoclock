@@ -20,11 +20,11 @@ last_updated: 2026-10-18
 | Ratified                                                          | 93    |
 | Draft (roadmap)                                                   | 1     |
 | Retired                                                           | 2     |
-| Ratified with hardware evidence                                   | 70    |
-| Ratified with unit tests only (no hardware, host or build record) | 18    |
+| Ratified with hardware evidence                                   | 71    |
+| Ratified with unit tests only (no hardware, host or build record) | 17    |
 | Ratified and UNVERIFIED (stated reason)                           | 0     |
 | Unit tests bound to requirements                                  | 191   |
-| Verification records                                              | 65    |
+| Verification records                                              | 66    |
 
 ## Forward: requirement to evidence
 
@@ -100,10 +100,10 @@ last_updated: 2026-10-18
 | REQ-SRC-05  | ratified | medium | SOURCES, CLI, HTTP             | 1          | -                                        | unit                  |
 | REQ-DCF-01  | ratified | high   | SOURCES                        | 3          | VR-59                                    | unit, hardware        |
 | REQ-DCF-02  | ratified | high   | SOURCES                        | 4          | VR-59                                    | unit, hardware        |
-| REQ-DCF-03  | ratified | medium | SOURCES, APP                   | 0          | VR-59                                    | hardware              |
+| REQ-DCF-03  | ratified | medium | SOURCES, APP                   | 0          | VR-59, VR-67                             | hardware              |
 | REQ-DCF-04  | ratified | medium | SOURCES, CONFIG, CLI           | 4          | VR-59                                    | unit, hardware        |
 | REQ-HAM-01  | ratified | medium | BUZZER                         | 3          | -                                        | unit                  |
-| REQ-HAM-02  | ratified | medium | UI, BUZZER, INPUT, CONFIG      | 2          | -                                        | unit                  |
+| REQ-HAM-02  | ratified | medium | UI, BUZZER, INPUT, CONFIG      | 2          | VR-67                                    | unit, hardware        |
 | REQ-DSP-01  | ratified | high   | FRAME, DISPLAY                 | 6          | VR-16                                    | unit, hardware        |
 | REQ-DSP-02  | ratified | high   | DISPLAY, APP, CLI              | 1          | VR-22, VR-24                             | unit, hardware        |
 | REQ-UI-01   | ratified | high   | UI, INPUT                      | 2          | VR-17                                    | unit, hardware        |
@@ -151,7 +151,6 @@ These have never been seen working on the clock (they may still have unit tests)
 | REQ-SRC-04  | unit        |              |
 | REQ-SRC-05  | unit        |              |
 | REQ-HAM-01  | unit        |              |
-| REQ-HAM-02  | unit        |              |
 | REQ-UI-02   | unit        |              |
 | REQ-UI-08   | unit        |              |
 | REQ-NFR-01  | unit, build |              |
@@ -336,3 +335,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-64  | 2026-10-18 | hardware | The update button no longer asks again when the page is reloaded                    | REQ-UPD-01                                                                                   |
 | VR-65  | 2026-10-18 | hardware | Every web form is answered with a redirect                                          | REQ-WEB-11                                                                                   |
 | VR-66  | 2026-10-18 | host     | The timezone list link under the timezone field                                     | REQ-WEB-11                                                                                   |
+| VR-67  | 2026-10-18 | hardware | HAM mode and the DCF77 supply capacitor, reported by the owner                      | REQ-HAM-02, REQ-DCF-03                                                                       |

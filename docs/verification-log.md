@@ -799,3 +799,15 @@ taken. **Not verified on the clock:** the Pico 2 W build with this change is fla
 credentials gets `401` and the page could not be fetched from here; the owner is to look at the Time page in a browser.
 
 Verifies: REQ-WEB-11
+
+### VR-67 · 2026-10-18 · hardware · HAM mode and the DCF77 supply capacitor, reported by the owner
+
+Reported by the owner after trying the clock (not observed by the assistant; nothing here was heard or seen by it): **HAM mode works**,
+holding UP or DOWN for 1.5 seconds with `ham_mode on` sends the time in Morse code (REQ-HAM-02); and **the 10 µF capacitor the DCF77
+module's datasheet recommends across its supply does not seem to be needed**, since the receiver delivered good frames without it
+(VR-59 records the reception: about 60 pulses a minute and 24 good frames against 10 bad in about 40 minutes of daytime reception).
+The README now calls the capacitor optional. **Not established:** that the missing capacitor never costs reception, which would show at
+night or with the display and the WiFi radio busy in different ways; whether the Morse speed (`morse_wpm`, default 18) and the hold time
+suit the owner was not reported; the hourly Morse (as opposed to the hold) was not reported.
+
+Verifies: REQ-HAM-02, REQ-DCF-03

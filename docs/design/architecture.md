@@ -52,7 +52,7 @@ document which pads are reachable, so the wiring below is a plan until it has be
 DCF77 module facts (Pollin DCF1, order no. 810 054, datasheet D810054-B; the WHP0027V3 has the same four pins): supply 1.2 to
 3.3 V (typically 3 V), under 90 µA; `PON` low = receiver on, `PON` high = off, and the receiver starts on the falling edge
 of `PON`; `TCO` is low at full carrier and high while the carrier is reduced, so a second mark is a high pulse of 100 ms
-(bit 0) or 200 ms (bit 1); a 10 µF capacitor on the supply is recommended; locking can take up to 20 minutes depending on
+(bit 0) or 200 ms (bit 1); a 10 µF capacitor on the supply is recommended (the first build ran without it and received well); locking can take up to 20 minutes depending on
 reception. The Pico's 3V3 pin is at the upper limit of the supply range, which the datasheet allows. The firmware drives
 `PON` high only to switch the receiver off; a Pico pin that is not yet configured pulls down, so the receiver is on.
 

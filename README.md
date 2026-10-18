@@ -342,7 +342,8 @@ it is from the clock, and for DCF77 the pulse and frame counters.
   the median. Locking can take 20 minutes or more; reception is often better at night and
   poor next to a display or a WiFi radio, so place the antenna away from them.
 - **Wiring** (module with the pins PON, TCO, GND, VCC, for example the Pollin DCF1): PON to GP0, TCO to GP1, GND, VCC from the
-  3V3 pin (the module takes 1.2 to 3.3 V), and a 10 µF capacitor across the supply. The receiver is only switched on while
+  3V3 pin (the module takes 1.2 to 3.3 V). The datasheet recommends a 10 µF capacitor across the supply; the first clock
+  has run without one with good reception, so it is optional here. The receiver is only switched on while
   `dcf77` is in `time_sources`. See the wiring plan in `docs/design/architecture.md`.
 - **Verified on a Pico 2 W** with a Pollin DCF1 (2026-10-18, VR-59): decoding, DCF77 alone setting a restarted clock, the delay. **Not
   yet:** the module with its supply capacitor, reception at night, and the vote with two live sources that disagree. The
