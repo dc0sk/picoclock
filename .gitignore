@@ -3,3 +3,4 @@ target/
 
 # Local credentials and machine-specific settings
 local/
+__pycache__/

@@ -984,6 +984,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "embassy-boot"
+version = "0.7.0"
+source = "git+https://github.com/embassy-rs/embassy?rev=cbb7990a5cce4be3650d804f9733f4a01bb1a967#cbb7990a5cce4be3650d804f9733f4a01bb1a967"
+dependencies = [
+ "defmt",
+ "document-features",
+ "embassy-crypto",
+ "embassy-embedded-hal",
+ "embassy-sync",
+ "embedded-storage",
+ "embedded-storage-async",
+]
+
+[[package]]
+name = "embassy-boot-rp"
+version = "0.10.0"
+source = "git+https://github.com/embassy-rs/embassy?rev=cbb7990a5cce4be3650d804f9733f4a01bb1a967#cbb7990a5cce4be3650d804f9733f4a01bb1a967"
+dependencies = [
+ "cfg-if",
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt",
+ "embassy-boot",
+ "embassy-rp",
+ "embassy-sync",
+ "embassy-time",
+ "embedded-storage",
+ "embedded-storage-async",
+]
+
+[[package]]
 name = "embassy-crypto"
 version = "0.1.0"
 source = "git+https://github.com/embassy-rs/embassy?rev=cbb7990a5cce4be3650d804f9733f4a01bb1a967#cbb7990a5cce4be3650d804f9733f4a01bb1a967"
@@ -1167,6 +1198,7 @@ source = "git+https://github.com/embassy-rs/embassy?rev=cbb7990a5cce4be3650d804f
 dependencies = [
  "cfg-if",
  "critical-section",
+ "defmt",
  "embedded-io-async 0.7.0",
  "futures-core",
  "futures-sink",
@@ -1374,7 +1406,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2156,6 +2188,7 @@ dependencies = [
  "cyw43-pio",
  "defmt",
  "defmt-rtt",
+ "embassy-boot-rp",
  "embassy-crypto",
  "embassy-crypto-rustcrypto",
  "embassy-executor",
@@ -2177,6 +2210,18 @@ dependencies = [
  "rustls",
  "rustls-rustcrypto",
  "static_cell",
+]
+
+[[package]]
+name = "picoclock-bootloader"
+version = "0.2.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "embassy-boot-rp",
+ "embassy-rp",
+ "embassy-sync",
+ "embassy-time",
 ]
 
 [[package]]
@@ -3351,7 +3396,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

@@ -36,8 +36,6 @@ fn main() {
 
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
-    if rp2040 {
-        println!("cargo:rustc-link-arg-bins=-Tlink-rp.x"); // second-stage bootloader; the RP2350 boots from an IMAGE_DEF block
-    }
+    // No `link-rp.x` (the second-stage boot loader) here: the bootloader image carries it, and this image starts from its slot.
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
 }

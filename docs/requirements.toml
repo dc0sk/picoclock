@@ -63,6 +63,11 @@ name = "Firmware update check (GitHub releases)"
 code = ["core/src/update.rs"]
 
 [[cap]]
+id = "CAP-BOOT"
+name = "Bootloader: swap in a staged image, swap back an unconfirmed one"
+code = ["bootloader/src/main.rs", "bootloader/build.rs"]
+
+[[cap]]
 id = "CAP-CLI"
 name = "Terminal commands and USB serial console"
 code = ["core/src/cli.rs", "firmware/src/usb_cli.rs"]
@@ -586,6 +591,15 @@ criticality = "high"
 statement = "The update check shall trust only the pinned USERTrust ECC Certification Authority root (not the NTS roots and not roots the user added), shall verify the certificate chain, the host name and the dates, shall refuse to run without a valid time, and shall use nothing of the answer unless those checks passed."
 rationale = "Decided in ADR-0006: the check is not what protects the install (a signature does), but a connection that tells the clock a new firmware exists must not be open to every public authority."
 cap = ["CAP-UPDATE", "CAP-NTS", "CAP-NET"]
+
+[[req]]
+id = "REQ-UPD-04"
+area = "Update"
+status = "ratified"
+criticality = "high"
+statement = "The clock shall start through a bootloader that keeps two flash slots (the running image and a staged one) and a state sector. When a staged image is marked, the bootloader swaps the two slots in steps that survive a power cut; the running image confirms itself only after its clock task has run for 20 seconds without a stall (never because WiFi joined), and an image that was swapped in but did not confirm is swapped back at the next start. The memory maps of the bootloader and the firmware shall describe the same layout, with the settings sectors at the end of flash outside both slots, and the one-time image shall carry an erased state sector."
+rationale = "Decided in ADR-0006 (points 4, 13, 14): an install that goes wrong must be recoverable without a debug probe, and the owner's clock sits in a case with only a USB cable. Confirming from local health only keeps a router outage from reverting a good image."
+cap = ["CAP-BOOT", "CAP-CONFIG", "CAP-APP"]
 
 # ---------------------------------------------------------------------------------------------------- terminal
 

@@ -61,40 +61,40 @@ The Pico W build has so far been compiled but not run with the features added si
 
 ## Build and flash
 
-```sh
-rustup target add thumbv6m-none-eabi
-cargo install elf2uf2-rs --locked
-cargo build --release -p picoclock
-# Hold BOOTSEL while plugging in the Pico, then:
-elf2uf2-rs -d target/thumbv6m-none-eabi/release/picoclock
-```
-
-For the **Pico 2 W** build the other chip feature and target. `elf2uf2-rs` stamps the RP2040's UF2 family ID on every file
-and the RP2350 boot ROM ignores such a file without a word (the board just stays in BOOTSEL), so the family is set to
-RP2350 Arm Secure first:
+Since the bootloader (ADR-0006) the flash holds a bootloader, a state sector, the running image and a slot for a staged image; the
+settings stay in the last sectors. **A clock that still runs a version without the bootloader (0.2.0 and older) needs the combined
+image once**; after that the bootloader stays. `tools/combine_image.py` joins the bootloader, an erased state sector and the
+application into one UF2 (the state sector must be erased, or old program bytes in it could look like a swap order):
 
 ```sh
-rustup target add thumbv8m.main-none-eabihf
-cargo build --release -p picoclock --no-default-features --features rp235x --target thumbv8m.main-none-eabihf
-elf2uf2-rs target/thumbv8m.main-none-eabihf/release/picoclock pico2w.uf2
-python3 tools/uf2_family.py set pico2w.uf2 pico2w-s.uf2 rp2350-arm-s
-cp pico2w-s.uf2 /media/$USER/RP2350/      # hold BOOTSEL while plugging in the Pico 2 W
-```
-(`picotool load -x` does the same in one step if you have it.)
+rustup target add thumbv6m-none-eabi thumbv8m.main-none-eabihf
+cargo install elf2uf2-rs --locked        # only the gate uses it; combine_image.py writes the UF2 itself
 
-The two builds differ in the chip feature (`rp2040` default / `rp235x`), the memory map (`firmware/memory-*.x`;
-the last sectors of the 2 MiB / 4 MiB flash are reserved for settings, NTS roots and certificates, see *Flash layout* below), the RP2350 `IMAGE_DEF` boot block and the WiFi
+# Pico W (RP2040)
+cargo build --release -p picoclock -p picoclock-bootloader
+python3 tools/combine_image.py target/thumbv6m-none-eabi/release/picoclock-bootloader \
+  target/thumbv6m-none-eabi/release/picoclock picoclock-pico-w.uf2 rp2040
+
+# Pico 2 W (RP2350)
+cargo build --release -p picoclock -p picoclock-bootloader --no-default-features --features rp235x --target thumbv8m.main-none-eabihf
+python3 tools/combine_image.py target/thumbv8m.main-none-eabihf/release/picoclock-bootloader \
+  target/thumbv8m.main-none-eabihf/release/picoclock picoclock-pico2-w.uf2 rp2350-arm-s
+```
+
+Hold BOOTSEL while plugging in the board (or type `bootsel` on the terminal) and copy the file to the drive that appears
+(`/media/$USER/RPI-RP2` or `RP2350`). The file carries the right UF2 family for its chip (the RP2350 boot ROM ignores a file
+with the RP2040 family without a word). Settings, WiFi networks and the HTTPS certificate are kept.
+
+The two builds differ in the chip feature (`rp2040` default / `rp235x`), the memory maps (`bootloader/memory-*.x` and
+`firmware/memory-*.x`, kept equal by `python3 tools/combine_image.py check-layout`), the RP2350 `IMAGE_DEF` boot block and the WiFi
 SPI clock divider, and in what the RP2350 can do that the RP2040 cannot: HTTPS (with an uploadable certificate), RSA certificate chains for NTS, and the hardware random number generator. The pin map and everything else is shared.
 
-To flash with a debug probe instead (for example the Raspberry Pi Debug Probe, CMSIS-DAP, with OpenOCD):
+**Debug probe.** `tools/combine_image.py` also writes the flat image next to the UF2 (`.bin`, to be written at `0x10000000`); with a
+Raspberry Pi Debug Probe and OpenOCD on a Pico W: `openocd -f interface/cmsis-dap.cfg -f target/rp2040.cfg -c "adapter speed 5000" -c "program picoclock-pico-w.bin 0x10000000 verify reset exit"`.
+(On the Pico 2 W, OpenOCD's flash programming failed here with "Failed to call ROM function batch" while the firmware was running
+or halted by `reset halt`; the BOOTSEL path above worked every time. Logs over RTT with the probe work on both.)
 
-```sh
-openocd -f interface/cmsis-dap.cfg -f target/rp2040.cfg -c "adapter speed 5000" \
-  -c "program target/thumbv6m-none-eabi/release/picoclock verify reset exit"
-```
-
-Nothing is configured at build time. After the first flash, configure over USB (below). Once running you can
-re-enter flashing mode with the `bootsel` terminal command.
+Nothing is configured at build time. After the first flash, configure over USB (below).
 
 ## Configure over USB
 
@@ -313,9 +313,10 @@ Once a day while connected (the first time a few minutes after joining) the cloc
 of this project and says in `status`, in `update` and on the web page's Status page whether it is newer than the version you run
 (`update  : 0.3.0 is available, you run 0.2.0; see https://github.com/dc0sk/picoclock/releases`). `update check` (or the *Check for
 updates now* button) asks at once. `set update_check off` stops the daily check. **The clock does not download or install anything**;
-you update with a UF2 file as before. The connection trusts only the USERTrust ECC root that GitHub's certificate chain ends at, and
-the answer is used only after the certificate, the name and the dates were verified. Installing from the clock (a signed image and a
-bootloader) is planned, see `docs/design/adr/0006-firmware-update.md`; the signing keys exist, the bootloader does not.
+you update with a UF2 file (see *Build and flash*). The connection trusts only the USERTrust ECC root that GitHub's certificate chain ends at, and
+the answer is used only after the certificate, the name and the dates were verified. Installing from the clock (a signed image) is planned, see `docs/design/adr/0006-firmware-update.md`; the signing keys and the
+bootloader exist (it swaps a staged image in and swaps back an image that does not confirm itself), the signature check and the
+download do not yet.
 
 ## Time sources
 
@@ -382,6 +383,9 @@ NTS trust anchors you added, and the one before that a backup copy of the settin
 holds the settings, the one before it the HTTPS key and certificates, then the NTS trust anchors, then the backup copy of the
 settings. A save writes the backup first and the main copy second, and at start the first valid copy is used, so a power
 cut during a save leaves the old or the new settings, never none. The program image ends before them (`firmware/memory-*.x`).
+Before the settings come, from the start of flash: the bootloader (64 KiB), the bootloader state (4 KiB), the running image slot
+(Pico W 976 KiB, Pico 2 W 1984 KiB), the staged image slot (4 KiB longer) and free space for a later trust sector (Pico W 12 KiB,
+Pico 2 W 40 KiB). The Pico W image uses about 751 KiB of its 976 KiB.
 A firmware from before this layout leaves these sectors blank or untouched, so updating loses nothing. Embassy is pinned by git revision in `firmware/Cargo.toml`
 because the networking APIs used here are newer than the crates.io releases. The CYW43 firmware blobs in
 `firmware/fw/` come from the Embassy repository under their own license.
@@ -470,7 +474,7 @@ icon suits the sync indicator.
 
 Other limits: saving pauses the CPU for tens of milliseconds (the display blinks once; 34 ms for one sector, about twice that now that two are written); the hourly NTP sync pauses
 the display for up to a second while the RTC is set on the second boundary; no countdown/stopwatch; the USB VID/PID
-is the pid.codes test pair `1209:0001`. The firmware image is about 440 KB of flash and 72 KB of static RAM.
+is the pid.codes test pair `1209:0001`. The firmware image is about 751 KiB of flash and 147 KiB of static RAM on the Pico W, and 1.29 MiB and 355 KiB (144 KiB of it the heap for HTTPS and RSA) on the Pico 2 W (measured 2026-10-18 with `size -A`).
 
 ## HTTPS (Pico 2 W only)
 

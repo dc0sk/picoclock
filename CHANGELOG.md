@@ -7,6 +7,11 @@ Settings saved by an older version keep working; new settings start at their def
 
 ## [Unreleased]
 
+### Added
+- **Bootloader** (ADR-0006, step 2, first part): the clock now starts through a small bootloader with a slot for a staged image. A staged
+  image is swapped in; if it does not confirm itself within 20 s of running, the old image is swapped back. Tested on the Pico 2 W.
+  Release files change: **a clock running 0.2.0 or older needs the combined image once** (`tools/combine_image.py`), settings are kept.
+
 ### Planned
 - Signed firmware install from the web and terminal (ADR-0006, step 2): bootloader, Ed25519 signature, rollback protection.
 - u-blox GPS as a third time source (0.3.0), reviewed before it is built.

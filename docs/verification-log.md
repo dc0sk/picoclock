@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/verification-log.md
 status: ledger
-last_updated: 2026-10-17
+last_updated: 2026-10-18
 ---
 
 # Verification log
@@ -811,3 +811,42 @@ night or with the display and the WiFi radio busy in different ways; whether the
 suit the owner was not reported; the hourly Morse (as opposed to the hold) was not reported.
 
 Verifies: REQ-HAM-02, REQ-DCF-03
+
+### VR-68 · 2026-10-18 · hardware · Bootloader: a staged image is swapped in and confirms itself (Pico 2 W)
+
+The bootloader (`bootloader/`, embassy-boot-rp, 8 KB of its 64 KB) and the firmware linked for the new layout were flashed to the Pico 2 W
+as one UF2 over BOOTSEL (`tools/combine_image.py`; the state sector is written erased). The clock came up as before with its settings,
+WiFi network and HTTPS certificate intact, and RTT showed `boot: image confirmed` 20.06 s after the start. Then a test image with the
+version set to 0.9.9 (otherwise the same code) was staged the way the application's updater will do it: written to the download slot and
+the swap mark written to the state sector, both through a second UF2 on BOOTSEL. After the restart `version` read 0.9.9; 28 s later a
+`reboot` kept 0.9.9, so the new image had confirmed itself and the bootloader did not swap back. Programming flash with OpenOCD failed
+on the RP2350 here (`Failed to call ROM function batch`), so the BOOTSEL path was used for all writes. **Not verified:** the swap on
+the Pico W (RP2040), a power cut during the swap, and a staged image written by the application itself (that code does not exist yet).
+
+Verifies: REQ-UPD-04
+
+### VR-69 · 2026-10-18 · hardware · Bootloader: an image that does not confirm is swapped back (Pico 2 W)
+
+With 0.9.9 running and confirmed (VR-68), a second test image (version 0.9.8, with the confirmation call removed) was staged the same
+way. After the swap `version` read 0.9.8; 25 s later a `reboot` brought the clock back as 0.9.9 (the revert took longer than the console
+timeout of the first try, so the first reading was empty), and a further `reboot` kept 0.9.9. So an image that never confirmed itself
+was replaced by the previous image at the next start, once, and the previous image stayed. The clock never needed a probe or BOOTSEL to
+recover. The real 0.2.0 build was then flashed again with the combined image and reads `picoclock 0.2.0` with the same settings.
+**Not verified:** a power cut during the revert, a new image that crashes before the 20 seconds are over (the watchdog restart should
+count the same way, untested), and the Pico W.
+
+Verifies: REQ-UPD-04
+
+### VR-70 · 2026-10-18 · build · Flash layout of bootloader and firmware agree; the one-time image is checked in the gate
+
+`python3 tools/combine_image.py check-layout` reads the four memory maps and fails unless the bootloader starts at offset 0 and ends
+before the state sector, the state sector is directly below the active slot, the firmware's flash region is the bootloader's active
+slot, the download slot follows it and is at least one page longer, the download slot stays clear of the settings sectors at the end of
+flash, the firmware's `__bootloader_*` symbols equal the bootloader's map, and the tool's own table matches. Planted faults were caught:
+a download-slot start moved by 4 KiB in the firmware map, and a download slot enlarged into the settings sectors in the bootloader map.
+The gate builds both bootloaders, joins each with its application and checks the UF2 family of the result (the old step that stamped the
+application-only UF2 is gone, since that file is no longer a deliverable). Sizes (`size -A`): bootloader 8 KB, application 751 KiB of
+976 KiB (Pico W) and 1.29 MiB of 1984 KiB (Pico 2 W).
+
+Verifies: REQ-UPD-04
+

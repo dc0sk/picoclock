@@ -9,7 +9,8 @@ last_updated: 2026-10-18
 
 ## Status
 
-Step 1 (the check) is **Accepted** and delivered (REQ-UPD-01 to 03). Step 2 (the install) is **Proposed**, revised after the design review of
+Step 1 (the check) is **Accepted** and delivered (REQ-UPD-01 to 03). Step 2 (the install) is **Proposed**; its first part, the bootloader with swap and swap-back, is **built and tested on the Pico 2 W**
+(REQ-UPD-04, VR-68 to VR-70; not yet on the Pico W). It was revised after the design review of
 2026-10-18 (see "Revision after the design review"): the owner agreed on 2026-10-18 to the approach (check first, notify, install only on the user's request; GitHub releases as the source; a signing key
 of their own in GnuPG; a one-time bootloader reflash on both boards), but nothing of it is built.
 

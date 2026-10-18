@@ -1,18 +1,13 @@
+/* Pico W, 2 MiB flash, with the bootloader (bootloader/memory-rp2040.x has the whole map): this image runs from the ACTIVE
+   slot, the bootloader holds boot2, so there is no BOOT2 region here. The last three 4 KiB sectors of the chip are kept free
+   for the settings (last), the NTS roots and the settings backup (see storage.rs); the 12 KiB before them are the trust sector. */
 MEMORY {
-    /* The last three 4 KiB sectors of the 2 MiB flash are kept free: the configuration (last), the NTS roots and the configuration backup (see storage.rs). */
-    BOOT2 : ORIGIN = 0x10000000, LENGTH = 0x100
-    FLASH : ORIGIN = 0x10000100, LENGTH = 2048K - 0x100 - 12K
-
-    /* Pick one of the two options for RAM layout     */
-
-    /* OPTION A: Use all RAM banks as one big block   */
-    /* Reasonable, unless you are doing something     */
-    /* really particular with DMA or other concurrent */
-    /* access that would benefit from striping        */
+    FLASH : ORIGIN = 0x10011000, LENGTH = 976K
     RAM   : ORIGIN = 0x20000000, LENGTH = 264K
-
-    /* OPTION B: Keep the unstriped sections separate */
-    /* RAM: ORIGIN = 0x20000000, LENGTH = 256K        */
-    /* SCRATCH_A: ORIGIN = 0x20040000, LENGTH = 4K    */
-    /* SCRATCH_B: ORIGIN = 0x20041000, LENGTH = 4K    */
 }
+
+/* Offsets in flash, read by `FirmwareUpdaterConfig::from_linkerfile_blocking` (the state sector is where the bootloader keeps it) */
+__bootloader_state_start = 0x10010000 - 0x10000000;
+__bootloader_state_end = 0x10011000 - 0x10000000;
+__bootloader_dfu_start = 0x10105000 - 0x10000000;
+__bootloader_dfu_end = 0x101FA000 - 0x10000000;

@@ -1,10 +1,11 @@
 MEMORY {
     /*
-     * The Pico 2 W has 4 MiB of flash. The last four 4 KiB sectors are kept free (see storage.rs): the last one holds the
-     * saved configuration, the one before it the HTTPS key and certificate chain, the one before that the NTS roots
-     * the user added, and the one before that the backup copy of the configuration.
+     * The Pico 2 W has 4 MiB of flash and the bootloader (bootloader/memory-rp235x.x has the whole map): this image runs from
+     * the ACTIVE slot. The last four 4 KiB sectors are kept free (see storage.rs): the last one holds the saved
+     * configuration, the one before it the HTTPS key and certificate chain, the one before that the NTS roots the user
+     * added, and the one before that the backup copy of the configuration. The 40 KiB before them are the trust sector.
      */
-    FLASH : ORIGIN = 0x10000000, LENGTH = 4096K - 16K
+    FLASH : ORIGIN = 0x10011000, LENGTH = 1984K
     /*
      * RAM consists of 8 banks, SRAM0-SRAM7, with a striped mapping.
      * This is usually good for performance, as it distributes load on
@@ -20,6 +21,12 @@ MEMORY {
     SRAM8 : ORIGIN = 0x20080000, LENGTH = 4K
     SRAM9 : ORIGIN = 0x20081000, LENGTH = 4K
 }
+
+/* Offsets in flash, read by `FirmwareUpdaterConfig::from_linkerfile_blocking` (the state sector is where the bootloader keeps it) */
+__bootloader_state_start = 0x10010000 - 0x10000000;
+__bootloader_state_end = 0x10011000 - 0x10000000;
+__bootloader_dfu_start = 0x10201000 - 0x10000000;
+__bootloader_dfu_end = 0x103F2000 - 0x10000000;
 
 SECTIONS {
     /* ### Boot ROM info

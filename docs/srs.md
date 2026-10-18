@@ -319,6 +319,11 @@ The update check shall trust only the pinned USERTrust ECC Certification Authori
 *Why:* Decided in ADR-0006: the check is not what protects the install (a signature does), but a connection that tells the clock a new firmware exists must not be open to every public authority.  
 *Implemented by:* Firmware update check (GitHub releases), NTS client: key exchange, authenticated packets, sessions, WiFi, hourly sync, geolocation request and NTP server
 
+**REQ-UPD-04** (ratified, high)  
+The clock shall start through a bootloader that keeps two flash slots (the running image and a staged one) and a state sector. When a staged image is marked, the bootloader swaps the two slots in steps that survive a power cut; the running image confirms itself only after its clock task has run for 20 seconds without a stall (never because WiFi joined), and an image that was swapped in but did not confirm is swapped back at the next start. The memory maps of the bootloader and the firmware shall describe the same layout, with the settings sectors at the end of flash outside both slots, and the one-time image shall carry an erased state sector.  
+*Why:* Decided in ADR-0006 (points 4, 13, 14): an install that goes wrong must be recoverable without a debug probe, and the owner's clock sits in a case with only a USB cable. Confirming from local health only keeps a router outage from reverting a good image.  
+*Implemented by:* Bootloader: swap in a staged image, swap back an unconfirmed one, Configuration model and flash storage, Composition: task wiring, shared state, chip selection
+
 
 ### 4.9 Terminal
 

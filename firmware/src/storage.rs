@@ -135,8 +135,34 @@ async fn factory_reset(flash: &mut Store) {
     warn!("storage: factory reset failed; not restarting");
 }
 
+/// Tells the bootloader that this image works (ADR-0006, point 14): if it was just swapped in and never says so, the bootloader
+/// swaps the old image back at the next start. "Works" is local only: the clock task has run for 20 s without a stall. WiFi
+/// is not part of it, or a router outage would revert a good image. A fresh install (no swap yet) is marked the same way,
+/// which writes the same magic again and is harmless.
+async fn confirm_boot(flash: &mut Store) {
+    use core::cell::RefCell;
+    use embassy_boot_rp::{AlignedBuffer, BlockingFirmwareState, FirmwareUpdaterConfig};
+    use embassy_sync::blocking_mutex::{Mutex, raw::NoopRawMutex};
+    loop {
+        embassy_time::Timer::after_secs(20).await;
+        let age_ms = (embassy_time::Instant::now().as_millis() as u32).wrapping_sub(state::HEARTBEAT_MS.load(core::sync::atomic::Ordering::Relaxed));
+        if age_ms < 5_000 {
+            break;
+        }
+    }
+    let shared = Mutex::<NoopRawMutex, _>::new(RefCell::new(&mut *flash));
+    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&shared, &shared);
+    let mut magic = AlignedBuffer([0; 1]);
+    let mut state = BlockingFirmwareState::from_config(config, &mut magic.0);
+    match state.mark_booted() {
+        Ok(()) => info!("boot: image confirmed"),
+        Err(_) => warn!("boot: could not confirm the image"),
+    }
+}
+
 #[embassy_executor::task]
 pub async fn storage_task(mut flash: Store) -> ! {
+    confirm_boot(&mut flash).await;
     loop {
         use embassy_futures::select::{Either4, select4};
         let mut now = match select4(state::SAVE_REQUEST.wait(), tls_request(), state::ROOTS_SAVE.wait(), state::FACTORY_RESET.wait()).await {
