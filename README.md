@@ -391,7 +391,7 @@ Planned for future releases (requirements, not implemented):
 - **Choosing between time sources** (requirements REQ-SRC-01 to 05, draft): two modes, `order` (an ordered list with
   fallbacks, as for NTP servers today) and `vote` (a plausibility check between the selected sources, with a selectable
   vote power per source and a tolerance). Delivered with the first additional source.
-- **DCF77 receiver module** as an additional time source (a free GPIO and a module that fits the clock's case). Delivering it bumps the software version, after a full-code review.
+- **DCF77 receiver module** as an additional time source (planned: the WHP0027V3 module with PON and TCO on GP0 and GP1, see the wiring plan in `docs/design/architecture.md`; it has to fit the clock's case). Delivering it bumps the software version, after a full-code review.
 - **GPS module (u-blox)** as a time source over UART (NMEA/UBX, optionally the PPS pulse for sub-millisecond
   accuracy), which would also let the NTP server claim a low stratum. Delivering it bumps the software version again, after
   another full-code review.

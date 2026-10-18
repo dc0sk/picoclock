@@ -35,6 +35,27 @@ Pin map (from the Waveshare demo): matrix OE=13, SDI=11, CLK=10, LE=12, A0=16, A
 DOWN=15 (active low, pull-ups); I2C1 SDA=6, SCL=7, DS3231 at 0x68; buzzer 14; light sensor ADC on 26. The
 CYW43 radio uses 23, 24, 25 and 29, so there is no conflict. Pico W and Pico 2 W share this map.
 
+Pins left over on the Pico header: GP0, GP1, GP3, GP4, GP5, GP8, GP9, GP19, GP20, GP21, GP27, GP28 (GP27 and GP28 are
+ADC-capable but nothing here uses the ADC on them). The Waveshare board reserves the 40-pin header for add-ons but does not
+document which pads are reachable, so the wiring below is a plan until it has been tried on the board.
+
+**Planned wiring for the time-source modules (proposal, not yet built):**
+
+| Module                         | Signal      | Pico pin          | Why                                                                 |
+|--------------------------------|-------------|-------------------|---------------------------------------------------------------------|
+| DCF77 (WHP0027V3: PON, TCO)    | TCO (data)  | GP1 (pin 2)       | any GPIO can time the pulses; next to GND at pin 3                  |
+| DCF77                          | PON (power) | GP0 (pin 1)       | the firmware can switch the receiver off (display and WiFi noise)   |
+| DCF77                          | GND, VCC    | pin 3, 3V3 (36)   | VCC by a wire: pin 4 is GP2, the SET button                         |
+| u-blox GPS (later)             | UART1 TX/RX | GP4, GP5 (pins 6, 7) | UART1 default pins; keeps UART0 pins GP0/GP1 for the DCF77 module |
+| u-blox GPS (later)             | PPS         | GP3 (pin 5)       | edge capture; next to the UART pins                                 |
+
+DCF77 module facts (Pollin DCF1, order no. 810 054, datasheet D810054-B; the WHP0027V3 has the same four pins): supply 1.2 to
+3.3 V (typically 3 V), under 90 µA; `PON` low = receiver on, `PON` high = off, and the receiver starts on the falling edge
+of `PON`; `TCO` is low at full carrier and high while the carrier is reduced, so a second mark is a high pulse of 100 ms
+(bit 0) or 200 ms (bit 1); a 10 µF capacitor on the supply is recommended; locking can take up to 20 minutes depending on
+reception. The Pico's 3V3 pin is at the upper limit of the supply range, which the datasheet allows. The firmware drives
+`PON` high only to switch the receiver off; a Pico pin that is not yet configured pulls down, so the receiver is on.
+
 ## 2. Structure
 
 Two crates in one Cargo workspace:
