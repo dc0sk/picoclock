@@ -18,4 +18,4 @@ evidence tier and date, and every rejection is labelled measured or assumed.
 | [0003](0003-nts-rsa-chains-and-user-roots.md) | NTS: RSA chains on the Pico 2 W, user-added trust anchors | Accepted | 2026-10-17 |
 | [0004](0004-time-source-selection-and-dcf77.md) | Time source selection (order, vote) and the DCF77 source | Accepted | 2026-10-18 |
 | [0005](0005-dcf77-receiver-delay.md) | DCF77 receiver delay: manual and learned | Accepted | 2026-10-18 |
-| [0006](0006-firmware-update.md) | Firmware update: an online check now, a signed install later | Step 1 accepted, step 2 proposed | 2026-10-18 |
+| [0006](0006-firmware-update.md) | Firmware update: an online check now, a signed install later | Step 1 accepted, step 2 proposed (revised) | 2026-10-18 |

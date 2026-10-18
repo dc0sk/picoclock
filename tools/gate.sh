@@ -2,7 +2,7 @@
 # The local gate. Run before every commit. Fails on the first problem.
 #   1. unit tests of the core crate (output is kept: the traceability check needs to see the bound tests ran)
 #   2. traceability: requirement -> capability -> code -> test/record, and the generated documents are current
-#   3. document headers
+#   3. image signing tool self-test, document headers
 #   4. both firmware builds (skip with GATE_FAST=1), and the UF2 files made from them carry the right chip family
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,6 +20,9 @@ cargo test -p picoclock-core --target "$HOST" --features rsa 2>&1 | tee -a "$OUT
 
 echo "== traceability"
 python3 tools/trace.py check --tests-output "$OUT"
+
+echo "== image signing tool"
+python3 tools/sign_image.py self-test
 
 echo "== document headers"
 python3 tools/check_docs.py
