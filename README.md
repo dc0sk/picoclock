@@ -488,6 +488,10 @@ The Pico 2 W build serves the web page over HTTPS on port 443 ([ADR-0002](docs/d
 - **Port 80.** While HTTPS runs, plain-HTTP page requests get a redirect to it and nothing can be changed over the plain port
   (`set http_redirect off` to serve the page on both; `set https off` to disable HTTPS).
 
+## Changes
+
+See [CHANGELOG.md](CHANGELOG.md) for what each version added, changed and fixed.
+
 ## Roadmap
 
 Planned for future releases (not implemented). Delivered in 0.2.0: source selection (`order`, `vote`) and the DCF77 source.
