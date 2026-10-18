@@ -138,6 +138,16 @@ Changes apply immediately but are only written to flash by `save` (the web page 
 | `vote_ntp`, `vote_dcf77` | vote power 0 to 9 per source in mode `vote` (0 = compared and shown, cannot decide) | 1, 1 |
 | `vote_tolerance` | seconds within which two sources count as agreeing in mode `vote` | 2 |
 
+### Terminal sessions
+
+Made with invented data like the web screenshots; the output is what the firmware's command interpreter really prints.
+
+| `status` and `time` | Changing settings |
+|:-------------------:|:-----------------:|
+| ![status and time in the terminal](docs/images/terminal-status.png) | ![set, get and save in the terminal](docs/images/terminal-config.png) |
+
+![help in the terminal](docs/images/terminal-help.png)
+
 ## Secure NTP (NTS)
 
 Put `nts:` in front of a server name and the clock authenticates that server's time (RFC 8915):
@@ -267,7 +277,7 @@ Password fields are never echoed; leave them blank to keep the current value. Cr
 
 ### Screenshots
 
-Made with invented data (names, addresses and fingerprints are not from a real clock); `tools/web_screens.sh` regenerates them.
+Made with invented data (names, addresses and fingerprints are not from a real clock); `tools/screenshots.sh` regenerates them.
 
 | Status | WiFi |
 |:------:|:----:|
