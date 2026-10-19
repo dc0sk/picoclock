@@ -913,6 +913,6 @@ port answered 403 to the upload and the install while HTTPS ran. A body announce
 With the real login (official build) an upload without or with a wrong password was answered 401 over both ports, also with a
 full-size body (TLS records of 16 KB broke the connection until the incoming buffer was made large enough; found with this test).
 **Not verified:** the browser's progress bar and JavaScript (no browser on the test machine), the upload over plain HTTP (the Pico W
-and a Pico 2 W with HTTPS off), the Pico W at all, and a successful authenticated upload with the real password.
+and a Pico 2 W with HTTPS off), the Pico W at all. Added the same day (official 0.2.0 build, real login over HTTPS): an authenticated upload: an older file was refused with 422 after 37 s, a good signed 0.9.9 file was staged with 200 after 45 s and the Security page showed the Install button, a wrong password gave 401; the Install button was not pressed on that build.
 
 Verifies: REQ-UPD-08
