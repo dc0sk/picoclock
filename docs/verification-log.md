@@ -947,3 +947,14 @@ decrypting a 16 KB record occupies the processor. **Not verified:** a download t
 with a signed `.pcu`), the web page's refresh in a browser, and a failure half way (cable pulled) on hardware.
 
 Verifies: REQ-UPD-09
+
+### VR-78 · 2026-10-19 · hardware · Download of a real release and installation of it (Pico 2 W)
+
+Verifies: REQ-UPD-09
+
+The official 0.2.0 build (with the bootloader) ran on the clock; release v0.2.1 had just been published with its signed
+`picoclock-0.2.1-pico2-w.pcu`. `update check` reported 0.2.1 as available; `update download` fetched the file (both certificate
+chains verified) and `update` showed "0.2.1 is staged (signed by key 1)". `update apply` plus `INSTALL` restarted the clock, which
+came back as 0.2.1, stayed on it after the 20 s confirmation window, kept its settings, WiFi and HTTPS certificate, and
+`update check` then said "up to date (0.2.1)". This closes the gap left in VR-77 for the download that ends in a staged image.
+Still not verified on hardware: a failure half way through a download and the browser's page refresh.

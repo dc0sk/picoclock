@@ -24,7 +24,7 @@ last_updated: 2026-10-19
 | Ratified with unit tests only (no hardware, host or build record) | 17    |
 | Ratified and UNVERIFIED (stated reason)                           | 0     |
 | Unit tests bound to requirements                                  | 214   |
-| Verification records                                              | 76    |
+| Verification records                                              | 77    |
 
 ## Forward: requirement to evidence
 
@@ -85,7 +85,7 @@ last_updated: 2026-10-19
 | REQ-UPD-06  | ratified | high   | IMAGE, CLI, CONFIG                 | 2          | VR-71, VR-72                             | unit, host, hardware  |
 | REQ-UPD-07  | ratified | high   | IMAGE, CLI                         | 2          | VR-71, VR-73                             | unit, host, hardware  |
 | REQ-UPD-08  | ratified | high   | IMAGE, HTTP, APP                   | 4          | VR-74, VR-75                             | unit, host, hardware  |
-| REQ-UPD-09  | ratified | high   | UPDATE, IMAGE, NTS, HTTP, CLI, APP | 7          | VR-76, VR-77                             | unit, host, hardware  |
+| REQ-UPD-09  | ratified | high   | UPDATE, IMAGE, NTS, HTTP, CLI, APP | 7          | VR-76, VR-77, VR-78                      | unit, host, hardware  |
 | REQ-CLI-01  | ratified | medium | CLI                                | 7          | VR-01, VR-02                             | unit, hardware        |
 | REQ-CLI-02  | ratified | low    | CLI                                | 1          | -                                        | unit                  |
 | REQ-WEB-01  | ratified | medium | HTTP                               | 5          | VR-09, VR-27, VR-56                      | unit, hardware        |
@@ -359,3 +359,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-75  | 2026-10-19 | hardware | Upload and install from the web (Pico 2 W, curl over HTTPS)                              | REQ-UPD-08                                                                                   |
 | VR-76  | 2026-10-19 | host     | The download: requests, redirect rule, head reader, streaming client, command and page   | REQ-UPD-09                                                                                   |
 | VR-77  | 2026-10-19 | hardware | Download from GitHub through the redirect (Pico 2 W)                                     | REQ-UPD-09                                                                                   |
+| VR-78  | 2026-10-19 | hardware | Download of a real release and installation of it (Pico 2 W)                             | REQ-UPD-09                                                                                   |
