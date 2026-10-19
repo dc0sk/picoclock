@@ -210,6 +210,108 @@ async fn update_check(stack: Stack<'static>, nts: &mut Nts) -> Duration {
     again
 }
 
+/// The first request of the download only needs the redirect; the body of that answer is not read.
+#[cfg(all(feature = "https", not(feature = "custom-images")))]
+struct RedirectOnly;
+
+#[cfg(all(feature = "https", not(feature = "custom-images")))]
+impl picoclock_core::nts_ke::StreamSink for RedirectOnly {
+    async fn head(&mut self, _: &picoclock_core::download::Head) -> bool {
+        false
+    }
+    async fn body(&mut self, _: &[u8]) -> bool {
+        false
+    }
+}
+
+/// The second request: the update file goes block by block to the storage task, which stages it like an upload.
+#[cfg(all(feature = "https", not(feature = "custom-images")))]
+struct Download {
+    sink: Option<crate::install::BlockSink>,
+    /// The storage task refused the announced size; the reason is already in the status.
+    refused: bool,
+}
+
+#[cfg(all(feature = "https", not(feature = "custom-images")))]
+impl picoclock_core::nts_ke::StreamSink for Download {
+    async fn head(&mut self, head: &picoclock_core::download::Head) -> bool {
+        let (200, Some(len)) = (head.status, head.content_length) else { return false };
+        state::INSTALL_IN.send(state::InstallMsg::Begin(len)).await;
+        if state::INSTALL_REPLY.wait().await {
+            self.sink = Some(crate::install::BlockSink::new(len));
+            true
+        } else {
+            self.refused = true;
+            false
+        }
+    }
+    async fn body(&mut self, data: &[u8]) -> bool {
+        match self.sink.as_mut() {
+            Some(sink) => {
+                sink.push(data).await;
+                state::feed_watchdog();
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// `update download` (Pico 2 W, official builds): fetches the update file of the release the check found, from GitHub via one
+/// redirect to its download host, into the download slot. Nothing is installed: the file is checked like an upload (signature,
+/// chip, newer) and waits for `update apply` or the web page's Install button.
+#[cfg(all(feature = "https", not(feature = "custom-images")))]
+async fn update_download(stack: Stack<'static>, nts: &mut Nts) {
+    use picoclock_core::download;
+    use picoclock_core::image::Install;
+    use picoclock_core::update::Check;
+    let (check, latest) = state::with_runtime(|r| (r.update, r.update_latest));
+    let (Check::Newer, Some(version)) = (check, latest) else {
+        warn!("download: no newer release is known");
+        return;
+    };
+    let Some(claim) = state::InstallClaim::take() else {
+        warn!("download: another update file is being received");
+        return;
+    };
+    state::set_install(Install::Downloading(version));
+    info!("download: asking github.com for {}", defmt::Display2Format(&download::asset_name(version)));
+    let mut failed = true;
+    'steps: {
+        let first = download::first_request(version);
+        let Some(head) = nts.https_stream(stack, download::HOST, first.as_bytes(), picoclock_core::nts_ke::UPDATE_ROOTS, &mut RedirectOnly).await else { break 'steps };
+        let redirected = matches!(head.status, 301 | 302 | 303 | 307 | 308);
+        let Some(second) = head.location.as_deref().filter(|_| redirected).and_then(download::second_request) else {
+            warn!("download: github.com answered {} without a redirect to the download host", head.status);
+            break 'steps;
+        };
+        info!("download: redirected; fetching from {}", download::ASSET_HOST);
+        let mut sink = Download { sink: None, refused: false };
+        let got = nts.https_stream(stack, download::ASSET_HOST, second.as_bytes(), picoclock_core::nts_ke::DOWNLOAD_ROOTS, &mut sink).await;
+        match got {
+            Some(head) if head.status == 200 && sink.sink.as_ref().is_some_and(|s| s.remaining == 0) => {
+                state::INSTALL_IN.send(state::InstallMsg::Finish).await;
+                let staged = state::INSTALL_REPLY.wait().await;
+                info!("download: finished, staged={}", staged);
+                failed = false; // staged or refused by the checks: the storage task has put the reason in the status
+            }
+            Some(head) => warn!("download: the download host answered {}", head.status),
+            None => {
+                if sink.refused {
+                    failed = false; // the size was refused; the reason is in the status
+                }
+            }
+        }
+        if failed && sink.sink.is_some() {
+            state::INSTALL_IN.send(state::InstallMsg::Abort).await;
+        }
+    }
+    drop(claim);
+    if failed {
+        state::set_install(Install::DownloadFailed);
+    }
+}
+
 /// Collects the networks in range (name and signal) with one passive scan, at most `SCAN_TIME` long.
 async fn scan(control: &mut Control<'static>, seen: &mut heapless::Vec<Seen, 24>) {
     let mut scanner = control.scan(Default::default()).await;
@@ -300,6 +402,10 @@ async fn online(stack: Stack<'static>, iface: &Iface<'static>, slot: usize, join
         if state::UPDATE_NOW.try_take().is_some() {
             next_update = Instant::now();
             state::with_runtime(|r| r.update = picoclock_core::update::Check::Checking);
+        }
+        #[cfg(all(feature = "https", not(feature = "custom-images")))]
+        if state::UPDATE_DOWNLOAD.try_take().is_some() {
+            update_download(stack, nts).await;
         }
         if Instant::now() >= next_update {
             let asked = state::with_runtime(|r| r.update == picoclock_core::update::Check::Checking);

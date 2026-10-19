@@ -105,6 +105,20 @@ stays limited**. Points 4 to 7 stand except where this section says otherwise.
     image. Alternatives: multipart/form-data (REJECTED, assumed: needs the boundary parsed in a streaming parser for no gain), a page
     without JavaScript (REJECTED, assumed: a plain form cannot send a raw body; `curl` covers scripts).
 
+17. **Download on the Pico 2 W (REQ-UPD-09).** Two requests: `github.com/dc0sk/picoclock/releases/download/v<ver>/picoclock-<ver>-pico2-w.pcu`
+    (USERTrust ECC, as the check) answers with a redirect to `release-assets.githubusercontent.com` (Let's Encrypt chain, ISRG Root X1,
+    RSA), where the file is read. Both chains were verified on hardware (VR-77). The redirect is followed only to that exact host and
+    only if its path holds visible ASCII (no request splitting); the answer must carry a Content-Length (chunked is refused). The
+    response head is read by a small scanner that keeps status, length and Location only, because GitHub's redirect carries a
+    content-security-policy of several KB. The embedded-tls client verifies the certificate after the handshake, so **the bytes reach
+    flash before the server is authenticated**; that is acceptable only because nothing boots from the download slot until the
+    Ed25519 signature over the whole file has verified, and the stream is accepted only if both certificate checks then pass too.
+    Download is a request (`update download`, a button), never automatic, and ends in the same staged state as an upload; the user
+    still confirms with `INSTALL`. The Pico W does not download (decision 8), and neither does a `custom-images` build (decision 15).
+    Alternatives: a GitHub API call for the asset's `browser_download_url` (REJECTED, assumed: one more connection and JSON parsing
+    for a name the release script fixes), following any redirect to any GitHub host (REJECTED, assumed: widens who can serve a file),
+    automatic download (REJECTED, assumed: the decision to fetch stays the user's, as the decision to install does).
+
 Build order: release tooling and host verifier; memory maps and bootloader; upload path into the download slot (Pico W and Pico 2
 W, no network needed); streaming download with one redirect (Pico 2 W only); rollback rule and two-step confirmation; revocation.
 

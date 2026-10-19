@@ -131,6 +131,7 @@ async fn run_line(class: &mut Class, line: &str) -> Result<Action, Disconnected>
             state::GEO_NOW.signal(());
             send(class, "location lookup requested; see 'get geo_rule' in a few seconds\r\n").await?;
         }
+        Action::ImageDownload => state::UPDATE_DOWNLOAD.signal(()),
         Action::FactoryReset => {
             // handled by the session, which takes the next line as the answer
             send(class, &crlf_of(cli::RESET_WARNING)).await?;

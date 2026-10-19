@@ -40,6 +40,10 @@ pub const UPDATE_ROOTS: &[&[u8]] = &[USERTRUST_ECC];
 /// The built-in roots. A server is trusted if its chain ends at any of them (and the host name and dates match). ECDSA chains
 /// can always be verified; RSA chains only in builds with the `rsa` feature (Pico 2 W), so on the Pico W a server with an
 /// RSA certificate fails with a certificate error.
+/// The only root the release download trusts for GitHub's download host (its chain is RSA, ISRG Root X1; `rsa` builds only).
+#[cfg(feature = "rsa")]
+pub const DOWNLOAD_ROOTS: &[&[u8]] = &[ISRG_ROOT_X1];
+
 #[cfg(feature = "rsa")]
 pub const BUILT_IN_ROOTS: &[&[u8]] = &[ISRG_ROOT_X2, SSL_COM_ROOT_ECC, ISRG_ROOT_X1];
 #[cfg(not(feature = "rsa"))]
@@ -239,4 +243,97 @@ where
     let _ = tls.close().await;
     verifier.finish().map_err(KeError::Tls)?;
     Ok(have)
+}
+
+/// What [`https_stream`] hands the file to. Implemented by whoever stores it.
+#[allow(async_fn_in_trait)]
+pub trait StreamSink {
+    /// The response head is in. `true`: read the body (it is `head.content_length` bytes). `false`: stop here, for a redirect or
+    /// an answer that is refused; the caller finds the head in the return value.
+    async fn head(&mut self, head: &crate::download::Head) -> bool;
+    /// The next part of the body, in order. `false` stops the transfer (the sink could not keep it).
+    async fn body(&mut self, data: &[u8]) -> bool;
+}
+
+/// One HTTPS request whose answer is passed on piece by piece instead of being kept, for a file too large for RAM. The
+/// server must chain to one of `roots` and match `host`, and the dates are checked with `C`, as for [`https_get`]; but because
+/// the checks run only after the whole answer is in (the handshake is not blocked on them), **the sink receives bytes before the
+/// server is authenticated**. Whoever stores them must not trust them until this function has returned `Ok`: the caller of the
+/// update download stores them in a slot nothing boots from and checks a signature over all of it.
+///
+/// Returns the head once the transfer is complete and the certificate checks passed. When the sink answered `true` to the head,
+/// exactly `content_length` bytes were passed on (a shorter or longer body is an error); a missing length or a chunked answer is
+/// refused.
+pub async fn https_stream<S, C, K>(socket: S, host: &str, request: &[u8], roots: &[&[u8]], read_buf: &mut [u8], write_buf: &mut [u8], sink: &mut K) -> Result<crate::download::Head, KeError>
+where
+    S: Read + Write,
+    C: TlsClock,
+    K: StreamSink,
+{
+    use crate::download::HeadScanner;
+    if C::now().is_none() {
+        return Err(KeError::NoTime);
+    }
+    let config = TlsConfig::new().with_server_name(host);
+    let mut tls = TlsConnection::<_, Aes128GcmSha256>::new(socket, read_buf, write_buf);
+    let mut verifier = DeferredVerifier::<C>::new(roots);
+    tls.open(TlsContext::new(&config, &mut verifier)).await.map_err(KeError::Tls)?;
+    let mut sent = 0;
+    while sent < request.len() {
+        sent += tls.write(&request[sent..]).await.map_err(KeError::Tls)?;
+    }
+    tls.flush().await.map_err(KeError::Tls)?;
+
+    let mut scanner = HeadScanner::new();
+    let mut chunk = [0u8; 1024];
+    let mut head: Option<crate::download::Head> = None;
+    let (mut want, mut got, mut expect_body) = (0usize, 0usize, false);
+    'read: loop {
+        let n = match tls.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => n,
+            // the server said goodbye after its answer: that is the end of the answer, not a failure
+            Err(TlsError::ConnectionClosed) if head.is_some() => break,
+            Err(e) => return Err(KeError::Tls(e)),
+        };
+        let mut data = &chunk[..n];
+        if head.is_none() {
+            match scanner.feed(data).map_err(|_| KeError::Closed)? {
+                None => continue,
+                Some((used, h)) => {
+                    data = &data[used..];
+                    if h.chunked {
+                        return Err(KeError::Closed);
+                    }
+                    if !sink.head(&h).await {
+                        head = Some(h);
+                        break 'read;
+                    }
+                    want = h.content_length.ok_or(KeError::Closed)?;
+                    expect_body = true;
+                    head = Some(h);
+                }
+            }
+        }
+        if got + data.len() > want {
+            return Err(KeError::Closed);
+        }
+        if !data.is_empty() {
+            if !sink.body(data).await {
+                return Err(KeError::Closed);
+            }
+            got += data.len();
+        }
+        if got == want {
+            break;
+        }
+    }
+    let head = head.ok_or(KeError::Closed)?;
+    // a body that ended early is as bad as one that never came; a refused head (no body read) is complete as it is
+    if expect_body && got != want {
+        return Err(KeError::Closed);
+    }
+    let _ = tls.close().await;
+    verifier.finish().map_err(KeError::Tls)?;
+    Ok(head)
 }

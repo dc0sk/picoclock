@@ -147,6 +147,26 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             }
             respond(io, "200 OK", "text/html; charset=utf-8", "", &body).await
         }
+        (Method::Post, "/download") => {
+            if !http::upload_allowed(secure, state::status().https_state) {
+                return respond(io, "403 Forbidden", "text/plain", "", "downloading is only accepted over HTTPS while HTTPS is on\n").await;
+            }
+            if !http::same_origin(req, secure) {
+                return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
+            }
+            let st = state::status();
+            let wanted = st.can_download && !st.custom_images && st.update == picoclock_core::update::Check::Newer && st.update_latest.is_some();
+            let busy = matches!(st.install, picoclock_core::image::Install::Receiving | picoclock_core::image::Install::Downloading(_));
+            if !wanted || busy {
+                return after_post(io, "Nothing to download: no newer release is known, or a file is already being received.", true, Tab::Security).await;
+            }
+            if let Some(v) = st.update_latest {
+                state::set_install(picoclock_core::image::Install::Downloading(v));
+            }
+            state::UPDATE_DOWNLOAD.signal(());
+            // the Security page loads itself again every few seconds while the download runs
+            respond(io, "303 See Other", "text/plain", "Location: /?tab=security\r\n", "downloading; see the page\n").await
+        }
         (Method::Post, "/install") => {
             if !http::upload_allowed(secure, state::status().https_state) {
                 return respond(io, "403 Forbidden", "text/plain", "", "installing is only accepted over HTTPS while HTTPS is on\n").await;
@@ -275,27 +295,6 @@ async fn refuse_upload<S: Read + Write>(io: &mut S, status: &str, msg: &str, rem
     Ok(())
 }
 
-/// Collects the body into 4 KiB blocks for the storage task, which writes each into the download slot while the next one arrives.
-struct Sink {
-    block: heapless::Vec<u8, 4096>,
-    remaining: usize,
-}
-
-impl Sink {
-    async fn push(&mut self, mut data: &[u8]) {
-        data = &data[..data.len().min(self.remaining)];
-        while !data.is_empty() {
-            let n = (self.block.capacity() - self.block.len()).min(data.len());
-            let _ = self.block.extend_from_slice(&data[..n]);
-            data = &data[n..];
-            self.remaining -= n;
-            if self.block.is_full() || self.remaining == 0 {
-                state::INSTALL_IN.send(state::InstallMsg::Block(core::mem::take(&mut self.block))).await;
-            }
-        }
-    }
-}
-
 /// `POST /upload`: the update file as the raw body (REQ-UPD-08). Every refusal comes before the first byte is stored, and a
 /// connection that stalls or breaks leaves nothing staged.
 async fn upload<S: Read + Write>(io: &mut S, buf: &[u8], secure: bool) -> Result<(), ()> {
@@ -327,7 +326,7 @@ async fn upload<S: Read + Write>(io: &mut S, buf: &[u8], secure: bool) -> Result
         return refuse_upload(io, "422 Unprocessable Content", &text, left).await;
     }
     let received = with_timeout(UPLOAD_TOTAL, async {
-        let mut sink = Sink { block: heapless::Vec::new(), remaining: len };
+        let mut sink = crate::install::BlockSink::new(len);
         sink.push(early).await;
         let mut chunk = [0u8; 1024];
         while sink.remaining > 0 {

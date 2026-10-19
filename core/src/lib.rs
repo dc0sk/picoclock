@@ -21,6 +21,7 @@ mod tests {
 
 pub mod config;
 pub mod dcf77;
+pub mod download;
 pub mod entropy;
 pub mod font;
 pub mod geo;

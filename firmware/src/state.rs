@@ -73,6 +73,7 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     update_checked_unix: None,
     install: picoclock_core::image::Install::Idle,
     custom_images: cfg!(feature = "custom-images"),
+    can_download: cfg!(all(feature = "https", not(feature = "custom-images"))),
 }));
 
 /// Milliseconds since boot at the last pass of the clock task (`ui_task`), which owns the RTC bus. The watchdog task feeds the
@@ -160,6 +161,8 @@ pub static SYNC_NOW: Signal<Cs, ()> = Signal::new();
 pub static GEO_NOW: Signal<Cs, ()> = Signal::new();
 /// Ask GitHub now whether a newer release exists (`update check`, the web page's button).
 pub static UPDATE_NOW: Signal<Cs, ()> = Signal::new();
+/// Fetch the newest release from GitHub into the download slot (`update download`, the web page's button). The net task does it.
+pub static UPDATE_DOWNLOAD: Signal<Cs, ()> = Signal::new();
 
 /// What the console (or the web page) tells the storage task about an uploaded update file, in order: `Begin`, the blocks,
 /// `Finish`; or `Abort` at any point; `Apply` once the user confirmed. The channel holds one block, so the sender waits for the

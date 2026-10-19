@@ -916,3 +916,34 @@ full-size body (TLS records of 16 KB broke the connection until the incoming buf
 and a Pico 2 W with HTTPS off), the Pico W at all. Added the same day (official 0.2.0 build, real login over HTTPS): an authenticated upload: an older file was refused with 422 after 37 s, a good signed 0.9.9 file was staged with 200 after 45 s and the Security page showed the Install button, a wrong password gave 401; the Install button was not pressed on that build.
 
 Verifies: REQ-UPD-08
+
+### VR-76 · 2026-10-19 · host · The download: requests, redirect rule, head reader, streaming client, command and page
+
+Unit tests in `core/src/download.rs` (REQ-UPD-09): the requests name the release tag and `picoclock-<version>-pico2-w.pcu`; only
+`https://release-assets.githubusercontent.com/...` is followed (plain http, github.com, the host as a prefix or suffix of another,
+user info, a port, no path, a space, a line break in the path, and a path over 2 KB are refused); the head reader keeps status, length
+and Location out of a head with a 5 KB header, gives the same answer when fed in pieces of 1 to 1000 bytes, and refuses garbage, a
+second different length, a Location that does not fit and endless header bytes. `core/tests/download_openssl.rs` runs
+`nts_ke::https_stream` against `openssl s_server` with generated ECDSA and RSA chains: a 150 KB body arrives complete and in order, a
+redirect with a 6 KB header is returned and not followed, an untrusted root or a wrong name fails (and the test records that the
+sink saw bytes before the check, as documented), a short, long, chunked or length-less answer fails, and a sink that cannot keep the
+bytes stops the transfer. `core/src/cli.rs` and `core/src/http.rs` tests: `update download` is accepted only with a newer release
+known, never in a custom build or on the Pico W (which is pointed at the upload), and the button, the progress line and the page
+refresh appear only where they apply. **Not verified here:** the network and the flash (VR-77).
+
+Verifies: REQ-UPD-09
+
+### VR-77 · 2026-10-19 · hardware · Download from GitHub through the redirect (Pico 2 W)
+
+Run on a test build (version 0.1.5, flashed over BOOTSEL) that asked for `picoclock-0.2.0-pico-w.uf2`, an asset that exists on release
+v0.2.0, instead of a `.pcu`, because no release carries a `.pcu` yet; otherwise the code of this commit. `update check` reported
+0.2.0 as newer; `update download` asked github.com (certificate chain to USERTrust ECC verified), was redirected to
+release-assets.githubusercontent.com (Let's Encrypt chain to ISRG Root X1, RSA, verified) and streamed the 1.5 MB file into the
+download slot in about 58 s (about 26 KB/s); the checks then refused it ("not a picoclock image (no info block)", correct for a UF2)
+and nothing was marked for the swap. Through the web page (real login): the Security tab offered *Download 0.2.0 from GitHub*; the
+plain port answered 403; a second press while one ran was refused with a message, and so was `update download` on the terminal.
+During check and download the display scan was late by up to 38.6 ms (752 waits over 100 us in 219 s), a visible stutter, because
+decrypting a 16 KB record occupies the processor. **Not verified:** a download that ends in a staged image (needs a published release
+with a signed `.pcu`), the web page's refresh in a browser, and a failure half way (cable pulled) on hardware.
+
+Verifies: REQ-UPD-09

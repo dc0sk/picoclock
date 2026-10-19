@@ -71,6 +71,10 @@ pub enum Install {
     Idle,
     /// An upload is being written.
     Receiving,
+    /// The clock is fetching this release from GitHub (`update download`); the file is checked like an upload when it is in.
+    Downloading(Version),
+    /// The last download failed (no connection, a certificate, a redirect or a file that is not as announced).
+    DownloadFailed,
     /// A signed, newer image for this chip is waiting in the download slot; `update apply` swaps it in. Index of the signing key.
     Staged(Version, u8),
     /// The last upload was refused.
@@ -84,6 +88,8 @@ pub fn describe_install(out: &mut impl core::fmt::Write, i: Install) {
     let _ = match i {
         Install::Idle => return,
         Install::Receiving => write!(out, "image   : receiving an update file..."),
+        Install::Downloading(v) => write!(out, "image   : downloading {v} from GitHub..."),
+        Install::DownloadFailed => write!(out, "image   : the last download failed (connection, certificate or file); see the log, or upload the file instead"),
         Install::Staged(v, UNSIGNED) => write!(out, "image   : {v} is staged WITHOUT a signature check (custom build); 'update apply' installs it"),
         Install::Staged(v, key) => write!(out, "image   : {v} is staged (signed by key {}); 'update apply' installs it", key + 1),
         Install::Refused(r) => write!(out, "image   : the last upload was refused: {}", r.message()),

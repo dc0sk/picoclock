@@ -90,6 +90,8 @@ pub struct Status {
     pub install: crate::image::Install,
     /// This is a custom build (cargo feature `custom-images`): uploaded images are not checked against the signing keys.
     pub custom_images: bool,
+    /// This build can fetch the update from GitHub itself (Pico 2 W; not in a custom build).
+    pub can_download: bool,
 }
 
 /// One access point from the scan after a join.
@@ -134,6 +136,8 @@ pub enum Action {
     RootRemove(usize),
     /// `update check`: ask GitHub now whether a newer release exists (nothing is installed).
     UpdateCheck,
+    /// `update download`: fetch the update file of the newest release from GitHub into the download slot.
+    ImageDownload,
     /// `update upload <bytes>`: the session now takes that many raw bytes (an update file: the image, then its 64-byte signature).
     ImageUpload(usize),
     /// `update apply`: the session asks for confirmation (see [`INSTALL_WORD`]), then swaps the staged image in and restarts.
@@ -241,6 +245,7 @@ commands:
   root add              paste a CA certificate (PEM) to trust for NTS; then it ends at the END line
   root remove <n>       remove one of your own roots
   update [check]        show whether a newer release exists on GitHub; 'update check' asks now (nothing is installed)
+  update download       fetch the newest release from GitHub into the download slot (Pico 2 W; then 'update apply')
   update apply          install the uploaded image that waits in the download slot (asks you to confirm)
   version               show the software version, source repository and license
   cert                  show the HTTPS certificate (fingerprint, validity)
@@ -575,6 +580,28 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                 let _ = out.write_str("asking GitHub for the latest release (the answer shows in 'update' in a few seconds)\n");
                 Action::UpdateCheck
             }
+            "download" => match (st.custom_images, st.can_download, st.update, st.update_latest, st.install) {
+                (true, ..) => {
+                    let _ = out.write_str("a custom build does not download releases; upload your own file (update upload)\n");
+                    Action::None
+                }
+                (_, false, ..) => {
+                    let _ = out.write_str("this board cannot download: it has no HTTPS to GitHub's download host (Pico W). Download the .pcu file on a computer and upload it (tools/upload_image.py, or the web page's Security tab)\n");
+                    Action::None
+                }
+                (_, _, _, _, crate::image::Install::Receiving | crate::image::Install::Downloading(_)) => {
+                    let _ = out.write_str("an update file is being received; wait until it is done\n");
+                    Action::None
+                }
+                (_, _, crate::update::Check::Newer, Some(v), _) => {
+                    let _ = writeln!(out, "downloading {v} from GitHub (about a minute; 'update' shows how it went; nothing is installed until 'update apply')");
+                    Action::ImageDownload
+                }
+                _ => {
+                    let _ = out.write_str("no newer release is known; type 'update check' first\n");
+                    Action::None
+                }
+            },
             "apply" => match st.install {
                 crate::image::Install::Staged(v, _) => {
                     let _ = writeln!(out, "Install {v}? The clock restarts with it; if it does not start properly the bootloader brings the old version back.");
@@ -593,7 +620,7 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                 }
             },
             _ => {
-                let _ = out.write_str("usage: update | update check | update apply\n");
+                let _ = out.write_str("usage: update | update check | update download | update upload <size> | update apply\n");
                 Action::None
             }
         },
@@ -1084,5 +1111,43 @@ mod tests {
             assert_eq!(out.contains("images  : custom build"), shown, "status with custom={custom}");
         }
         assert!(CUSTOM_NOTICE.contains("NOT checked") && CUSTOM_NOTICE.contains("only informs"));
+    }
+
+    // VERIFIES: REQ-UPD-09
+    #[test]
+    fn update_download_asks_for_the_download_only_where_it_can_happen() {
+        use crate::image::Install;
+        use crate::update::{Check, Version};
+        let v = Version::parse("0.3.0");
+        let mut c = Config::default();
+        let ok = Status { can_download: true, update: Check::Newer, update_latest: v, ..Default::default() };
+        let run = |c: &mut Config, st: &Status| {
+            let mut out = std::string::String::new();
+            (execute("update download", c, st, &mut out), out)
+        };
+        let (a, out) = run(&mut c, &ok);
+        assert_eq!(a, Action::ImageDownload);
+        assert!(out.contains("0.3.0") && out.contains("nothing is installed until 'update apply'"), "{out}");
+        for (st, why) in [
+            (Status { custom_images: true, ..ok }, "custom build"),
+            (Status { can_download: false, ..ok }, "Pico W"),
+            (Status { update: Check::UpToDate, ..ok }, "up to date"),
+            (Status { update_latest: None, ..ok }, "no version"),
+            (Status { install: Install::Receiving, ..ok }, "busy"),
+            (Status { install: Install::Downloading(v.unwrap()), ..ok }, "downloading"),
+        ] {
+            let (a, out) = run(&mut c, &st);
+            assert_eq!(a, Action::None, "{why}: {out}");
+            assert!(!out.is_empty(), "{why} must say why");
+        }
+        let (_, out) = run(&mut c, &Status { can_download: false, ..ok });
+        assert!(out.contains("upload"), "the Pico W is pointed at the upload: {out}");
+        assert!(help_text_mentions_download());
+    }
+
+    fn help_text_mentions_download() -> bool {
+        let mut out = std::string::String::new();
+        execute("help", &mut Config::default(), &Status::default(), &mut out);
+        out.contains("update download")
     }
 }

@@ -19,11 +19,14 @@ Settings saved by an older version keep working; new settings start at their def
 - **Installing an update file from the web page** (Security tab; `POST /upload` for scripts): streamed into the download slot with the same
   checks as the terminal, a progress bar, and an *Install* button that asks for `INSTALL` on a second page. Refused over the plain
   port while HTTPS runs; one upload at a time across terminal and web.
+- **Downloading the update on the Pico 2 W** (`update download`, a button on the Security tab): fetches `picoclock-<version>-pico2-w.pcu` of the
+  newest release from GitHub (one redirect, pinned roots) into the download slot, where it is checked like an upload and waits for
+  `INSTALL`. Not on the Pico W (no RSA) and not in a custom build.
 - **Custom builds** (`--features custom-images`): install your own build without the signature and version checks. The build says
   so in `version`, `update` and `status`, and its update check only informs. See the README, "Custom builds".
 
 ### Planned
-- Download of the update from GitHub on the Pico 2 W, and revocation of a signing key (ADR-0006).
+- Revocation of a signing key, a release script that builds and signs the files, and a signature check in the bootloader (ADR-0006).
 - u-blox GPS as a third time source (0.3.0), reviewed before it is built.
 
 ## [0.2.0] - 2026-10-18

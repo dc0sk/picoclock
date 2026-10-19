@@ -149,3 +149,29 @@ pub fn install_of(r: &Result<(Version, u8), Failure>) -> Install {
         Err(Failure::Flash) => Install::WriteFailed,
     }
 }
+
+/// Collects a file arriving in pieces of any size into 4 KiB blocks for the storage task, which writes each into the download slot
+/// while the next one arrives. `remaining` counts the bytes of the file still to come; surplus bytes are ignored.
+pub struct BlockSink {
+    block: heapless::Vec<u8, 4096>,
+    pub remaining: usize,
+}
+
+impl BlockSink {
+    pub fn new(len: usize) -> Self {
+        Self { block: heapless::Vec::new(), remaining: len }
+    }
+
+    pub async fn push(&mut self, mut data: &[u8]) {
+        data = &data[..data.len().min(self.remaining)];
+        while !data.is_empty() {
+            let n = (self.block.capacity() - self.block.len()).min(data.len());
+            let _ = self.block.extend_from_slice(&data[..n]);
+            data = &data[n..];
+            self.remaining -= n;
+            if self.block.is_full() || self.remaining == 0 {
+                crate::state::INSTALL_IN.send(crate::state::InstallMsg::Block(core::mem::take(&mut self.block))).await;
+            }
+        }
+    }
+}

@@ -396,9 +396,9 @@ solid before. The display shows `--:--` until the RTC holds a valid time.
 Once a day while connected (the first time a few minutes after joining) the clock asks GitHub's releases API for the newest release
 of this project and says in `status`, in `update` and on the web page's Status page whether it is newer than the version you run
 (`update  : 0.3.0 is available, you run 0.2.0; see https://github.com/dc0sk/picoclock/releases`). `update check` (or the *Check for
-updates now* button) asks at once. `set update_check off` stops the daily check. **The check does not download or install anything**;
-you update with a UF2 file (see *Build and flash*) or by uploading an update file (below). The connection trusts only the USERTrust ECC root that GitHub's certificate chain ends at, and
-the answer is used only after the certificate, the name and the dates were verified. Installing from the clock is described below; the clock does not download an image by itself yet (see `docs/design/adr/0006-firmware-update.md`).
+updates now* button) asks at once. `set update_check off` stops the daily check. **The check itself does not download or install anything**;
+you update with a UF2 file (see *Build and flash*), by uploading an update file, or, on the Pico 2 W, by letting the clock fetch it (below). The connection trusts only the USERTrust ECC root that GitHub's certificate chain ends at, and
+the answer is used only after the certificate, the name and the dates were verified. Installing from the clock is described below (design: `docs/design/adr/0006-firmware-update.md`).
 
 ### Installing an update file, and why it is signed
 
@@ -416,6 +416,15 @@ on a second page. `curl -u admin --data-binary @FILE.pcu https://<clock>/upload`
 Pico W has no HTTPS and takes them over plain HTTP, which is safe for the image (the signature does not depend on how the file
 arrived) but not for the password. One file is received at a time across the terminal and the web page, and a connection that
 stalls for 10 seconds leaves nothing staged.
+
+**Letting the clock fetch it (Pico 2 W).** When the check says a newer release exists, `update download` (or the *Download ... from
+GitHub* button on the Security tab) fetches that release's update file, `picoclock-<version>-pico2-w.pcu`, into the same slot an
+upload uses: it asks `github.com`, follows the one redirect to `release-assets.githubusercontent.com` (no other host is followed),
+and streams the file to flash, about a minute. The two connections are pinned to the roots GitHub's certificates end at (USERTrust
+ECC and ISRG Root X1). **Nothing is installed by this**: the file gets the same checks as an upload (signature first), and you still
+confirm with `INSTALL`. While it runs the display may stutter for a moment (decrypting 16 KB records occupies the processor).
+The Pico W cannot verify GitHub's download certificate (RSA), so it does not download: use the upload. A custom build does not download
+either.
 
 **Why the signature.** An image replaces the whole firmware, including the WiFi password, the web password and the HTTPS key it can
 read. Without a check, anybody who learns the web password or reaches the console could install anything, and a fake release could

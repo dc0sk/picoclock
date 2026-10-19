@@ -24,6 +24,8 @@ use crate::state;
 const SESSIONS: usize = 2;
 const KE_TIMEOUT: Duration = Duration::from_secs(45);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// A whole update download (1.4 MB over TLS on the Pico 2 W takes about a minute).
+const STREAM_TIMEOUT: Duration = Duration::from_secs(300);
 const REPLY_TIMEOUT: Duration = Duration::from_secs(3);
 const ATTEMPTS: u8 = 2;
 
@@ -121,6 +123,43 @@ impl Nts {
         state::feed_watchdog();
         match with_timeout(KE_TIMEOUT, nts_ke::https_get::<_, DeviceClock>(socket, host, request, roots, &mut tls_read[..], &mut tls_write[..], response)).await {
             Ok(Ok(n)) => Some(n),
+            Ok(Err(e)) => {
+                warn!("https: {} failed: {:?}", host, defmt::Debug2Format(&e));
+                None
+            }
+            Err(_) => {
+                warn!("https: {} timed out", host);
+                None
+            }
+        }
+    }
+
+    /// One HTTPS request whose answer goes to `sink` piece by piece (the update download, `nts_ke::https_stream`). Like
+    /// `https_get`, the trust is limited to `roots`; unlike it, the answer may be far larger than RAM and takes a while, so the
+    /// watchdog is fed before each connection and the limit is five minutes. The sink sees bytes before the certificate is
+    /// checked; `Some` is returned only if the checks passed afterwards.
+    pub async fn https_stream<K: nts_ke::StreamSink>(&mut self, stack: Stack<'static>, host: &str, request: &[u8], roots: &[&[u8]], sink: &mut K) -> Option<picoclock_core::download::Head> {
+        if DeviceClock::now().is_none() {
+            warn!("https: {} skipped: the clock has no valid time, so certificate dates cannot be checked", host);
+            return None;
+        }
+        let addr = match with_timeout(Duration::from_secs(8), stack.dns_query(host, DnsQueryType::A)).await {
+            Ok(Ok(a)) => *a.first()?,
+            _ => {
+                warn!("https: cannot resolve {}", host);
+                return None;
+            }
+        };
+        let Buffers { tls_read, tls_write, tcp_rx, tcp_tx } = &mut *self.buffers;
+        let mut socket = TcpSocket::new(stack, &mut tcp_rx[..], &mut tcp_tx[..]).ok()?;
+        socket.set_timeout(Some(Duration::from_secs(20)));
+        if !matches!(with_timeout(CONNECT_TIMEOUT, socket.connect(SocketAddr::new(addr, 443))).await, Ok(Ok(()))) {
+            warn!("https: cannot connect to {}:443", host);
+            return None;
+        }
+        state::feed_watchdog();
+        match with_timeout(STREAM_TIMEOUT, nts_ke::https_stream::<_, DeviceClock, K>(socket, host, request, roots, &mut tls_read[..], &mut tls_write[..], sink)).await {
+            Ok(Ok(head)) => Some(head),
             Ok(Err(e)) => {
                 warn!("https: {} failed: {:?}", host, defmt::Debug2Format(&e));
                 None

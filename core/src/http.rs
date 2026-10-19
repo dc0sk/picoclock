@@ -582,8 +582,10 @@ pub fn tab_from_query(query: &str) -> Tab {
 pub fn render_page(cfg: &Config, st: &Status, msg: Option<(&str, bool)>, secure: bool, roots: &crate::rootstore::Roots, tab: Tab, out: &mut impl Write) -> core::fmt::Result {
     // While an update check runs, the Status page asks the browser to load it again in a few seconds (a plain GET, which
     // asks nothing of the clock), so the answer appears without the user reloading by hand.
-    match (tab, st.update == crate::update::Check::Checking, PAGE_HEAD.split_once("</head>")) {
-        (Tab::Status, true, Some((head, rest))) => write!(out, "{head}<meta http-equiv=refresh content=4></head>{rest}")?,
+    // The same while the clock fetches an update file from GitHub (Security page).
+    let downloading = matches!(st.install, crate::image::Install::Downloading(_) | crate::image::Install::Receiving);
+    match (tab, st.update == crate::update::Check::Checking, downloading, PAGE_HEAD.split_once("</head>")) {
+        (Tab::Status, true, _, Some((head, rest))) | (Tab::Security, _, true, Some((head, rest))) => write!(out, "{head}<meta http-equiv=refresh content=4></head>{rest}")?,
         _ => out.write_str(PAGE_HEAD)?,
     }
     out.write_str("<nav>")?;
@@ -640,13 +642,19 @@ fn setting(cfg: &Config, k: &crate::config::KeyInfo, out: &mut impl Write) -> co
     out.write_str("</label>")
 }
 
-/// Taking an update file (REQ-UPD-08): the form that sends it, and, once one is staged, the button that installs it.
+/// Taking an update file (REQ-UPD-08, REQ-UPD-09): the form that sends it, the button that fetches the newest release (Pico 2 W),
+/// and, once one is staged, the button that installs it.
 fn update_file(st: &Status, secure: bool, out: &mut impl Write) -> core::fmt::Result {
     out.write_str("<h2>Install an update file</h2>")?;
     if st.custom_images {
         out.write_str("<p class=\"msg err\">Custom build: an update file is NOT checked against the signing keys. Only install files you built or trust.</p>")?;
     } else {
         out.write_str("<p>An update file (.pcu) is a firmware image with its signature. The clock checks the signature, the chip and that it is newer, and refuses anything else.</p>")?;
+    }
+    if matches!(st.install, crate::image::Install::Downloading(_) | crate::image::Install::Receiving | crate::image::Install::DownloadFailed) {
+        let mut line = heapless::String::<300>::new();
+        crate::image::describe_install(&mut line, st.install);
+        write!(out, "<p class=msg>{}</p>", Esc(line.strip_prefix("image   : ").unwrap_or(&line)))?;
     }
     if !upload_allowed(secure, st.https_state) {
         return out.write_str("<p>Open this page over <b>https://</b> to upload a file. The plain port does not take one while HTTPS is on.</p>");
@@ -659,6 +667,11 @@ var p=document.getElementById('pg'),x=new XMLHttpRequest();p.hidden=false;x.open
 x.upload.onprogress=function(e){if(e.lengthComputable){p.max=e.total;p.value=e.loaded}};\
 x.onload=function(){location.href='/?tab=security'};x.onerror=function(){location.href='/?tab=security'};x.send(f)}</script>",
     )?;
+    if let (true, false, crate::update::Check::Newer, Some(v)) = (st.can_download, st.custom_images, st.update, st.update_latest) {
+        if !matches!(st.install, crate::image::Install::Downloading(_) | crate::image::Install::Receiving) {
+            write!(out, "<form method=post action=/download><p>{v} is available on GitHub.</p><button>Download {v} from GitHub</button></form>")?;
+        }
+    }
     if let crate::image::Install::Staged(v, _) = st.install {
         write!(out, "<form method=post action=/install><p>{v} is staged and checked.</p><button>Install {v}...</button></form>")?;
     }
@@ -970,6 +983,7 @@ mod tests {
             update_checked_unix: Some(1_700_000_000),
             install: crate::image::Install::Idle,
             custom_images: false,
+            can_download: false,
             geo: [crate::cli::GeoTry { stage: 5, bytes: 999, end: 1, addr: [255, 255, 255, 255] }; crate::geo::PROVIDERS.len()],
         };
         let mut c = Config::default();
@@ -1406,5 +1420,29 @@ mod tests {
         let mut p = heapless::String::<2048>::new();
         render_install_confirm(crate::update::Version { major: 1, minor: 2, patch: 3 }, None, &mut p).unwrap();
         assert!(p.contains("Install 1.2.3") && p.contains("INSTALL") && p.contains("action=/install"));
+    }
+
+    // VERIFIES: REQ-UPD-09
+    #[test]
+    fn the_download_button_shows_only_where_a_download_is_possible_and_progress_refreshes_the_page() {
+        use crate::image::Install;
+        use crate::update::{Check, Version};
+        let v = Version { major: 0, minor: 3, patch: 0 };
+        let page = |st: Status| {
+            let mut p = heapless::String::<16384>::new();
+            render_page(&Config::default(), &st, None, false, &crate::rootstore::Roots::new(), Tab::Security, &mut p).expect("fits");
+            p
+        };
+        let base = Status { can_download: true, update: Check::Newer, update_latest: Some(v), ..Default::default() };
+        assert!(page(base).contains("action=/download") && page(base).contains("Download 0.3.0 from GitHub"));
+        // not on a Pico W, not in a custom build, not when nothing newer is known, not while a file is coming in
+        assert!(!page(Status { can_download: false, ..base }).contains("/download"));
+        assert!(!page(Status { custom_images: true, ..base }).contains("/download"));
+        assert!(!page(Status { update: Check::UpToDate, ..base }).contains("/download"));
+        assert!(!page(Status { install: Install::Downloading(v), ..base }).contains("action=/download"));
+        let busy = page(Status { install: Install::Downloading(v), ..base });
+        assert!(busy.contains("refresh content=4") && busy.contains("downloading 0.3.0 from GitHub"), "the page follows the download");
+        assert!(page(Status { install: Install::DownloadFailed, ..base }).contains("download failed"));
+        assert!(!page(base).contains("refresh content=4"));
     }
 }

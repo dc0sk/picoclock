@@ -60,7 +60,7 @@ code = ["core/src/sources.rs", "core/src/dcf77.rs", "firmware/src/sources.rs", "
 [[cap]]
 id = "CAP-UPDATE"
 name = "Firmware update check (GitHub releases)"
-code = ["core/src/update.rs"]
+code = ["core/src/update.rs", "core/src/download.rs"]
 
 [[cap]]
 id = "CAP-IMAGE"
@@ -641,6 +641,15 @@ criticality = "high"
 statement = "The Security page of the web interface shall take an update file (REQ-UPD-05) as the raw body of a POST to /upload, streamed into the bootloader's download slot and checked exactly as on the terminal, and shall install a staged image only after a second page asks for the word INSTALL (REQ-UPD-06). Over the plain port the upload and the install are refused while HTTPS runs; a clock without HTTPS takes them over plain HTTP. Every refusal (login, origin, a running upload on another interface, a bad file) comes before the first byte is stored; one upload runs at a time across the terminal and the web; a connection that stalls for 10 seconds or breaks leaves nothing staged. The page says so when the build is a custom build (REQ-UPD-07)."
 rationale = "Decided in ADR-0006 and requested by the owner (2026-10-19): the Pico W installs by upload only and a browser is how most users reach the clock. The signature check does not depend on the transport, so plain HTTP is acceptable where TLS does not exist; where TLS runs, the password must not travel in the clear for an action this large."
 cap = ["CAP-IMAGE", "CAP-HTTP", "CAP-APP"]
+
+[[req]]
+id = "REQ-UPD-09"
+area = "Update"
+status = "ratified"
+criticality = "high"
+statement = "On the Pico 2 W, `update download` and the Security page's button shall fetch the update file (REQ-UPD-05) of the release the update check found, from github.com via one redirect, into the download slot, and never install it: the file goes through the same checks as an upload and waits for the INSTALL confirmation. The requests shall name the asset picoclock-<version>-pico2-w.pcu of the release tag; the redirect shall be followed only to https://release-assets.githubusercontent.com and only if its address holds visible ASCII; github.com shall be trusted through the root of the update check and the download host through ISRG Root X1 only; the file shall be accepted only if the body is exactly as long as announced (no chunked answer) and both certificate checks passed after it. A custom build (REQ-UPD-07) and the Pico W shall not download. One file is received at a time across terminal, web and download."
+rationale = "Decided in ADR-0006 points 4 and 8 and requested by the owner (2026-10-19): the Pico 2 W can verify GitHub's RSA download chain and so can fetch the file itself; the Pico W cannot and installs by upload. The signature, not the transport, decides what is installed, so the download adds only fetch-and-stage, with the same refusals as an upload; pinning one root per host and the single redirect keep the set of parties that can serve a file small."
+cap = ["CAP-UPDATE", "CAP-IMAGE", "CAP-NTS", "CAP-HTTP", "CAP-CLI", "CAP-APP"]
 
 # ---------------------------------------------------------------------------------------------------- terminal
 
