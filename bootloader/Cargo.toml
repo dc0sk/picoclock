@@ -1,6 +1,6 @@
 [package]
 name = "picoclock-bootloader"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 description = "Bootloader for the picoclock firmware (ADR-0006): swaps in a downloaded image and swaps back if it does not confirm itself"

@@ -1,6 +1,6 @@
 [package]
 name = "picoclock"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 description = "Pico-Clock-Green firmware for the Raspberry Pi Pico W / Pico 2 W with WiFi and NTP"

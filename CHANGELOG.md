@@ -7,6 +7,8 @@ Settings saved by an older version keep working; new settings start at their def
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-19
+
 ### Added
 - **Release script** (`tools/release.sh`): builds both boards, writes `picoclock-<version>-<board>.uf2` (first installation) and
   `.pcu` (signed update file) plus `SHA256SUMS` into `dist/`, signing in a temporary GnuPG home and verifying against the built-in key.
@@ -114,6 +116,7 @@ Pico W.
 - Hardware random number generator on the Pico 2 W; AGPL-3.0-or-later licence; architecture notes, software
   requirements specification and verification log.
 
-[Unreleased]: https://github.com/dc0sk/picoclock/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dc0sk/picoclock/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/dc0sk/picoclock/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dc0sk/picoclock/releases/tag/v0.2.0
 [0.1.0]: https://github.com/dc0sk/picoclock/commits/main
