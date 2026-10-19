@@ -409,6 +409,14 @@ keys built into the firmware. Nothing is installed by the upload: `update` shows
 `INSTALL`, then restarts into the new image. If the new image does not confirm itself 20 seconds after it started, the bootloader
 brings the old one back at the next start.
 
+**From the web page.** The *Security* tab has the same thing: choose the `.pcu` file and press *Upload*. The page shows the progress,
+then the result (staged, or why the file was refused), and a staged image gets an *Install* button that asks for the word `INSTALL`
+on a second page. `curl -u admin --data-binary @FILE.pcu https://<clock>/upload` does the same without a browser. With HTTPS running
+(Pico 2 W) the plain port refuses both the upload and the install, because the web password would travel in the clear; the
+Pico W has no HTTPS and takes them over plain HTTP, which is safe for the image (the signature does not depend on how the file
+arrived) but not for the password. One file is received at a time across the terminal and the web page, and a connection that
+stalls for 10 seconds leaves nothing staged.
+
 **Why the signature.** An image replaces the whole firmware, including the WiFi password, the web password and the HTTPS key it can
 read. Without a check, anybody who learns the web password or reaches the console could install anything, and a fake release could
 do the same. The official releases are signed with the project owner's key (GnuPG, fingerprint in `docs/design/adr/0006-firmware-update.md`);

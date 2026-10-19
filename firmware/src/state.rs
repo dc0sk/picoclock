@@ -175,6 +175,26 @@ pub static INSTALL_IN: Channel<Cs, InstallMsg, 1> = Channel::new();
 /// The storage task's answer to `Begin` (`true` = ready for blocks), `Finish` (`true` = staged) and `Apply` (`false` = refused;
 /// on success the clock restarts instead). The reason is in `Status::install`.
 pub static INSTALL_REPLY: Signal<Cs, bool> = Signal::new();
+
+static INSTALL_BUSY: Mutex<Tm, core::cell::Cell<bool>> = Mutex::new(core::cell::Cell::new(false));
+/// Whoever is sending an update file (the terminal or a web connection) holds this, so two senders cannot interleave their
+/// blocks. Dropping it frees the slot; an upload that never finished stops showing as "receiving".
+pub struct InstallClaim(());
+impl InstallClaim {
+    pub fn take() -> Option<Self> {
+        INSTALL_BUSY.lock(|b| if b.get() { None } else { b.set(true); Some(InstallClaim(())) })
+    }
+}
+impl Drop for InstallClaim {
+    fn drop(&mut self) {
+        with_runtime(|r| {
+            if r.install == picoclock_core::image::Install::Receiving {
+                r.install = picoclock_core::image::Install::Idle;
+            }
+        });
+        INSTALL_BUSY.lock(|b| b.set(false));
+    }
+}
 pub fn set_install(i: picoclock_core::image::Install) {
     with_runtime(|r| r.install = i);
 }

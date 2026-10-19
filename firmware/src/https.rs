@@ -174,7 +174,8 @@ pub async fn https_task(stack: Stack<'static>) -> ! {
             continue;
         }
         let started = Instant::now();
-        let result = with_timeout(Duration::from_secs(20), serve(&mut sock, config, &mut incoming[..], &mut outgoing[..])).await;
+        // The long limit is for an update file; the handshake and the request head have their own, short one in `web::serve`.
+        let result = with_timeout(Duration::from_secs(330), serve(&mut sock, config, &mut incoming[..], &mut outgoing[..])).await;
         match result {
             Ok(Ok(())) => info!("https: served a request in {} ms (heap peak {})", started.elapsed().as_millis(), heap::usage().1),
             Ok(Err(e)) => warn!("https: connection failed: {:?}", defmt::Debug2Format(&e)),

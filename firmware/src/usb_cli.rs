@@ -159,6 +159,8 @@ async fn run_line(class: &mut Class, line: &str) -> Result<Action, Disconnected>
 struct Upload {
     remaining: usize,
     block: heapless::Vec<u8, 4096>,
+    /// Keeps a web upload out while this one runs.
+    _claim: state::InstallClaim,
 }
 
 async fn session(class: &mut Class) -> Result<(), Disconnected> {
@@ -273,10 +275,15 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
                                 continue;
                             }
                             Action::ImageUpload(len) => {
+                                let Some(claim) = state::InstallClaim::take() else {
+                                    send(class, "another update file is being received (web page); try again when it is done\r\n").await?;
+                                    send(class, PROMPT).await?;
+                                    continue;
+                                };
                                 state::INSTALL_IN.send(state::InstallMsg::Begin(len)).await;
                                 if state::INSTALL_REPLY.wait().await {
                                     send(class, "ready: send the file now\r\n").await?;
-                                    upload = Some(Upload { remaining: len, block: heapless::Vec::new() });
+                                    upload = Some(Upload { remaining: len, block: heapless::Vec::new(), _claim: claim });
                                     continue;
                                 }
                                 let mut text = heapless::String::<300>::new();

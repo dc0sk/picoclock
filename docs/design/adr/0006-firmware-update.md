@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/design/adr/0006-firmware-update.md
 status: ledger
-last_updated: 2026-10-18
+last_updated: 2026-10-19
 ---
 
 # 0006. Firmware update: an online check now, a signed install later
@@ -94,6 +94,16 @@ stays limited**. Points 4 to 7 stand except where this section says otherwise.
     custom clocks keep the protection), and a runtime setting to switch the check off (REJECTED, assumed: anyone who reaches the web
     page or the console with the password could then install anything, which is the attack the signature exists for). When the bootloader
     gets its own signature check (second line of defence), it gets the same feature.
+
+16. **Upload from the web page (REQ-UPD-08).** `POST /upload` takes the file as the raw body (no multipart: a `fetch`/`XMLHttpRequest`
+    with a `File`, or `curl --data-binary`), streamed in 4 KiB blocks to the same staging code as the terminal; it is the one request
+    allowed to be larger than the 8 KiB request buffer, and it is recognised from the head alone. Every refusal (login, origin,
+    another upload running, a file the rules reject) comes before the first byte is stored; an error is answered and the rest of the
+    body read and thrown away so the browser sees the answer rather than a reset. One sender at a time (a claim shared by terminal and
+    web). The install is a second step with the word `INSTALL`, as on the terminal. The plain port refuses both while HTTPS runs (as
+    for the factory reset); the Pico W, which has no HTTPS, takes them over plain HTTP: the signature, not the transport, protects the
+    image. Alternatives: multipart/form-data (REJECTED, assumed: needs the boundary parsed in a streaming parser for no gain), a page
+    without JavaScript (REJECTED, assumed: a plain form cannot send a raw body; `curl` covers scripts).
 
 Build order: release tooling and host verifier; memory maps and bootloader; upload path into the download slot (Pico W and Pico 2
 W, no network needed); streaming download with one redirect (Pico 2 W only); rollback rule and two-step confirmation; revocation.

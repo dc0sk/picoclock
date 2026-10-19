@@ -42,49 +42,61 @@ pub fn reset_allowed(secure: bool, https_on: bool) -> bool {
     secure || !https_on
 }
 
-pub fn parse_request(buf: &[u8]) -> Parse<'_> {
+/// A request's first line and headers, parsed; the body (if any) is not looked at yet.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Head<'a> {
+    /// The request with an empty body.
+    pub request: Request<'a>,
+    /// What the Content-Length header announced (0 without one).
+    pub content_length: usize,
+    /// Where the body starts in the buffer.
+    pub body_at: usize,
+}
+
+/// Parses the head of a request; `Err` says what to do instead (`Incomplete`: read more; `Bad`; `TooLarge`).
+pub fn parse_head(buf: &[u8]) -> Result<Head<'_>, Parse<'static>> {
     let Some(head_end) = buf.windows(4).position(|w| w == b"\r\n\r\n") else {
-        return if buf.len() >= MAX_REQUEST { Parse::TooLarge } else { Parse::Incomplete };
+        return Err(if buf.len() >= MAX_REQUEST { Parse::TooLarge } else { Parse::Incomplete });
     };
-    let Ok(head) = core::str::from_utf8(&buf[..head_end]) else { return Parse::Bad };
+    let Ok(head) = core::str::from_utf8(&buf[..head_end]) else { return Err(Parse::Bad) };
     let mut lines = head.split("\r\n");
     let mut parts = lines.next().unwrap_or("").split(' ');
     let (Some(method), Some(path), Some(version), None) = (parts.next(), parts.next(), parts.next(), parts.next())
     else {
-        return Parse::Bad;
+        return Err(Parse::Bad);
     };
     if !version.starts_with("HTTP/1.") || !path.starts_with('/') || path.len() > 64 {
-        return Parse::Bad;
+        return Err(Parse::Bad);
     }
     let method = match method {
         "GET" => Method::Get,
         "POST" => Method::Post,
-        _ => return Parse::Bad,
+        _ => return Err(Parse::Bad),
     };
     let (mut content_length, mut authorization, mut host, mut origin) = (None, None, None, None);
     for (n, line) in lines.enumerate() {
         if n >= MAX_HEADERS {
-            return Parse::TooLarge;
+            return Err(Parse::TooLarge);
         }
-        let Some((name, value)) = line.split_once(':') else { return Parse::Bad };
+        let Some((name, value)) = line.split_once(':') else { return Err(Parse::Bad) };
         // `Content-Length : 9` is not the Content-Length header (RFC 9112 section 5.1): refuse it rather than read it as an
         // unknown header and drop the body it announces. A name that is empty or starts with a space (obsolete line folding)
         // is refused too.
         if name.is_empty() || name.starts_with([' ', '\t']) || name.ends_with([' ', '\t']) {
-            return Parse::Bad;
+            return Err(Parse::Bad);
         }
         let value = value.trim();
         if name.eq_ignore_ascii_case("content-length") {
             // A repeated Content-Length is a smuggling signal, not something to be lenient about.
             if content_length.is_some() {
-                return Parse::Bad;
+                return Err(Parse::Bad);
             }
             content_length = match value.parse::<usize>() {
                 Ok(n) => Some(n),
-                Err(_) => return Parse::Bad,
+                Err(_) => return Err(Parse::Bad),
             };
         } else if name.eq_ignore_ascii_case("transfer-encoding") {
-            return Parse::Bad;
+            return Err(Parse::Bad);
         } else if name.eq_ignore_ascii_case("authorization") {
             authorization = Some(value);
         } else if name.eq_ignore_ascii_case("host") {
@@ -93,18 +105,46 @@ pub fn parse_request(buf: &[u8]) -> Parse<'_> {
             origin = Some(value);
         }
     }
-    let body_len = content_length.unwrap_or(0);
-    let total = match (head_end + 4).checked_add(body_len) {
+    let content_length = content_length.unwrap_or(0);
+    if method == Method::Get && content_length > 0 {
+        return Err(Parse::Bad);
+    }
+    Ok(Head { request: Request { method, path, body: &[], authorization, host, origin }, content_length, body_at: head_end + 4 })
+}
+
+pub fn parse_request(buf: &[u8]) -> Parse<'_> {
+    let head = match parse_head(buf) {
+        Ok(h) => h,
+        Err(p) => return p,
+    };
+    let total = match head.body_at.checked_add(head.content_length) {
         Some(t) if t <= MAX_REQUEST => t,
         _ => return Parse::TooLarge,
     };
-    if method == Method::Get && body_len > 0 {
-        return Parse::Bad;
-    }
     if buf.len() < total {
         return Parse::Incomplete;
     }
-    Parse::Complete(Request { method, path, body: &buf[head_end + 4..total], authorization, host, origin })
+    Parse::Complete(Request { body: &buf[head.body_at..total], ..head.request })
+}
+
+/// The path that takes an update file as the raw body of a POST. It is streamed to flash, not held in the request buffer, so
+/// it is the one request allowed to be larger than `MAX_REQUEST`.
+pub const UPLOAD_PATH: &str = "/upload";
+
+/// The head of an upload, once the buffer holds all of it (so a request cannot be called an upload before it was read).
+pub fn upload_head(buf: &[u8]) -> Option<Head<'_>> {
+    parse_head(buf).ok().filter(|h| h.request.method == Method::Post && http_path(h.request.path) == UPLOAD_PATH)
+}
+
+fn http_path(path: &str) -> &str {
+    split_query(path).0
+}
+
+/// Whether an update file may be taken on this connection: like the factory reset, not over the plain port while HTTPS runs
+/// (`https_state == 2`), because the web password would travel in the clear and the install is a decision about the firmware.
+/// A clock without HTTPS (Pico W) takes it over plain HTTP; the signature check does not depend on the transport.
+pub fn upload_allowed(secure: bool, https_state: u8) -> bool {
+    secure || https_state != 2
 }
 
 /// CSRF defence for browser-submitted forms: if the browser sent an Origin, its scheme must be the one of this connection
@@ -313,13 +353,22 @@ pub enum ResetForm {
 
 /// Reads the factory reset form: `confirm=<word>`. Anything but the exact word never erases.
 pub fn parse_reset_form(body: &[u8]) -> ResetForm {
+    parse_confirm_form(body, crate::cli::reset_confirmed)
+}
+
+/// Reads the install form: `confirm=<word>`. Anything but the exact word never installs.
+pub fn parse_install_form(body: &[u8]) -> ResetForm {
+    parse_confirm_form(body, crate::cli::install_confirmed)
+}
+
+fn parse_confirm_form(body: &[u8], confirmed: fn(&str) -> bool) -> ResetForm {
     let Ok(body) = core::str::from_utf8(body) else { return ResetForm::Refused };
     for pair in body.split('&') {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
         if k == "confirm" {
             let mut buf = [0u8; 32];
             return match url_decode(v, &mut buf) {
-                Some(word) if crate::cli::reset_confirmed(word) => ResetForm::Confirmed,
+                Some(word) if confirmed(word) => ResetForm::Confirmed,
                 _ => ResetForm::Refused,
             };
         }
@@ -345,6 +394,27 @@ pub fn render_reset_confirm(msg: Option<&str>, out: &mut impl Write) -> core::fm
 /// Shown after a confirmed factory reset, just before the clock restarts.
 pub const RESET_DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>picoclock</title><body style=\"font-family:sans-serif;max-width:40rem;margin:2rem auto\">\
 <h1>picoclock</h1><p>Everything is erased and the clock is restarting. It will not join a WiFi network until you give it one over the USB terminal.</p></body>";
+
+/// The second question of an install from the web: which image, and a field for the confirmation word.
+pub fn render_install_confirm(version: crate::update::Version, msg: Option<&str>, out: &mut impl Write) -> core::fmt::Result {
+    out.write_str(PAGE_HEAD)?;
+    if let Some(m) = msg {
+        write!(out, "<p class=\"msg err\">{}</p>", Esc(m))?;
+    }
+    write!(
+        out,
+        "<h2>Install {version}</h2><p>The clock swaps the staged image in and restarts. If the new image does not confirm itself within \
+about 20 seconds of running, the bootloader puts the old one back at the next restart. Settings, WiFi and certificates stay.</p>\
+<form method=post action=/install><label>Type {} to confirm<input name=confirm autocomplete=off required></label>\
+<button>Install and restart</button></form><p><a href=\"/?tab=security\">Cancel</a></p></body></html>",
+        crate::cli::INSTALL_WORD
+    )
+}
+
+/// Shown after a confirmed install, just before the clock restarts; it loads the status page again after a minute.
+pub const INSTALL_DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><meta http-equiv=refresh content=60;url=/><title>picoclock</title>\
+<body style=\"font-family:sans-serif;max-width:40rem;margin:2rem auto\"><h1>picoclock</h1><p>The new image is being installed and the clock restarts. \
+This page loads the clock again in a minute. If it does not come back, wait a little longer: a new image that does not confirm itself is replaced by the old one at the next restart.</p></body>";
 
 /// Why a certificate upload was refused.
 #[derive(Debug, PartialEq, Eq)]
@@ -570,8 +640,34 @@ fn setting(cfg: &Config, k: &crate::config::KeyInfo, out: &mut impl Write) -> co
     out.write_str("</label>")
 }
 
+/// Taking an update file (REQ-UPD-08): the form that sends it, and, once one is staged, the button that installs it.
+fn update_file(st: &Status, secure: bool, out: &mut impl Write) -> core::fmt::Result {
+    out.write_str("<h2>Install an update file</h2>")?;
+    if st.custom_images {
+        out.write_str("<p class=\"msg err\">Custom build: an update file is NOT checked against the signing keys. Only install files you built or trust.</p>")?;
+    } else {
+        out.write_str("<p>An update file (.pcu) is a firmware image with its signature. The clock checks the signature, the chip and that it is newer, and refuses anything else.</p>")?;
+    }
+    if !upload_allowed(secure, st.https_state) {
+        return out.write_str("<p>Open this page over <b>https://</b> to upload a file. The plain port does not take one while HTTPS is on.</p>");
+    }
+    out.write_str(
+        "<input type=file id=pcu accept=.pcu><button type=button id=go>Upload</button> <progress id=pg value=0 max=1 hidden></progress>\
+<noscript><p>This needs JavaScript. Without it: <code>curl -u admin --data-binary @file.pcu http://&lt;clock&gt;/upload</code></p></noscript>\
+<script>document.getElementById('go').onclick=function(){var f=document.getElementById('pcu').files[0];if(!f)return;\
+var p=document.getElementById('pg'),x=new XMLHttpRequest();p.hidden=false;x.open('POST','/upload');\
+x.upload.onprogress=function(e){if(e.lengthComputable){p.max=e.total;p.value=e.loaded}};\
+x.onload=function(){location.href='/?tab=security'};x.onerror=function(){location.href='/?tab=security'};x.send(f)}</script>",
+    )?;
+    if let crate::image::Install::Staged(v, _) = st.install {
+        write!(out, "<form method=post action=/install><p>{v} is staged and checked.</p><button>Install {v}...</button></form>")?;
+    }
+    Ok(())
+}
+
 /// The factory reset, and (over TLS, once HTTPS runs) the certificate and the NTS trust anchors.
 fn security(st: &Status, secure: bool, roots: &crate::rootstore::Roots, out: &mut impl Write) -> core::fmt::Result {
+    update_file(st, secure, out)?;
     // The button only asks; the erase needs the confirmation word on the next page.
     out.write_str("<form method=post action=/reset><h2>Factory reset</h2><p>Erase all settings and start over. You are asked to confirm on the next page.</p><button>Factory reset...</button></form>")?;
     // Replacing the certificate means sending a private key: offered only over TLS, and only once the HTTPS server runs.
@@ -1241,5 +1337,74 @@ mod tests {
             }
         }
         s
+    }
+
+    fn upload_request(path: &str, len: usize) -> std::string::String {
+        format!("POST {path} HTTP/1.1\r\nHost: 10.0.0.5\r\nContent-Length: {len}\r\n\r\nabc")
+    }
+
+    // VERIFIES: REQ-UPD-08
+    #[test]
+    fn only_a_post_to_the_upload_path_is_streamed_and_only_once_its_head_is_complete() {
+        let big = 1_400_000;
+        let text = upload_request("/upload", big);
+        let head = upload_head(text.as_bytes()).expect("an upload");
+        assert_eq!((head.content_length, head.request.path), (big, "/upload"));
+        assert_eq!(&text.as_bytes()[head.body_at..], b"abc", "the bytes after the head are the start of the file");
+        // other paths keep the 8 KiB limit, and the query does not make another path an upload
+        assert!(upload_head(upload_request("/save", big).as_bytes()).is_none());
+        assert_eq!(parse_request(upload_request("/save", big).as_bytes()), Parse::TooLarge);
+        assert!(upload_head(upload_request("/upload?x=1", big).as_bytes()).is_some());
+        assert!(upload_head(upload_request("/uploads", big).as_bytes()).is_none());
+        assert!(upload_head(b"GET /upload HTTP/1.1\r\n\r\n").is_none(), "a GET is no upload");
+        assert!(upload_head(b"POST /upload HTTP/1.1\r\nContent-Length: 5\r\n").is_none(), "the head is not complete yet");
+        // smuggling signals stay refused on this path too
+        assert!(upload_head(b"POST /upload HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\n").is_none());
+        assert!(upload_head(b"POST /upload HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n").is_none());
+        assert_eq!(parse_head(upload_request("/upload", 3).as_bytes()).unwrap().content_length, 3);
+    }
+
+    // VERIFIES: REQ-UPD-08
+    #[test]
+    fn the_plain_port_takes_no_update_file_while_https_runs() {
+        for (secure, state, ok) in [(true, 2, true), (false, 2, false), (false, 0, true), (false, 1, true), (true, 0, true)] {
+            assert_eq!(upload_allowed(secure, state), ok, "secure={secure} https_state={state}");
+        }
+    }
+
+    // VERIFIES: REQ-UPD-08
+    #[test]
+    fn the_security_page_offers_the_upload_the_install_and_the_custom_warning_when_they_apply() {
+        let staged = crate::image::Install::Staged(crate::update::Version { major: 0, minor: 9, patch: 9 }, 0);
+        let page = |st: Status, secure: bool| {
+            let mut p = heapless::String::<16384>::new();
+            render_page(&Config::default(), &st, None, secure, &crate::rootstore::Roots::new(), Tab::Security, &mut p).expect("fits");
+            p
+        };
+        let idle = page(Status::default(), false);
+        assert!(idle.contains("action=/install") == false && idle.contains("id=pcu") && idle.contains("/upload"));
+        assert!(!idle.contains("NOT checked"), "an official build says nothing about unsigned files");
+        let with_stage = page(Status { install: staged, ..Default::default() }, false);
+        assert!(with_stage.contains("action=/install") && with_stage.contains("0.9.9"));
+        let custom = page(Status { custom_images: true, ..Default::default() }, false);
+        assert!(custom.contains("NOT checked against the signing keys"));
+        let plain_with_https = page(Status { https_state: 2, install: staged, ..Default::default() }, false);
+        assert!(!plain_with_https.contains("id=pcu") && !plain_with_https.contains("action=/install") && plain_with_https.contains("https://"));
+        let over_https = page(Status { https_state: 2, ..Default::default() }, true);
+        assert!(over_https.contains("id=pcu"));
+    }
+
+    // VERIFIES: REQ-UPD-08
+    #[test]
+    fn the_install_needs_the_exact_word_and_says_which_version() {
+        assert_eq!(parse_install_form(b""), ResetForm::Ask);
+        assert_eq!(parse_install_form(b"confirm=INSTALL"), ResetForm::Confirmed);
+        for wrong in ["confirm=install", "confirm=RESET", "confirm=", "confirm=INSTALLX"] {
+            assert_eq!(parse_install_form(wrong.as_bytes()), ResetForm::Refused, "{wrong}");
+        }
+        assert_eq!(parse_reset_form(b"confirm=INSTALL"), ResetForm::Refused, "the reset word is its own");
+        let mut p = heapless::String::<2048>::new();
+        render_install_confirm(crate::update::Version { major: 1, minor: 2, patch: 3 }, None, &mut p).unwrap();
+        assert!(p.contains("Install 1.2.3") && p.contains("INSTALL") && p.contains("action=/install"));
     }
 }

@@ -888,3 +888,31 @@ refuses an image for the other chip on hardware (host test only), the web page's
 
 Verifies: REQ-UPD-07
 
+
+### VR-74 · 2026-10-19 · host · The web upload: head recognition, port rule, page and confirmation (core::http)
+
+Unit tests in `core/src/http.rs` (REQ-UPD-08): only a POST to `/upload` whose head is complete is taken as an upload (a query does not
+change the path, `/uploads` and `/save` are not, a GET is not, a repeated Content-Length or a Transfer-Encoding is refused as everywhere
+else), every other path keeps the 8 KiB limit, the bytes behind the head are the start of the file, the plain port is refused only
+while HTTPS runs, the Security page offers the upload form, the staged image's button and the custom-build warning when they apply
+(an official build says nothing about unsigned files), and the install form accepts exactly `INSTALL` (the reset word does not
+work on it). **Not verified here:** streaming, flash and the browser (VR-75).
+
+Verifies: REQ-UPD-08
+
+### VR-75 · 2026-10-19 · hardware · Upload and install from the web (Pico 2 W, curl over HTTPS)
+
+Run on a test build (version 0.9.5, flashed over BOOTSEL) whose web login was switched off in a local patch that is not in the
+repository, because the owner's web password is not known to the tester; the rest is the code of this commit. Over HTTPS: five
+refused files (tampered, stranger's signature, cut, older version, five bytes) each answered 422 with their own reason after 0.7 to 52 s;
+a good signed 0.9.9 file (1.39 MB) was staged in 41 s (about 34 KB/s over TLS), the Security page showed the message and the Install
+button, `status` showed the same line, the Install page asked for the word, a wrong word installed nothing, `INSTALL` answered the
+"being installed" page and the clock came back as 0.9.9 about a minute later with WiFi, settings and certificate intact. The plain
+port answered 403 to the upload and the install while HTTPS ran. A body announced as 1.3 MB of which 20 KB arrived was dropped after
+10.2 s and left the status idle. A web upload during a console upload was answered 409 and the console upload was not disturbed.
+With the real login (official build) an upload without or with a wrong password was answered 401 over both ports, also with a
+full-size body (TLS records of 16 KB broke the connection until the incoming buffer was made large enough; found with this test).
+**Not verified:** the browser's progress bar and JavaScript (no browser on the test machine), the upload over plain HTTP (the Pico W
+and a Pico 2 W with HTTPS off), the Pico W at all, and a successful authenticated upload with the real password.
+
+Verifies: REQ-UPD-08

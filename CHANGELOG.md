@@ -16,11 +16,14 @@ Settings saved by an older version keep working; new settings start at their def
   signature; the clock checks the chip, that the version is newer and the signature against two built-in keys, stages it, and
   `update apply` (confirmed with `INSTALL`) swaps it in. Works on both boards (the only install route for the Pico W). Tested on
   the Pico 2 W.
+- **Installing an update file from the web page** (Security tab; `POST /upload` for scripts): streamed into the download slot with the same
+  checks as the terminal, a progress bar, and an *Install* button that asks for `INSTALL` on a second page. Refused over the plain
+  port while HTTPS runs; one upload at a time across terminal and web.
 - **Custom builds** (`--features custom-images`): install your own build without the signature and version checks. The build says
   so in `version`, `update` and `status`, and its update check only informs. See the README, "Custom builds".
 
 ### Planned
-- Signed firmware install from the web and terminal (ADR-0006, step 2): bootloader, Ed25519 signature, rollback protection.
+- Download of the update from GitHub on the Pico 2 W, and revocation of a signing key (ADR-0006).
 - u-blox GPS as a third time source (0.3.0), reviewed before it is built.
 
 ## [0.2.0] - 2026-10-18

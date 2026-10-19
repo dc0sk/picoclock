@@ -16,6 +16,9 @@ use picoclock_core::http::{self, Method, Parse, Request, Tab};
 use crate::state;
 
 const REQUEST_DEADLINE: Duration = Duration::from_secs(6);
+/// An update file may arrive slowly, but not stall, and not take forever.
+const UPLOAD_IDLE: Duration = Duration::from_secs(10);
+const UPLOAD_TOTAL: Duration = Duration::from_secs(300);
 const PORT: u16 = 80;
 
 async fn respond<S: Write>(io: &mut S, status: &str, ctype: &str, extra: &str, body: &str) -> Result<(), S::Error> {
@@ -144,6 +147,32 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             }
             respond(io, "200 OK", "text/html; charset=utf-8", "", &body).await
         }
+        (Method::Post, "/install") => {
+            if !http::upload_allowed(secure, state::status().https_state) {
+                return respond(io, "403 Forbidden", "text/plain", "", "installing is only accepted over HTTPS while HTTPS is on\n").await;
+            }
+            if !http::same_origin(req, secure) {
+                return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
+            }
+            let picoclock_core::image::Install::Staged(version, _) = state::status().install else {
+                return after_post(io, "No image is staged. Upload an update file first.", true, Tab::Security).await;
+            };
+            let form = http::parse_install_form(req.body);
+            if form == http::ResetForm::Confirmed {
+                respond(io, "200 OK", "text/html; charset=utf-8", "", http::INSTALL_DONE_PAGE).await?;
+                // the clock restarts in the storage task; this only returns when the install was refused
+                state::INSTALL_IN.send(state::InstallMsg::Apply).await;
+                let _ = state::INSTALL_REPLY.wait().await;
+                state::set_flash_message("Not installed: the running image has not confirmed itself yet. Try again in a moment.", true);
+                return Ok(());
+            }
+            let mut body = heapless::String::<2048>::new();
+            let msg = (form == http::ResetForm::Refused).then_some("That was not the confirmation word, so nothing was installed.");
+            if http::render_install_confirm(version, msg, &mut body).is_err() {
+                return respond(io, "500 Internal Server Error", "text/plain", "", "page too large\n").await;
+            }
+            respond(io, "200 OK", "text/html; charset=utf-8", "", &body).await
+        }
         #[cfg(feature = "https")]
         (Method::Post, "/cert") => {
             if !secure {
@@ -204,17 +233,149 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
     }
 }
 
+/// What the page says about an upload: like the terminal's line, but pointing at the button instead of `update apply`.
+fn upload_message(i: picoclock_core::image::Install) -> heapless::String<300> {
+    use picoclock_core::image::{Install, UNSIGNED};
+    let mut text = heapless::String::new();
+    match i {
+        Install::Staged(v, UNSIGNED) => {
+            let _ = write!(text, "{v} is staged WITHOUT a signature check (custom build). Press Install below to use it.");
+        }
+        Install::Staged(v, key) => {
+            let _ = write!(text, "{v} is staged (signed by key {}). Press Install below to use it.", key + 1);
+        }
+        other => {
+            picoclock_core::image::describe_install(&mut text, other);
+            if let Some(rest) = text.strip_prefix("image   : ") {
+                let rest = heapless::String::<300>::try_from(rest).unwrap_or_default();
+                text = rest;
+            }
+        }
+    }
+    text
+}
+
+/// Reads and throws away what is left of a refused upload, so the answer reaches the browser instead of a reset connection.
+async fn drain<S: Read>(io: &mut S, mut remaining: usize) {
+    let mut sink = [0u8; 512];
+    let _ = with_timeout(Duration::from_secs(8), async {
+        while remaining > 0 {
+            match io.read(&mut sink[..remaining.min(512)]).await {
+                Ok(0) | Err(_) => return,
+                Ok(n) => remaining -= n,
+            }
+        }
+    })
+    .await;
+}
+
+async fn refuse_upload<S: Read + Write>(io: &mut S, status: &str, msg: &str, remaining: usize) -> Result<(), ()> {
+    respond(io, status, "text/plain", "", msg).await.map_err(|_| ())?;
+    drain(io, remaining).await;
+    Ok(())
+}
+
+/// Collects the body into 4 KiB blocks for the storage task, which writes each into the download slot while the next one arrives.
+struct Sink {
+    block: heapless::Vec<u8, 4096>,
+    remaining: usize,
+}
+
+impl Sink {
+    async fn push(&mut self, mut data: &[u8]) {
+        data = &data[..data.len().min(self.remaining)];
+        while !data.is_empty() {
+            let n = (self.block.capacity() - self.block.len()).min(data.len());
+            let _ = self.block.extend_from_slice(&data[..n]);
+            data = &data[n..];
+            self.remaining -= n;
+            if self.block.is_full() || self.remaining == 0 {
+                state::INSTALL_IN.send(state::InstallMsg::Block(core::mem::take(&mut self.block))).await;
+            }
+        }
+    }
+}
+
+/// `POST /upload`: the update file as the raw body (REQ-UPD-08). Every refusal comes before the first byte is stored, and a
+/// connection that stalls or breaks leaves nothing staged.
+async fn upload<S: Read + Write>(io: &mut S, buf: &[u8], secure: bool) -> Result<(), ()> {
+    let Some(head) = http::upload_head(buf) else { return Err(()) };
+    let (len, req) = (head.content_length, &head.request);
+    let early = &buf[head.body_at..];
+    let early = &early[..early.len().min(len)];
+    let left = len - early.len();
+    let cfg = state::config_snapshot();
+    if !http::authorized(&cfg, req.authorization) {
+        respond(io, "401 Unauthorized", "text/plain", "WWW-Authenticate: Basic realm=\"picoclock\"\r\n", "login required\n").await.map_err(|_| ())?;
+        drain(io, left).await;
+        return Ok(());
+    }
+    if !http::upload_allowed(secure, state::status().https_state) {
+        return refuse_upload(io, "403 Forbidden", "an update file is only accepted over HTTPS while HTTPS is on\n", left).await;
+    }
+    if !http::same_origin(req, secure) {
+        return refuse_upload(io, "403 Forbidden", "cross-site request refused\n", left).await;
+    }
+    let Some(_claim) = state::InstallClaim::take() else {
+        return refuse_upload(io, "409 Conflict", "another update file is being received\n", left).await;
+    };
+    state::INSTALL_IN.send(state::InstallMsg::Begin(len)).await;
+    if !state::INSTALL_REPLY.wait().await {
+        let mut text = upload_message(state::status().install);
+        state::set_flash_message(&text, true);
+        text.push('\n').ok();
+        return refuse_upload(io, "422 Unprocessable Content", &text, left).await;
+    }
+    let received = with_timeout(UPLOAD_TOTAL, async {
+        let mut sink = Sink { block: heapless::Vec::new(), remaining: len };
+        sink.push(early).await;
+        let mut chunk = [0u8; 1024];
+        while sink.remaining > 0 {
+            let want = sink.remaining.min(chunk.len());
+            match with_timeout(UPLOAD_IDLE, io.read(&mut chunk[..want])).await {
+                Ok(Ok(n)) if n > 0 => sink.push(&chunk[..n]).await,
+                _ => return false,
+            }
+        }
+        true
+    })
+    .await
+    .unwrap_or(false);
+    if !received {
+        warn!("web: upload stopped before the end");
+        state::INSTALL_IN.send(state::InstallMsg::Abort).await;
+        return Err(());
+    }
+    state::INSTALL_IN.send(state::InstallMsg::Finish).await;
+    let staged = state::INSTALL_REPLY.wait().await;
+    let mut text = upload_message(state::status().install);
+    state::set_flash_message(&text, !staged);
+    text.push('\n').ok();
+    let status = if staged { "200 OK" } else { "422 Unprocessable Content" };
+    respond(io, status, "text/plain", "", &text).await.map_err(|_| ())
+}
+
+enum Step {
+    Done,
+    Upload,
+}
+
 /// Serves one request on `io`, which is either the plain TCP socket or a TLS stream (`secure`).
 pub async fn serve<S: Read + Write>(io: &mut S, secure: bool) {
     let mut buf = [0u8; http::MAX_REQUEST];
     let mut len = 0;
+    // The deadline covers the request head and the ordinary requests. An update file is the one body too large for `buf`; it is
+    // handed to `upload`, which has its own limits.
     let result = with_timeout(REQUEST_DEADLINE, async {
         loop {
+            if http::upload_head(&buf[..len]).is_some() {
+                return Ok(Step::Upload);
+            }
             match http::parse_request(&buf[..len]) {
-                Parse::Complete(req) => return handle(io, &req, secure).await.map_err(|_| ()),
+                Parse::Complete(req) => return handle(io, &req, secure).await.map(|()| Step::Done).map_err(|_| ()),
                 Parse::Incomplete => {}
-                Parse::Bad => return respond(io, "400 Bad Request", "text/plain", "", "bad request\n").await.map_err(|_| ()),
-                Parse::TooLarge => return respond(io, "413 Payload Too Large", "text/plain", "", "request too large: the limit is 8 KiB (a certificate chain may hold at most about 3 KB of DER data, four certificates)\n").await.map_err(|_| ()),
+                Parse::Bad => return respond(io, "400 Bad Request", "text/plain", "", "bad request\n").await.map(|()| Step::Done).map_err(|_| ()),
+                Parse::TooLarge => return respond(io, "413 Payload Too Large", "text/plain", "", "request too large: the limit is 8 KiB (a certificate chain may hold at most about 3 KB of DER data, four certificates)\n").await.map(|()| Step::Done).map_err(|_| ()),
             }
             match io.read(&mut buf[len..]).await {
                 Ok(0) | Err(_) => return Err(()),
@@ -223,16 +384,21 @@ pub async fn serve<S: Read + Write>(io: &mut S, secure: bool) {
         }
     })
     .await;
-    if !matches!(result, Ok(Ok(()))) {
+    let result = match result {
+        Ok(Ok(Step::Upload)) => upload(io, &buf[..len], secure).await,
+        Ok(Ok(Step::Done)) => Ok(()),
+        _ => Err(()),
+    };
+    if result.is_err() {
         warn!("web: request failed or timed out");
     }
 }
 
 #[embassy_executor::task]
 pub async fn web_task(stack: Stack<'static>) -> ! {
-    static RX: static_cell::StaticCell<[u8; 1536]> = static_cell::StaticCell::new();
+    static RX: static_cell::StaticCell<[u8; 4096]> = static_cell::StaticCell::new();
     static TX: static_cell::StaticCell<[u8; 2048]> = static_cell::StaticCell::new();
-    let (rx, tx) = (RX.init([0; 1536]), TX.init([0; 2048]));
+    let (rx, tx) = (RX.init([0; 4096]), TX.init([0; 2048]));
     let mut listener = TcpListener::new(stack).unwrap();
     let mut listening = false;
     loop {

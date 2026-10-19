@@ -18,9 +18,10 @@ use rustls::unbuffered::{AppDataRecord, ConnectionState, EncodeError, Unbuffered
 
 use crate::state;
 
-/// Buffer sizes. A TLS record is at most 16 KiB; we cap what we send at 4 KiB (`max_fragment_size`) and accept requests
-/// up to the size of the incoming buffer, which holds the whole HTTP request of the settings page.
-pub const INCOMING: usize = 10 * 1024;
+/// Buffer sizes. A TLS record is at most 16 KiB (16645 bytes on the wire); we cap what we send at 4 KiB (`max_fragment_size`).
+/// The incoming buffer must hold one whole record of the client's, because a client may send full-size ones and a server
+/// cannot ask for smaller: an update file (REQ-UPD-08) arrives that way, and with a smaller buffer the connection broke.
+pub const INCOMING: usize = 17 * 1024;
 pub const OUTGOING: usize = 6 * 1024;
 const FRAGMENT: usize = 4096;
 

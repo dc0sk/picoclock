@@ -339,6 +339,11 @@ Anyone shall be able to run their own build: a build made with the cargo feature
 *Why:* Requested by the owner (2026-10-19): the signature protects the owner's clocks from foreign firmware, but this is an open-source project and others must be able to install their own builds without the owner's key. A compile-time switch keeps the protection on by default, and a build that opens it says so wherever the version is shown.  
 *Implemented by:* Update files: info block, acceptance rules, Ed25519 check, staging in the download slot, Terminal commands and USB serial console
 
+**REQ-UPD-08** (ratified, high)  
+The Security page of the web interface shall take an update file (REQ-UPD-05) as the raw body of a POST to /upload, streamed into the bootloader's download slot and checked exactly as on the terminal, and shall install a staged image only after a second page asks for the word INSTALL (REQ-UPD-06). Over the plain port the upload and the install are refused while HTTPS runs; a clock without HTTPS takes them over plain HTTP. Every refusal (login, origin, a running upload on another interface, a bad file) comes before the first byte is stored; one upload runs at a time across the terminal and the web; a connection that stalls for 10 seconds or breaks leaves nothing staged. The page says so when the build is a custom build (REQ-UPD-07).  
+*Why:* Decided in ADR-0006 and requested by the owner (2026-10-19): the Pico W installs by upload only and a browser is how most users reach the clock. The signature check does not depend on the transport, so plain HTTP is acceptable where TLS does not exist; where TLS runs, the password must not travel in the clear for an action this large.  
+*Implemented by:* Update files: info block, acceptance rules, Ed25519 check, staging in the download slot, HTTP parsing, settings page and web server, Composition: task wiring, shared state, chip selection
+
 
 ### 4.9 Terminal
 
