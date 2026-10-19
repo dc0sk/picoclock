@@ -85,6 +85,10 @@ Hold BOOTSEL while plugging in the board (or type `bootsel` on the terminal) and
 (`/media/$USER/RPI-RP2` or `RP2350`). The file carries the right UF2 family for its chip (the RP2350 boot ROM ignores a file
 with the RP2040 family without a word). Settings, WiFi networks and the HTTPS certificate are kept.
 
+**Release files.** `tools/release.sh [KEYDIR]` does all of the above for both boards and writes `dist/`: `picoclock-<version>-<board>.uf2`
+(first installation) and `.pcu` (the signed update file for upload or download), plus `SHA256SUMS`. Only the owner of the signing
+key can run it; it refuses a modified working tree.
+
 The two builds differ in the chip feature (`rp2040` default / `rp235x`), the memory maps (`bootloader/memory-*.x` and
 `firmware/memory-*.x`, kept equal by `python3 tools/combine_image.py check-layout`), the RP2350 `IMAGE_DEF` boot block and the WiFi
 SPI clock divider, and in what the RP2350 can do that the RP2040 cannot: HTTPS (with an uploadable certificate), RSA certificate chains for NTS, and the hardware random number generator. The pin map and everything else is shared.

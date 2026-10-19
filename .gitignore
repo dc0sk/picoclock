@@ -1,5 +1,6 @@
 target/
 *.uf2
+dist/
 
 # Local credentials and machine-specific settings
 local/
