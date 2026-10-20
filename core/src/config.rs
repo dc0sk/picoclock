@@ -78,6 +78,8 @@ pub struct Config {
     pub dcf77_delay_ms: u16,
     /// The delay the clock measured against NTP (kept so that it survives a restart).
     pub dcf77_learned: u16,
+    /// Speed of the GPS receiver's serial line (REQ-GPS-05).
+    pub gps_baud: u32,
     /// HAM mode: the hourly chime and a long hold of UP or DOWN send the time in Morse code.
     pub ham_mode: bool,
     /// Morse speed in words per minute.
@@ -140,6 +142,7 @@ impl Config {
             dcf77_auto,
             dcf77_delay_ms,
             dcf77_learned,
+            gps_baud,
             ham_mode,
             morse_wpm,
             update_check,
@@ -151,7 +154,7 @@ impl Config {
         carry!(
             ntp_servers, timezone, geo_rule, dst, hour12, fahrenheit, brightness, key_beep, hourly_chime, alarm_enabled,
             alarm_minutes, web_password, web_enabled, ntp_serve, https, http_redirect, wifi_strongest, mdns, hostname, time_mode,
-            time_sources, vote_power, vote_tolerance, dcf77_auto, dcf77_delay_ms, dcf77_learned, ham_mode, morse_wpm, update_check, colon_blink
+            time_sources, vote_power, vote_tolerance, dcf77_auto, dcf77_delay_ms, dcf77_learned, gps_baud, ham_mode, morse_wpm, update_check, colon_blink
         );
         for (i, net) in wifi.iter().enumerate() {
             if before.wifi[i] != *net {
@@ -191,6 +194,7 @@ impl Default for Config {
             dcf77_auto: true,
             dcf77_delay_ms: 0,
             dcf77_learned: 0,
+            gps_baud: 38400,
             ham_mode: false,
             morse_wpm: 18,
             update_check: true,
@@ -214,6 +218,9 @@ pub struct KeyInfo {
     pub help: &'static str,
     pub secret: bool,
 }
+
+/// The speeds the GPS serial line can be set to.
+pub const GPS_BAUDS: [u32; 5] = [9600, 19200, 38400, 57600, 115200];
 
 pub const KEYS: &[KeyInfo] = &[
     KeyInfo { group: Group::Wifi, name: "wifi1_ssid", help: "slot 1 network name (empty = unused; tried first)", secret: false },
@@ -251,11 +258,13 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { group: Group::Web, name: "mdns", help: "on|off: answer for <device name>.local on the LAN (multicast DNS, default on)", secret: false },
     KeyInfo { group: Group::Web, name: "hostname", help: "name of this clock on the network (DHCP, mDNS, HTTPS certificate): 1-24 lowercase letters, digits and hyphens; empty = picoclock-<last MAC block>", secret: false },
     KeyInfo { group: Group::Time, name: "time_mode", help: "order|vote: take the time from the first source in time_sources that has one (order), or only when the sources agree by vote power (vote)", secret: false },
-    KeyInfo { group: Group::Time, name: "time_sources", help: "comma-separated, best first: ntp, dcf77 (a DCF77 receiver on GP0/GP1; default ntp)", secret: false },
+    KeyInfo { group: Group::Time, name: "time_sources", help: "comma-separated, best first: ntp, dcf77 (a DCF77 receiver on GP0/GP1), gps (a u-blox receiver on GP4/GP5 and PPS on GP3); default ntp", secret: false },
     KeyInfo { group: Group::Time, name: "vote_ntp", help: "0-9: vote power of NTP/NTS in mode vote (0 = compared and shown, cannot decide; default 1)", secret: false },
     KeyInfo { group: Group::Time, name: "vote_dcf77", help: "0-9: vote power of DCF77 in mode vote (default 1)", secret: false },
+    KeyInfo { group: Group::Time, name: "vote_gps", help: "0-9: vote power of GPS in mode vote (default 1)", secret: false },
     KeyInfo { group: Group::Time, name: "vote_tolerance", help: "1-3600 seconds within which sources count as agreeing in mode vote (default 2)", secret: false },
     KeyInfo { group: Group::Time, name: "dcf77_delay", help: "auto, or 0-500 ms: how late the DCF77 receiver's pulses are; auto learns it against NTP (default auto)", secret: false },
+    KeyInfo { group: Group::Time, name: "gps_baud", help: "9600, 19200, 38400, 57600 or 115200: speed of the GPS receiver's serial line (default 38400, the NEO-M9N's factory setting)", secret: false },
     KeyInfo { group: Group::Time, name: "dcf77_learned", help: "0-500 ms: the delay learned in auto mode (kept over restarts; set it to start from a known value)", secret: false },
     KeyInfo { group: Group::Web, name: "update_check", help: "on|off: ask GitHub once a day whether a newer firmware release exists (shown in status; nothing is installed; default on)", secret: false },
     KeyInfo { group: Group::Clock, name: "colon_blink", help: "on|off: blink the colon between hours and minutes once a second while synchronised (default off: a steady colon, less radio interference)", secret: false },
@@ -452,12 +461,20 @@ impl Config {
                 }
                 self.time_sources = list;
             }
-            "vote_ntp" | "vote_dcf77" => {
+            "vote_ntp" | "vote_dcf77" | "vote_gps" => {
                 let power: u8 = value.parse().map_err(|_| ConfigError::InvalidValue)?;
                 if power > 9 {
                     return Err(ConfigError::InvalidValue);
                 }
-                self.vote_power[if key == "vote_ntp" { Source::Ntp } else { Source::Dcf77 } as usize] = power;
+                let src = key.strip_prefix("vote_").and_then(Source::from_name).ok_or(ConfigError::UnknownKey)?;
+                self.vote_power[src as usize] = power;
+            }
+            "gps_baud" => {
+                let baud: u32 = value.parse().map_err(|_| ConfigError::InvalidValue)?;
+                if !GPS_BAUDS.contains(&baud) {
+                    return Err(ConfigError::InvalidValue);
+                }
+                self.gps_baud = baud;
             }
             "vote_tolerance" => {
                 let secs: u16 = value.parse().map_err(|_| ConfigError::InvalidValue)?;
@@ -535,6 +552,8 @@ impl Config {
             "time_sources" => self.time_sources.iter().enumerate().try_for_each(|(i, s)| write!(out, "{}{}", if i > 0 { "," } else { "" }, s.name())),
             "vote_ntp" => write!(out, "{}", self.vote_power[Source::Ntp as usize]),
             "vote_dcf77" => write!(out, "{}", self.vote_power[Source::Dcf77 as usize]),
+            "vote_gps" => write!(out, "{}", self.vote_power[Source::Gps as usize]),
+            "gps_baud" => write!(out, "{}", self.gps_baud),
             "vote_tolerance" => write!(out, "{}", self.vote_tolerance),
             "dcf77_delay" if self.dcf77_auto => out.write_str("auto"),
             "dcf77_delay" => write!(out, "{}", self.dcf77_delay_ms),
@@ -694,11 +713,20 @@ mod tests {
         c.set("time_mode", "vote").unwrap();
         c.set("vote_ntp", "3").unwrap();
         c.set("vote_dcf77", "0").unwrap();
+        c.set("vote_gps", "2").unwrap();
         c.set("vote_tolerance", "30").unwrap();
         let p = c.policy();
-        assert_eq!((p.mode, p.order.as_slice(), p.power, p.tolerance_s), (Mode::Vote, &[Source::Dcf77, Source::Ntp][..], [3, 0], 30));
+        assert_eq!((p.mode, p.order.as_slice(), p.power, p.tolerance_s), (Mode::Vote, &[Source::Dcf77, Source::Ntp][..], [3, 0, 2], 30));
         assert_eq!(val(&c, "time_sources"), "dcf77,ntp");
-        for (k, bad) in [("time_mode", "both"), ("time_sources", ""), ("time_sources", "ntp,ntp"), ("time_sources", "ntp,gps"), ("time_sources", "ntp,dcf77,ntp"), ("vote_ntp", "10"), ("vote_dcf77", "-1"), ("vote_tolerance", "0"), ("vote_tolerance", "3601"), ("vote_tolerance", "x")] {
+        c.set("time_sources", "gps,ntp,dcf77").unwrap();
+        assert_eq!(val(&c, "time_sources"), "gps,ntp,dcf77");
+        assert_eq!((val(&c, "gps_baud"), val(&c, "vote_gps")), ("38400".into(), "2".into()), "the default speed is the NEO-M9N's factory setting");
+        for baud in [9600, 19200, 38400, 57600, 115200] {
+            c.set("gps_baud", &baud.to_string()).unwrap();
+            assert_eq!(val(&c, "gps_baud"), baud.to_string());
+        }
+        c.set("time_sources", "dcf77,ntp").unwrap();
+        for (k, bad) in [("time_mode", "both"), ("time_sources", ""), ("time_sources", "ntp,ntp"), ("time_sources", "ntp,glonass"), ("gps_baud", "1200"), ("gps_baud", "fast"), ("vote_gps", "10"), ("time_sources", "ntp,dcf77,ntp"), ("vote_ntp", "10"), ("vote_dcf77", "-1"), ("vote_tolerance", "0"), ("vote_tolerance", "3601"), ("vote_tolerance", "x")] {
             let before = c.clone();
             assert!(c.set(k, bad).is_err(), "{k}={bad:?}");
             assert_eq!(c, before, "a refused value changes nothing");

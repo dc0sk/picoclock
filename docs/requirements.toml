@@ -54,8 +54,8 @@ code = ["core/src/entropy.rs"]
 
 [[cap]]
 id = "CAP-SOURCES"
-name = "Time source selection (order, vote) and the DCF77 receiver"
-code = ["core/src/sources.rs", "core/src/dcf77.rs", "firmware/src/sources.rs", "firmware/src/dcf77.rs"]
+name = "Time source selection (order, vote), the DCF77 receiver and the GPS receiver"
+code = ["core/src/sources.rs", "core/src/dcf77.rs", "core/src/gps.rs", "firmware/src/sources.rs", "firmware/src/dcf77.rs", "firmware/src/gps.rs"]
 
 [[cap]]
 id = "CAP-UPDATE"
@@ -1208,7 +1208,7 @@ id = "REQ-SRC-07"
 area = "Time sources"
 status = "draft"
 criticality = "high"
-statement = "Replaces REQ-SRC-06 when implemented. When the clock has a valid time, a sample from a time source that differs from it by more than 1000 seconds shall not set the clock until (a) a second reading of the same source agrees with it within 5 seconds and (b) no other selected source with a fresh sample disagrees with it by more than the vote tolerance; while either is missing the clock shall be left alone, the sample shall not count as fresh for the other sources, and the status shall say which. A far-away NTP time shall still make the clock ask again at once (at most three times in a row). Without a valid time every sample is used."
+statement = "Replaces REQ-SRC-06 when ratified (it contains it). When the clock has a valid time, a sample from a time source that differs from it by more than 1000 seconds shall not set the clock until (a) a second reading of the same source agrees with it within 5 seconds and (b) no other selected source with a fresh sample disagrees with it by more than the vote tolerance; while either is missing the clock shall be left alone, the sample shall not count as fresh for the other sources, and the status shall say which. A far-away NTP time shall still make the clock ask again at once (at most three times in a row). Without a valid time every sample is used."
 rationale = "A receiver that is consistently wrong (a GPS week rollover, a spoofed signal) passes the same-source rule of REQ-SRC-06 because it repeats itself; the full-code review of 2026-10-20 (B3) asked for a confirmation by a different source. If no other source delivers, nothing can contradict it and the date floor of REQ-SRC-10 is the remaining defence."
 cap = ["CAP-SOURCES"]
 

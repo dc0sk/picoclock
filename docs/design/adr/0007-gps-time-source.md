@@ -52,7 +52,7 @@ its time-pulse pin that is aligned to UTC once the receiver has a fix.
    before the firmware was built is true, which stops a repeated GPS week (rollover) that no other source contradicts.
 8. **Confirmation by a different source.** REQ-SRC-07 replaces REQ-SRC-06: a far-away sample needs the second reading of the same source
    **and** must not be contradicted by any other selected source with a fresh sample. Where no other source delivers nothing can
-   contradict it; the date floor is the remaining defence. REQ-SRC-06 is retired when REQ-SRC-07 is implemented, in the same change.
+   contradict it; the date floor is the remaining defence. REQ-SRC-06 stays ratified (REQ-SRC-07 contains it; the code already follows the stricter rule) and is retired in the change that ratifies REQ-SRC-07, with its test bindings re-pointed.
 9. **Three sources everywhere.** `Source::Gps` is appended (it is also the vote enumeration order); `fresh_for_ms` GPS 10 min; the vote
    power key `vote_gps`; `gps_baud`; the arrays and texts that were written for two sources are generalised and a test fails if
    `SOURCES` grows without them (REQ-GPS-05, 06). The vote tie rule: groups of equal power and size are decided by the best-ranked member

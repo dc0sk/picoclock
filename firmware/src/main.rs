@@ -21,6 +21,7 @@ mod https;
 mod tls;
 mod display;
 mod dcf77;
+mod gps;
 mod net;
 mod nts;
 mod ntp;
@@ -97,6 +98,7 @@ bind_interrupts!(struct Irqs {
     I2C1_IRQ => i2c::InterruptHandler<I2C1>;
     ADC_IRQ_FIFO => adc::InterruptHandler;
     USBCTRL_IRQ => usb::InterruptHandler<USB>;
+    UART1_IRQ => embassy_rp::uart::BufferedInterruptHandler<embassy_rp::peripherals::UART1>;
 });
 
 /// Tells the RP2350 boot ROM this is a secure Arm executable. The RP2040 uses a second-stage bootloader instead.
@@ -106,6 +108,14 @@ bind_interrupts!(struct Irqs {
 pub static IMAGE_DEF: embassy_rp::block::ImageDef = embassy_rp::block::ImageDef::secure_exe();
 
 static EXECUTOR_HIGH: InterruptExecutor = InterruptExecutor::new();
+/// The GPS receiver's task: below the display (P2), above thread mode, so that a PPS edge is stamped even while the main executor
+/// is busy (ADR-0007 point 6).
+static EXECUTOR_GPS: InterruptExecutor = InterruptExecutor::new();
+
+#[embassy_rp::interrupt]
+unsafe fn SWI_IRQ_0() {
+    unsafe { EXECUTOR_GPS.on_interrupt() }
+}
 
 #[embassy_rp::interrupt]
 unsafe fn SWI_IRQ_1() {
@@ -347,6 +357,10 @@ async fn main(spawner: Spawner) {
     interrupt::SWI_IRQ_1.set_priority(Priority::P2);
     let hi = EXECUTOR_HIGH.start(interrupt::SWI_IRQ_1);
     hi.spawn(unwrap!(display::scan_task(matrix)));
+    // GPS receiver: UART1 RX on GP5 (the module's TX), PPS on GP3; GP4 (TX) stays unused, the clock sends nothing.
+    interrupt::SWI_IRQ_0.set_priority(Priority::P1);
+    let gps_executor = EXECUTOR_GPS.start(interrupt::SWI_IRQ_0);
+    gps_executor.spawn(unwrap!(gps::gps_task(p.UART1, p.PIN_5, Input::new(p.PIN_3, Pull::Down))));
 
     spawner.spawn(unwrap!(storage::storage_task(flash)));
     spawner.spawn(unwrap!(buzzer::buzzer_task(Output::new(p.PIN_14, Level::Low))));

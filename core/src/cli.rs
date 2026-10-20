@@ -69,9 +69,10 @@ pub struct Status {
     /// The clock was last set from DCF77 (otherwise from NTP, see `sync_secure`).
     pub sync_dcf: bool,
     /// What the source selection made of each source's last time (index = `Source as usize`); `None` before the first look.
-    pub sources: [Option<crate::sources::Report>; 2],
+    pub sources: [Option<crate::sources::Report>; crate::sources::SOURCES.len()],
     /// DCF77 receiver counters.
     pub dcf: crate::dcf77::Stats,
+    pub gps: crate::gps::Report,
     /// The DHCP server that gave the lease, the prefix length and the first DNS server (all from the lease).
     pub dhcp_server: Option<[u8; 4]>,
     pub prefix: u8,
@@ -467,6 +468,10 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                 }
                 if cfg.time_mode == crate::sources::Mode::Vote && cfg.time_sources.contains(&src) {
                     let _ = write!(out, ", vote power {}", cfg.vote_power[src as usize]);
+                }
+                if src == crate::sources::Source::Gps && cfg.time_sources.contains(&src) {
+                    let _ = out.write_str("; ");
+                    let _ = crate::gps::describe(out, &st.gps);
                 }
                 if src == crate::sources::Source::Dcf77 && cfg.time_sources.contains(&src) {
                     let _ = write!(out, "; pulses {}, frames ok {}, bad {}, bad pulses {}; receiver delay {} ms ({})", st.dcf.pulses, st.dcf.frames_ok, st.dcf.frames_bad, st.dcf.pulses_bad, cfg.dcf77_delay(), if cfg.dcf77_auto { "learned" } else { "manual" });

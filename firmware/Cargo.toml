@@ -13,6 +13,9 @@ rp2040 = ["embassy-rp/rp2040"]
 # Custom builds (README, "Custom builds"): uploaded images are installed without the signature and version checks, so anyone can run
 # their own build. Never in an official release: those carry the signing keys' protection.
 custom-images = []
+# Test build without the receiver (ADR-0007 point 10): the GPS task makes its own NMEA sentences and PPS edges from the clock's time plus
+# GPS_SIM_OFFSET_S (a build-time environment variable, default 0). Never in a release: it exercises the wiring, not the wire.
+gps-sim = []
 # The Pico 2 W has a heap, so it also verifies RSA certificate chains for NTS (the RP2040 build does not: no allocator).
 rp235x = ["embassy-rp/rp235xa", "https", "picoclock-core/rsa"]
 # HTTPS for the web page (ADR-0002): rustls needs an allocator, so it is only built for the Pico 2 W (the RP2040 has no

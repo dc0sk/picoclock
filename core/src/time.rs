@@ -20,8 +20,10 @@ impl DateTime {
 /// Days since 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's algorithm).
 /// The RTC must be written exactly on a UTC second boundary. Time was `secs` + `ms` when the NTP reply arrived and
 /// `elapsed_ms` have passed since; returns the second to write (the next whole one) and how long to wait until it begins.
-/// The clock accepts times from 2020-01-01 up to the end of 2099 (the RTC keeps two year digits).
-pub const MIN_UNIX: i64 = 1_577_836_800;
+/// The clock accepts times from the date floor up to the end of 2099 (the RTC keeps two year digits). The floor is the date of
+/// the newest release; the maintainer raises it with each one (REQ-SRC-10): no firmware is older than its own build, so no time
+/// before it is true, which also stops a receiver that repeats an old GPS week.
+pub const MIN_UNIX: i64 = 1_790_812_800; // 2026-10-01
 pub const MAX_UNIX: i64 = 4_102_444_799;
 
 pub fn plausible_unix(secs: i64) -> bool {
@@ -135,5 +137,16 @@ mod tests {
                 }
             }
         }
+    }
+
+    // VERIFIES: REQ-SRC-10
+    #[test]
+    fn the_date_floor_is_the_start_of_october_2026_and_the_ceiling_the_end_of_2099() {
+        assert_eq!(MIN_UNIX, datetime_to_unix(&dt(2026, 10, 1, 0, 0, 0)));
+        assert_eq!(MAX_UNIX, datetime_to_unix(&dt(2099, 12, 31, 23, 59, 59)));
+        assert!(!plausible_unix(MIN_UNIX - 1) && plausible_unix(MIN_UNIX) && plausible_unix(MAX_UNIX) && !plausible_unix(MAX_UNIX + 1));
+        // a repeated GPS week (1024 weeks back) and a 2020 date are both under the floor
+        assert!(!plausible_unix(datetime_to_unix(&dt(2026, 10, 20, 12, 0, 0)) - 1024 * 7 * 86_400));
+        assert!(!plausible_unix(datetime_to_unix(&dt(2020, 1, 1, 0, 0, 0))));
     }
 }

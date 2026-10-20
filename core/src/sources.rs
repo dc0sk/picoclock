@@ -15,9 +15,10 @@
 pub enum Source {
     Ntp,
     Dcf77,
+    Gps,
 }
 
-pub const SOURCES: [Source; 2] = [Source::Ntp, Source::Dcf77];
+pub const SOURCES: [Source; 3] = [Source::Ntp, Source::Dcf77, Source::Gps];
 const N: usize = SOURCES.len();
 
 impl Source {
@@ -25,6 +26,7 @@ impl Source {
         match self {
             Source::Ntp => "ntp",
             Source::Dcf77 => "dcf77",
+            Source::Gps => "gps",
         }
     }
 
@@ -42,6 +44,19 @@ impl Source {
         match self {
             Source::Ntp => 3 * 3600 * 1000,
             Source::Dcf77 => 15 * 60 * 1000,
+            // offered once a minute while the receiver is settled; ten minutes bridge a short loss of the fix (REQ-GPS-04)
+            Source::Gps => 10 * 60 * 1000,
+        }
+    }
+
+    /// The clock rewrites the RTC for a sample of this source only if it differs from it by more than this (ms); `None` = always.
+    /// DCF77 has second resolution and some delay and the clock's phase is better set by NTP; a GPS time is tied to the PPS edge
+    /// but each RTC write costs a restart of its prescaler, so a clock that already agrees is left alone (REQ-SRC-08).
+    pub fn keep_ms(self) -> Option<i64> {
+        match self {
+            Source::Ntp => None,
+            Source::Dcf77 => Some(300),
+            Source::Gps => Some(50),
         }
     }
 }
@@ -111,6 +126,9 @@ pub enum Verdict {
     /// The sample is further from the clock than [`STEP_LIMIT_MS`] and nothing confirmed it yet: the clock is left alone and a
     /// second reading that agrees (within [`CONFIRM_MS`]) is waited for.
     Suspect,
+    /// The sample is far from the clock and another selected source with a fresh time disagrees with it (REQ-SRC-07): the clock
+    /// is left alone however often this source repeats it.
+    Contradicted,
     /// The source is not selected.
     Off,
 }
@@ -129,6 +147,8 @@ pub enum State {
     NoMajority,
     /// The last time was far from the clock and is waiting for a second reading.
     Suspect,
+    /// The last time was far from the clock and another source disagrees with it.
+    Contradicted,
 }
 
 impl State {
@@ -142,6 +162,7 @@ impl State {
             State::Outvoted => "rejected (outvoted)",
             State::NoMajority => "no majority, clock left alone",
             State::Suspect => "far from the clock, waiting for a second reading",
+            State::Contradicted => "far from the clock and contradicted by another source",
         }
     }
 }
@@ -155,9 +176,9 @@ pub struct Report {
     pub age_s: Option<u64>,
 }
 
-/// A DCF77 sample renews the sync time but does not rewrite the RTC while the clock is within this many ms of it: the
-/// receiver has second resolution and some delay, and the clock's phase is better set by NTP.
-const DCF_KEEP_MS: i64 = 300;
+/// A source with a keep limit does not rewrite the RTC more often than this, unless the clock is more than [`BIG_JUMP_MS`] off.
+pub const MIN_WRITE_GAP_MS: u64 = 10_000;
+pub const BIG_JUMP_MS: i64 = 1_000;
 
 /// A time further than this from the clock (1000 s, the limit ntpd calls the panic threshold) is not taken from one reading: a
 /// wrong or forged answer must not move the clock by hours. It is used once a second reading of the same source agrees. Not
@@ -166,6 +187,14 @@ pub const STEP_LIMIT_MS: i64 = 1_000_000;
 /// Two readings of a far-away time agree if they differ by no more than this.
 pub const CONFIRM_MS: i64 = 5_000;
 
+/// The ranks of the members of a group in `time_sources`, best first: a group with the better key has the better-ranked member
+/// (compared member by member).
+fn rank_key(policy: &Policy, group: &[Source]) -> heapless::Vec<usize, N> {
+    let mut k: heapless::Vec<usize, N> = group.iter().map(|s| policy.rank(*s).unwrap_or(usize::MAX)).collect();
+    k.sort_unstable();
+    k
+}
+
 #[derive(Debug, Default)]
 pub struct Selector {
     last: [Option<Sample>; N],
@@ -173,11 +202,13 @@ pub struct Selector {
     /// The first reading of a far-away time, per source, and how many such readings in a row.
     suspect: [Option<Sample>; N],
     suspect_n: [u8; N],
+    /// When the RTC was last written for a sample of each source (monotonic ms).
+    last_write: [Option<u64>; N],
 }
 
 impl Selector {
     pub const fn new() -> Self {
-        Self { last: [None; N], verdict: [None; N], suspect: [None; N], suspect_n: [0; N] }
+        Self { last: [None; N], verdict: [None; N], suspect: [None; N], suspect_n: [0; N], last_write: [None; N] }
     }
 
     fn fresh(&self, s: Source, now_ms: u64) -> Option<Sample> {
@@ -190,11 +221,18 @@ impl Selector {
         if let Some(clock) = clock_ms.filter(|_| policy.selected(src)) {
             if (sample.now_ms(now_ms) - clock).abs() > STEP_LIMIT_MS {
                 let confirmed = self.suspect[i].is_some_and(|first| (first.now_ms(now_ms) - sample.now_ms(now_ms)).abs() <= CONFIRM_MS);
-                if !confirmed {
+                // REQ-SRC-07: a source that repeats itself proves nothing (a receiver that is consistently wrong does), so a fresh
+                // time of any other selected source that disagrees keeps the clock where it is
+                let tol = policy.tolerance_s as i64 * 1000;
+                let contradicted = SOURCES.into_iter().filter(|o| *o != src && policy.selected(*o)).any(|o| {
+                    self.fresh(o, now_ms).is_some_and(|x| (x.now_ms(now_ms) - sample.now_ms(now_ms)).abs() > tol)
+                });
+                if !confirmed || contradicted {
                     self.suspect[i] = Some(sample);
                     self.suspect_n[i] = self.suspect_n[i].saturating_add(1);
-                    self.verdict[i] = Some(Verdict::Suspect);
-                    return Verdict::Suspect;
+                    let v = if confirmed { Verdict::Contradicted } else { Verdict::Suspect };
+                    self.verdict[i] = Some(v);
+                    return v;
                 }
             }
         }
@@ -202,6 +240,9 @@ impl Selector {
         self.suspect_n[i] = 0;
         self.last[src.index()] = Some(sample);
         let verdict = self.decide(policy, src, sample, now_ms, clock_ms);
+        if verdict == (Verdict::Use { write: true }) {
+            self.last_write[i] = Some(now_ms);
+        }
         self.verdict[src.index()] = Some(verdict);
         verdict
     }
@@ -224,8 +265,13 @@ impl Selector {
         if !usable {
             return Verdict::Outvoted;
         }
-        let write = match (src, clock_ms) {
-            (Source::Dcf77, Some(clock)) => (sample.now_ms(now_ms) - clock).abs() > DCF_KEEP_MS,
+        let write = match (src.keep_ms(), clock_ms) {
+            (Some(keep), Some(clock)) => {
+                let off = (sample.now_ms(now_ms) - clock).abs();
+                // inside the keep limit the clock is already right; a source other than NTP also may not rewrite the RTC more
+                // often than every MIN_WRITE_GAP_MS unless the clock is far off (REQ-SRC-08)
+                off > keep && (off > BIG_JUMP_MS || self.last_write[src.index()].is_none_or(|t| now_ms.saturating_sub(t) >= MIN_WRITE_GAP_MS))
+            }
             _ => true,
         };
         Verdict::Use { write }
@@ -250,8 +296,11 @@ impl Selector {
                 continue;
             }
             let power: u32 = members.iter().map(|(s, _)| policy.power[s.index()] as u32).sum();
-            if best.as_ref().is_none_or(|(p, g)| power > *p || (power == *p && members.len() > g.len())) {
-                best = Some((power, members.iter().map(|(s, _)| *s).collect()));
+            let group: heapless::Vec<Source, N> = members.iter().map(|(s, _)| *s).collect();
+            // more power wins, then more sources, then the group with the best-ranked member (REQ-SRC-09), so that the
+            // order in which the groups are enumerated never decides
+            if best.as_ref().is_none_or(|(p, g)| power > *p || (power == *p && (group.len() > g.len() || (group.len() == g.len() && rank_key(policy, &group) < rank_key(policy, g))))) {
+                best = Some((power, group));
             }
         }
         match best {
@@ -267,6 +316,8 @@ impl Selector {
             let fresh = self.fresh(source, now_ms);
             let state = if !policy.selected(source) {
                 State::Off
+            } else if self.verdict[i] == Some(Verdict::Contradicted) {
+                State::Contradicted
             } else if self.verdict[i] == Some(Verdict::Suspect) {
                 State::Suspect
             } else if self.last[i].is_none() {
@@ -285,8 +336,8 @@ impl Selector {
             Report {
                 source,
                 state,
-                offset_ms: fresh.zip(clock_ms).filter(|_| state != State::Suspect).map(|(x, c)| x.now_ms(now_ms) - c),
-                age_s: self.last[i].filter(|_| state != State::Suspect).map(|x| now_ms.saturating_sub(x.at_ms) / 1000),
+                offset_ms: fresh.zip(clock_ms).filter(|_| !matches!(state, State::Suspect | State::Contradicted)).map(|(x, c)| x.now_ms(now_ms) - c),
+                age_s: self.last[i].filter(|_| !matches!(state, State::Suspect | State::Contradicted)).map(|x| now_ms.saturating_sub(x.at_ms) / 1000),
             }
         })
     }
@@ -308,15 +359,19 @@ impl Selector {
         self.verdict[s.index()] = None;
         self.suspect[s.index()] = None;
         self.suspect_n[s.index()] = 0;
+        self.last_write[s.index()] = None;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use Source::{Dcf77, Ntp};
+    use Source::{Dcf77, Gps, Ntp};
 
     fn policy(mode: Mode, order: &[Source], power: [u8; 2], tolerance_s: u16) -> Policy {
+        Policy { mode, order: order.iter().copied().collect(), power: [power[0], power[1], 1], tolerance_s }
+    }
+    fn policy3(mode: Mode, order: &[Source], power: [u8; 3], tolerance_s: u16) -> Policy {
         Policy { mode, order: order.iter().copied().collect(), power, tolerance_s }
     }
 
@@ -464,9 +519,9 @@ mod tests {
         // NTP counts twice: it outvotes a wrong DCF77 reading
         let p = policy(Mode::Vote, &[Ntp, Dcf77], [2, 1], 2);
         let mut s = Selector::new();
-        s.offer(&p, Dcf77, at(0, 7 * 500_000), 0, clock(0));
+        s.offer(&p, Dcf77, at(0, 3_500), 0, clock(0));
         assert_eq!(s.offer(&p, Ntp, at(10, 0), 10, clock(10)), Verdict::Use { write: true });
-        assert_eq!(s.offer(&p, Dcf77, at(MIN, 7 * 500_000), MIN, clock(MIN)), Verdict::Outvoted);
+        assert_eq!(s.offer(&p, Dcf77, at(MIN, 3_500), MIN, clock(MIN)), Verdict::Outvoted);
         assert_eq!(s.report(&p, MIN, clock(MIN))[1].state, State::Outvoted);
         // a source with power 0 is shown and compared but cannot set the clock
         let p = policy(Mode::Vote, &[Ntp, Dcf77], [0, 1], 2);
@@ -501,18 +556,121 @@ mod tests {
     fn the_report_names_every_state() {
         let p = policy(Mode::Order, &[Ntp, Dcf77], [1, 1], 2);
         let mut s = Selector::new();
-        assert_eq!(s.report(&p, 0, None).map(|r| r.state), [State::Waiting, State::Waiting]);
+        assert_eq!(s.report(&p, 0, None).map(|r| r.state), [State::Waiting, State::Waiting, State::Off]);
         s.offer(&p, Ntp, at(0, 120), 0, clock(0));
         let r = s.report(&p, 5000, clock(5000));
         assert_eq!((r[0].state, r[0].offset_ms, r[0].age_s), (State::Used, Some(120), Some(5)));
         s.forget(Ntp);
         assert_eq!(s.report(&p, 5000, clock(5000))[0].state, State::Waiting);
         let none = policy(Mode::Order, &[], [1, 1], 2);
-        assert_eq!(s.report(&none, 0, None).map(|r| r.state), [State::Off, State::Off]);
-        for st in [State::Off, State::Waiting, State::Stale, State::Used, State::Standby, State::Outvoted, State::NoMajority] {
+        assert_eq!(s.report(&none, 0, None).map(|r| r.state), [State::Off, State::Off, State::Off]);
+        for st in [State::Off, State::Waiting, State::Stale, State::Used, State::Standby, State::Outvoted, State::NoMajority, State::Suspect, State::Contradicted] {
             assert!(!st.text().is_empty());
         }
         assert_eq!(Source::from_name(" DCF77 "), Some(Dcf77));
-        assert_eq!(Source::from_name("gps"), None);
+        assert_eq!(Source::from_name("gps"), Some(Gps));
+        assert_eq!(Source::from_name("glonass"), None);
+    }
+
+    // VERIFIES: REQ-SRC-07
+    #[test]
+    fn a_far_away_time_that_another_fresh_source_contradicts_is_never_used() {
+        // GPS ranks above NTP and repeats a time a week-rollover away (1024 weeks = 619 315 200 s); NTP is fresh and right
+        let rollover = -1024 * 7 * 86_400 * 1000;
+        let p = policy3(Mode::Order, &[Gps, Ntp], [1, 1, 1], 2);
+        let mut s = Selector::new();
+        assert_eq!(s.offer(&p, Ntp, at(0, 0), 0, clock(0)), Verdict::Use { write: true });
+        let first = s.offer(&p, Gps, at(MIN, rollover), MIN, clock(MIN));
+        assert_eq!(first, Verdict::Suspect, "a first far-away reading waits");
+        // the second, agreeing reading would have been enough before; NTP contradicts it now
+        let second = s.offer(&p, Gps, at(2 * MIN, rollover), 2 * MIN, clock(2 * MIN));
+        assert_eq!(second, Verdict::Contradicted);
+        assert_eq!(s.report(&p, 2 * MIN, clock(2 * MIN))[2].state, State::Contradicted);
+        assert_eq!(s.report(&p, 2 * MIN, clock(2 * MIN))[2].offset_ms, None, "no offset is shown for a time that is held back");
+        assert_eq!(s.offer(&p, Gps, at(3 * MIN, rollover), 3 * MIN, clock(3 * MIN)), Verdict::Contradicted, "however often it repeats itself");
+        assert!(s.suspect_count(Gps) >= 3);
+        // it did not count as fresh for anybody: NTP is still used
+        assert_eq!(s.offer(&p, Ntp, at(4 * MIN, 5), 4 * MIN, clock(4 * MIN)), Verdict::Use { write: true });
+        // no other source delivering: nothing can contradict, the second reading is enough (the date floor is the defence then)
+        let mut s = Selector::new();
+        s.offer(&p, Gps, at(0, 1000), 0, clock(0));
+        s.forget(Ntp);
+        assert_eq!(s.offer(&p, Gps, at(MIN, rollover), MIN, clock(MIN)), Verdict::Suspect);
+        assert_eq!(s.offer(&p, Gps, at(2 * MIN, rollover), 2 * MIN, clock(2 * MIN)), Verdict::Use { write: true });
+        // a stale NTP time does not contradict
+        let mut s = Selector::new();
+        s.offer(&p, Ntp, at(0, 0), 0, clock(0));
+        let later = Ntp.fresh_for_ms() + MIN;
+        s.offer(&p, Gps, at(later, rollover), later, clock(later));
+        assert_eq!(s.offer(&p, Gps, at(later + MIN, rollover), later + MIN, clock(later + MIN)), Verdict::Use { write: true });
+        // two sources that agree on a far-away time (a dead RTC battery) confirm each other
+        let mut s = Selector::new();
+        let year = 365 * 86_400 * 1000;
+        s.offer(&p, Ntp, at(0, year), 0, clock(0));
+        s.offer(&p, Gps, at(MIN, year), MIN, clock(MIN));
+        assert_eq!(s.offer(&p, Ntp, at(2 * MIN, year), 2 * MIN, clock(2 * MIN)), Verdict::Use { write: true });
+    }
+
+    // VERIFIES: REQ-SRC-08
+    #[test]
+    fn each_source_has_its_own_keep_limit_and_a_minimum_gap_between_rtc_writes() {
+        assert_eq!((Ntp.keep_ms(), Dcf77.keep_ms(), Gps.keep_ms()), (None, Some(300), Some(50)));
+        let p = policy3(Mode::Order, &[Gps], [1, 1, 1], 2);
+        let mut s = Selector::new();
+        // within 50 ms nothing is written, from 51 ms on it is
+        assert_eq!(s.offer(&p, Gps, at(MIN, 50), MIN, clock(MIN)), Verdict::Use { write: false });
+        assert_eq!(s.offer(&p, Gps, at(2 * MIN, -50), 2 * MIN, clock(2 * MIN)), Verdict::Use { write: false });
+        assert_eq!(s.offer(&p, Gps, at(3 * MIN, 51), 3 * MIN, clock(3 * MIN)), Verdict::Use { write: true });
+        // a second write less than 10 s later is held back unless the clock is more than a second off
+        assert_eq!(s.offer(&p, Gps, at(3 * MIN + 5_000, 80), 3 * MIN + 5_000, clock(3 * MIN + 5_000)), Verdict::Use { write: false });
+        assert_eq!(s.offer(&p, Gps, at(3 * MIN + 5_000, 1_001), 3 * MIN + 5_000, clock(3 * MIN + 5_000)), Verdict::Use { write: true });
+        assert_eq!(s.offer(&p, Gps, at(3 * MIN + 15_001, 80), 3 * MIN + 15_001, clock(3 * MIN + 15_001)), Verdict::Use { write: true }, "10 s after the last write");
+        // NTP always writes, as before, however close and however often
+        let p = policy3(Mode::Order, &[Ntp], [1, 1, 1], 2);
+        let mut s = Selector::new();
+        for i in 0..3u64 {
+            assert_eq!(s.offer(&p, Ntp, at(MIN + i, 0), MIN + i, clock(MIN + i)), Verdict::Use { write: true });
+        }
+    }
+
+    // VERIFIES: REQ-SRC-09
+    #[test]
+    fn overlapping_groups_of_equal_strength_go_to_the_best_ranked_member_whatever_the_order() {
+        // A=0 s, B=1.5 s, C=3 s with a tolerance of 2 s: {A,B} and {B,C} each hold 2 of 3 votes
+        let times = [(Ntp, 0), (Dcf77, 1_500), (Gps, 3_000)];
+        for order in [[Ntp, Dcf77, Gps], [Gps, Dcf77, Ntp], [Dcf77, Gps, Ntp], [Gps, Ntp, Dcf77]] {
+            let p = policy3(Mode::Vote, &order, [1, 1, 1], 2);
+            // the same samples offered in every sequence give the same group: the one holding the best-ranked source
+            for seq in [[0, 1, 2], [2, 1, 0], [1, 0, 2], [1, 2, 0]] {
+                let mut s = Selector::new();
+                for k in seq {
+                    let (src, off) = times[k];
+                    s.offer(&p, src, at(0, off), 0, clock(0));
+                }
+                let used: Vec<Source> = SOURCES
+                    .into_iter()
+                    .filter(|src| matches!(s.offer(&p, *src, at(0, times[*src as usize].1), 0, clock(0)), Verdict::Use { .. }))
+                    .collect();
+                // the group holds the best-ranked source and the middle one (DCF77 is in both groups); when DCF77 itself is best
+                // ranked, the better-ranked of the two others joins it
+                let best_other = order.into_iter().find(|s| *s != Dcf77).unwrap();
+                let other = if order[0] == Dcf77 { best_other } else { order[0] };
+                assert!(used.len() == 2 && used.contains(&Dcf77) && used.contains(&other), "order {order:?} seq {seq:?}: {used:?}");
+            }
+        }
+        // a larger group beats a better-ranked smaller one
+        let p = policy3(Mode::Vote, &[Ntp, Dcf77, Gps], [1, 1, 1], 2);
+        let mut s = Selector::new();
+        s.offer(&p, Ntp, at(0, 5_000), 0, clock(0));
+        s.offer(&p, Dcf77, at(0, 0), 0, clock(0));
+        assert_eq!(s.offer(&p, Gps, at(0, 10), 0, clock(0)), Verdict::Use { write: false });
+        assert_eq!(s.offer(&p, Ntp, at(0, 5_000), 0, clock(0)), Verdict::Outvoted);
+        // more power beats rank
+        let p = policy3(Mode::Vote, &[Ntp, Dcf77, Gps], [1, 1, 3], 2);
+        let mut s = Selector::new();
+        s.offer(&p, Ntp, at(0, 0), 0, clock(0));
+        s.offer(&p, Dcf77, at(0, 1_500), 0, clock(0));
+        s.offer(&p, Gps, at(0, 3_000), 0, clock(0));
+        assert_eq!(s.offer(&p, Ntp, at(0, 0), 0, clock(0)), Verdict::Outvoted, "GPS and DCF77 hold 4 of 5 votes");
     }
 }

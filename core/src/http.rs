@@ -1016,8 +1016,10 @@ mod tests {
             sources: [
                 Some(crate::sources::Report { source: crate::sources::Source::Ntp, state: crate::sources::State::NoMajority, offset_ms: Some(-3_600_000), age_s: Some(10_800) }),
                 Some(crate::sources::Report { source: crate::sources::Source::Dcf77, state: crate::sources::State::Standby, offset_ms: Some(3_600_000), age_s: Some(900) }),
+                Some(crate::sources::Report { source: crate::sources::Source::Gps, state: crate::sources::State::Contradicted, offset_ms: None, age_s: None }),
             ],
             dcf: crate::dcf77::Stats { pulses: 4_000_000_000, frames_ok: 4_000_000_000, frames_bad: 4_000_000_000, pulses_bad: 4_000_000_000 },
+            gps: crate::gps::Report { bytes: u32::MAX, run: u32::MAX, since_edge_ms: Some(u32::MAX), uart_errors: u32::MAX, silent: false, stats: crate::gps::Stats { valid: u32::MAX, bad_checksum: u32::MAX, no_fix: u32::MAX, malformed: u32::MAX, edges: u32::MAX, unpaired: u32::MAX, breaks: u32::MAX } },
             dhcp_server: Some([192, 168, 121, 1]),
             prefix: 24,
             dns: Some([192, 168, 121, 1]),
@@ -1036,7 +1038,7 @@ mod tests {
         let mut c = Config::default();
         c.set("hostname", &"h".repeat(crate::config::HOSTNAME_MAX)).unwrap();
         c.set("timezone", "Europe/Berlin").unwrap();
-        c.set("time_sources", "dcf77,ntp").unwrap();
+        c.set("time_sources", "dcf77,ntp,gps").unwrap();
         c.set("time_mode", "vote").unwrap();
         let mut page = heapless::String::<12288>::new();
         render_page(&c, &st, None, true, &crate::rootstore::Roots::new(), Tab::Status, &mut page).unwrap();

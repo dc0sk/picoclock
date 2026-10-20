@@ -581,7 +581,7 @@ mod tests {
             h[0] = 0b00_100_100; // LI 0, v4, server
             h[1] = 2;
             h[24..32].copy_from_slice(&nonce_echo.unwrap_or_else(|| req[40..48].try_into().unwrap()));
-            h[40..44].copy_from_slice(&(1_720_000_000u32.wrapping_add(2_208_988_800)).to_be_bytes());
+            h[40..44].copy_from_slice(&(1_810_000_000u32.wrapping_add(2_208_988_800)).to_be_bytes());
             h[44..48].copy_from_slice(&0x8000_0000u32.to_be_bytes());
             p.extend_from_slice(&h);
             let put = |p: &mut std::vec::Vec<u8>, ty: u16, body: &[u8]| {
@@ -647,7 +647,7 @@ mod tests {
         assert_eq!(placeholders, 3, "four spent: the cookie field earns one, three placeholders earn the rest");
         let fresh: std::vec::Vec<_> = (0..4).map(|n| std::vec![0xA0 + n as u8; 104]).collect();
         let resp = server.respond(&req, &fresh, None);
-        assert_eq!(s.handle_response(&resp, &pending), Ok((1_720_000_000, 500)));
+        assert_eq!(s.handle_response(&resp, &pending), Ok((1_810_000_000, 500)));
         assert_eq!(s.cookies_left(), 4 + 4, "the four unspent plus four new ones");
     }
 

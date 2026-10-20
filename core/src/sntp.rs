@@ -112,7 +112,7 @@ mod tests {
         }
         // era 1 beyond 2099 (2103)
         assert_eq!(parse_response(&reply(n, 0x7F00_0000, 0), n), Err(SntpError::Implausible));
-        assert!(parse_response(&reply(n, (1_700_000_000u64 + NTP_TO_UNIX) as u32, 0), n).is_ok());
+        assert!(parse_response(&reply(n, (1_800_000_000u64 + NTP_TO_UNIX) as u32, 0), n).is_ok());
     }
 
     // VERIFIES: REQ-NTP-01
@@ -127,9 +127,9 @@ mod tests {
     #[test]
     fn parses_valid_reply() {
         let n = [9; 8];
-        // 2023-11-14 22:13:20 UTC is unix 1_700_000_000.
-        let r = reply(n, (1_700_000_000u64 + NTP_TO_UNIX) as u32, 1 << 31);
-        assert_eq!(parse_response(&r, n), Ok((1_700_000_000, 500)));
+        // 2027-01-15 08:00:00 UTC is unix 1_800_000_000.
+        let r = reply(n, (1_800_000_000u64 + NTP_TO_UNIX) as u32, 1 << 31);
+        assert_eq!(parse_response(&r, n), Ok((1_800_000_000, 500)));
     }
 
     // VERIFIES: REQ-TIME-03
@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn rejects_bad_replies() {
         let n = [7; 8];
-        let ok = reply(n, 3_900_000_000, 0);
+        let ok = reply(n, 4_100_000_000, 0);
         assert_eq!(parse_response(&ok[..47], n), Err(SntpError::TooShort));
         assert_eq!(parse_response(&ok, [8; 8]), Err(SntpError::OriginMismatch));
         let mut b = ok;
@@ -196,10 +196,10 @@ mod tests {
     fn server_reply_is_accepted_by_our_own_client_and_echoes_the_nonce() {
         let nonce = [1, 2, 3, 4, 5, 6, 7, 8];
         let req = build_request(nonce);
-        let r = build_server_reply(&req, 1_720_000_000, 0x8000_0000, Some(1_719_990_000), true).unwrap();
+        let r = build_server_reply(&req, 1_810_000_000, 0x8000_0000, Some(1_809_990_000), true).unwrap();
         assert_eq!(r[0] & 0x07, 4);
         assert_eq!(r[1], 5);
-        assert_eq!(parse_response(&r, nonce), Ok((1_720_000_000, 500)));
+        assert_eq!(parse_response(&r, nonce), Ok((1_810_000_000, 500)));
         // a client holding a different nonce must reject it
         assert_eq!(parse_response(&r, [9; 8]), Err(SntpError::OriginMismatch));
     }
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn unsynchronised_server_is_rejected_by_clients() {
         let req = build_request([7; 8]);
-        let r = build_server_reply(&req, 1_720_000_000, 0, None, false).unwrap();
+        let r = build_server_reply(&req, 1_810_000_000, 0, None, false).unwrap();
         assert_eq!((r[0] >> 6, r[1]), (3, 16));
         assert_eq!(parse_response(&r, [7; 8]), Err(SntpError::Unsynchronised));
     }
@@ -235,6 +235,6 @@ mod tests {
     fn server_reply_is_never_larger_than_the_request() {
         let mut big = [0u8; 200];
         big[0] = 0b00_100_011;
-        assert_eq!(build_server_reply(&big, 1_720_000_000, 0, None, true).unwrap().len(), PACKET_LEN);
+        assert_eq!(build_server_reply(&big, 1_810_000_000, 0, None, true).unwrap().len(), PACKET_LEN);
     }
 }

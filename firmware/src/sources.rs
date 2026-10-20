@@ -89,9 +89,10 @@ pub async fn sources_task() -> ! {
                 Verdict::Outvoted => "outvoted",
                 Verdict::NoMajority => "no majority",
                 Verdict::Suspect => "far from the clock, waiting for a second reading",
+                Verdict::Contradicted => "far from the clock and contradicted by another source",
                 Verdict::Off => "not selected",
             });
-            if verdict == Verdict::Suspect && src == Source::Ntp && selector.suspect_count(src) < SUSPECT_ASKS {
+            if matches!(verdict, Verdict::Suspect | Verdict::Contradicted) && src == Source::Ntp && selector.suspect_count(src) < SUSPECT_ASKS {
                 // ask again at once: another server of the pool, or the same one again, must say the same
                 state::SYNC_NOW.signal(());
             }
