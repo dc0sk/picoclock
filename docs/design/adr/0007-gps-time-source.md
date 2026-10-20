@@ -42,10 +42,13 @@ its time-pulse pin that is aligned to UTC once the receiver has a fix.
    and against a receiver that skips seconds. The number 30 and the 10 ms are assumptions to be set by the first measurements.
 5. **Offer rate and freshness.** One offer per 60 s while settled, fresh for 10 minutes (REQ-GPS-04): the selector, the log and the
    settings copy are not meant for 1 Hz (B10, B16).
-6. **Stamping the edge.** A task on a second `InterruptExecutor` (SWI_IRQ_0, priority P1; the display keeps P2 on SWI_IRQ_1, the main
-   executor is thread mode) waits for the edge and reads the microsecond timer at once, then reads the UART. Accuracy is the interrupt
-   latency of the GPIO bank interrupt plus one preemption by the display's row scan (tens of microseconds), assumed, not measured
-   (REQ-GPS-07). The UART is read with a buffered driver in the same executor.
+6. **Stamping the edge.** An I/O task on a second `InterruptExecutor` (SWI_IRQ_0, priority P1; the display keeps P2 on SWI_IRQ_1, the main
+   executor is thread mode) waits for the edge and reads the microsecond timer at once, reads the UART into lines, and sends edges and RMC
+   lines with their stamps through a channel to a thread-mode task, which pairs, settles and offers (`gps_task`). The split is needed: the
+   settings and the status are thread-mode mutexes (a critical section would make the display scan late), and the first version, one
+   task on the interrupt executor, panicked at its first read of the settings in the simulated run (VR-85). Accuracy is the interrupt latency of the GPIO bank interrupt plus one
+   preemption by the display's row scan (tens of microseconds), assumed, not measured (REQ-GPS-07). The channel holds 16 events, a stall of the main
+   executor of 7 s (the NTS key exchange on the RP2040) fills 14; the stamps travel with the events, so a stall delays the offer, not the time.
 7. **Keep rule and date floor.** The DCF77-only `DCF_KEEP_MS` becomes a table (`Source::keep_ms`: NTP 0, DCF77 300, GPS 50) plus a
    minimum of 10 s between RTC writes of a source other than NTP (unless the clock is more than 1 s off) (REQ-SRC-08). The lower date bound
    of `plausible_unix` moves from 2020 to a floor that the maintainer raises with each release, now 2026-10-01 (REQ-SRC-10): no time
