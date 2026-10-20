@@ -13,7 +13,9 @@ use embassy_sync::channel::Channel;
 use embassy_time::{Instant, Timer};
 use picoclock_core::gps::{LINE_MAX, Report, Tracker};
 use picoclock_core::sources::{Sample, Source};
+use core::cell::Cell;
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
+use embassy_sync::blocking_mutex::Mutex;
 
 use crate::state::{self, Offer};
 
@@ -29,9 +31,27 @@ pub enum Event {
 static EVENTS: Channel<Cs, Event, 16> = Channel::new();
 /// The speed to listen at, 0 = do not listen (set by `gps_task` from the settings).
 static LISTEN_BAUD: AtomicU32 = AtomicU32::new(0);
-/// Bytes received since the receiver was switched on, and errors of the serial line plus events that could not be queued.
-static BYTES: AtomicU32 = AtomicU32::new(0);
-static ERRORS: AtomicU32 = AtomicU32::new(0);
+/// Bytes received since the receiver was switched on, and errors of the serial line plus events that could not be queued. Two
+/// tasks touch them and the RP2040 has no atomic read-modify-write, hence a critical section (a few instructions long).
+static COUNTS: Mutex<Cs, Cell<(u32, u32)>> = Mutex::new(Cell::new((0, 0)));
+
+fn add_bytes(n: u32) {
+    COUNTS.lock(|c| {
+        let (b, e) = c.get();
+        c.set((b.wrapping_add(n), e));
+    });
+}
+
+fn add_error() {
+    COUNTS.lock(|c| {
+        let (b, e) = c.get();
+        c.set((b, e.wrapping_add(1)));
+    });
+}
+
+fn counts() -> (u32, u32) {
+    COUNTS.lock(|c| c.get())
+}
 
 /// Whole seconds without a byte after which the line counts as silent.
 const SILENT_TICKS: u8 = 3;
@@ -51,7 +71,7 @@ mod io {
     use picoclock_core::gps::LineBuffer;
     use static_cell::StaticCell;
 
-    use super::{BYTES, ERRORS, EVENTS, Event, LISTEN_BAUD};
+    use super::{EVENTS, Event, LISTEN_BAUD, add_bytes, add_error};
     use core::sync::atomic::Ordering::Relaxed;
 
     #[embassy_executor::task]
@@ -79,7 +99,7 @@ mod io {
                             // stamped first, before anything else is done
                             let at = Instant::now().as_micros();
                             if EVENTS.try_send(Event::Edge(at)).is_err() {
-                                ERRORS.fetch_add(1, Relaxed);
+                                add_error();
                             }
                             break;
                         }
@@ -89,11 +109,11 @@ mod io {
                             }
                         }
                         Either::Second(Either::First(Err(_))) => {
-                            ERRORS.fetch_add(1, Relaxed);
+                            add_error();
                         }
                         Either::Second(Either::First(Ok(n))) => {
                             let at = Instant::now().as_micros();
-                            BYTES.fetch_add(n as u32, Relaxed);
+                            add_bytes(n as u32);
                             for &b in &chunk[..n] {
                                 let Some(line) = lines.push(b) else { continue };
                                 // only the RMC sentence is of use; the receiver sends five or six others a second
@@ -101,7 +121,7 @@ mod io {
                                     let mut v = heapless::Vec::new();
                                     let _ = v.extend_from_slice(line);
                                     if EVENTS.try_send(Event::Line(at, v)).is_err() {
-                                        ERRORS.fetch_add(1, Relaxed);
+                                        add_error();
                                     }
                                 }
                                 lines.done();
@@ -155,7 +175,7 @@ pub async fn gps_sim_task() -> ! {
         Timer::after_millis(300).await;
         let mut v = heapless::Vec::new();
         let _ = v.extend_from_slice(text.as_bytes());
-        BYTES.fetch_add(text.len() as u32 + 2, Relaxed);
+        add_bytes(text.len() as u32 + 2);
         let _ = EVENTS.try_send(Event::Line(Instant::now().as_micros(), v));
     }
 }
@@ -169,13 +189,13 @@ pub async fn gps_task() -> ! {
     let mut tick = Instant::now() + embassy_time::Duration::from_secs(1);
     loop {
         let baud = wanted();
-        let before = LISTEN_BAUD.swap(baud.unwrap_or(0), Relaxed);
+        let before = LISTEN_BAUD.load(Relaxed);
+        LISTEN_BAUD.store(baud.unwrap_or(0), Relaxed);
         if before != baud.unwrap_or(0) {
             // switched on, off or to another speed: start from nothing
             info!("gps: {}", if baud.is_some() { "listening" } else { "off" });
             tracker = Tracker::new();
-            BYTES.store(0, Relaxed);
-            ERRORS.store(0, Relaxed);
+            COUNTS.lock(|c| c.set((0, 0)));
             last_bytes = 0;
             (quiet, silent) = (0, false);
             while EVENTS.try_receive().is_ok() {}
@@ -196,7 +216,7 @@ pub async fn gps_task() -> ! {
             embassy_futures::select::Either::Second(()) => {
                 // once a second: has anything arrived?
                 tick += embassy_time::Duration::from_secs(1);
-                let bytes = BYTES.load(Relaxed);
+                let bytes = counts().0;
                 if bytes != last_bytes {
                     (quiet, silent) = (0, false);
                 } else if baud.is_some() {
@@ -214,10 +234,10 @@ pub async fn gps_task() -> ! {
             let report = Report {
                 stats: tracker.stats,
                 run: tracker.run(),
-                bytes: BYTES.load(Relaxed),
+                bytes: counts().0,
                 silent,
                 since_edge_ms: tracker.since_edge(Instant::now().as_micros()).map(|us| (us / 1000).min(u32::MAX as u64) as u32),
-                uart_errors: ERRORS.load(Relaxed),
+                uart_errors: counts().1,
             };
             state::with_runtime(|r| r.gps = report);
         }
