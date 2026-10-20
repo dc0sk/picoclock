@@ -2180,7 +2180,7 @@ dependencies = [
 
 [[package]]
 name = "picoclock"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -2215,7 +2215,7 @@ dependencies = [
 
 [[package]]
 name = "picoclock-bootloader"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -2227,7 +2227,7 @@ dependencies = [
 
 [[package]]
 name = "picoclock-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "aes-siv",
  "ed25519-dalek 3.0.0",

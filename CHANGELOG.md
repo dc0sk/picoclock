@@ -7,6 +7,8 @@ Settings saved by an older version keep working; new settings start at their def
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-20
+
 ### Added
 - **Key revocation** (REQ-UPD-11): a release signed with the backup key (key 2) can revoke key 1 (`PICOCLOCK_REVOKE=1` at build time, a
   signed note behind the info block); recorded when the release is installed, kept over a factory reset, shown by `update`. Key 1
@@ -144,7 +146,8 @@ Pico W.
 - Hardware random number generator on the Pico 2 W; AGPL-3.0-or-later licence; architecture notes, software
   requirements specification and verification log.
 
-[Unreleased]: https://github.com/dc0sk/picoclock/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/dc0sk/picoclock/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/dc0sk/picoclock/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/dc0sk/picoclock/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dc0sk/picoclock/releases/tag/v0.2.0
 [0.1.0]: https://github.com/dc0sk/picoclock/commits/main
