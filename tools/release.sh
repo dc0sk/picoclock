@@ -5,7 +5,8 @@
 #            picoclock-<version>-<board>.pcu  the update file (application + Ed25519 signature) for upload or download
 # and SHA256SUMS. The signature is made in a temporary GnuPG home (the owner's keyring is never touched), checked against the
 # public key the firmware carries, and the finished .pcu is verified once more. Refuses to run on a modified tree: a release is
-# something one can rebuild from its commit.
+# something one can rebuild from its commit. PICOCLOCK_REVOKE=1 (or 2) in the environment builds a release that revokes that signing key
+# (ADR-0006 point 18); sign it with the OTHER key (KEYDIR).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 KEY="${1:-local/firmware-signing}"

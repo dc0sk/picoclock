@@ -39,6 +39,29 @@ pub fn load<S: Sectors, T>(s: &mut S, buf: &mut [u8], parse: impl Fn(&[u8]) -> O
     None
 }
 
+/// Makes the two sectors equal again when only one holds a valid record: a record that was written before the second sector
+/// existed (an older version) or a sector that tore on the last power cut. The valid sector is never touched; only the invalid
+/// one is rewritten. Returns whether anything was written. `buf` is scratch space as large as one record.
+pub fn heal<S: Sectors, T>(s: &mut S, buf: &mut [u8], parse: impl Fn(&[u8]) -> Option<T>) -> Result<bool, S::Error> {
+    let mut valid = [false; 2];
+    for slot in [PRIMARY, BACKUP] {
+        buf.fill(0xFF);
+        valid[slot] = s.read(slot, buf).is_ok() && parse(buf).is_some();
+    }
+    let (good, bad) = match valid {
+        [true, false] => (PRIMARY, BACKUP),
+        [false, true] => (BACKUP, PRIMARY),
+        _ => return Ok(false),
+    };
+    buf.fill(0xFF);
+    if s.read(good, buf).is_err() {
+        return Ok(false);
+    }
+    s.erase(bad)?;
+    s.write(bad, buf)?;
+    Ok(true)
+}
+
 /// Erases both sectors (factory reset).
 pub fn erase_all<S: Sectors>(s: &mut S) -> Result<(), S::Error> {
     let a = s.erase(PRIMARY);
@@ -152,6 +175,34 @@ mod tests {
         save(&mut sim, &record(&new)).unwrap();
         erase_all(&mut sim).unwrap();
         assert_eq!(loaded(&mut sim), None, "a factory reset must not leave the backup to be loaded");
+    }
+
+    // VERIFIES: REQ-CFG-11
+    #[test]
+    fn heal_copies_the_valid_sector_over_the_missing_or_torn_one_and_nothing_else() {
+        let mut c = Config::default();
+        c.set("hostname", "kept").unwrap();
+        let rec = record(&c);
+        let parse = |b: &[u8]| Config::from_bytes(b);
+        let mut buf = [0u8; SIZE];
+        // an older version wrote the primary only
+        let mut sim = Sim { sector: [rec.to_vec(), vec![0xFF; SIZE]], budget: usize::MAX };
+        assert_eq!(heal(&mut sim, &mut buf, parse).unwrap(), true);
+        assert_eq!(sim.sector[BACKUP][..rec.len()], rec[..]);
+        assert_eq!(heal(&mut sim, &mut buf, parse).unwrap(), false, "both valid: nothing to do");
+        // the primary is torn: it is rewritten from the backup
+        sim.sector[PRIMARY][..10].fill(0);
+        assert_eq!(heal(&mut sim, &mut buf, parse).unwrap(), true);
+        assert_eq!(loaded(&mut sim), Some(c.clone()));
+        // nothing valid anywhere: nothing is invented
+        let mut empty = Sim { sector: [vec![0xFF; SIZE], vec![0xFF; SIZE]], budget: usize::MAX };
+        assert_eq!(heal(&mut empty, &mut buf, parse).unwrap(), false);
+        // power cut while healing: the valid sector still holds the record
+        for budget in 0..2 {
+            let mut sim = Sim { sector: [rec.to_vec(), vec![0xFF; SIZE]], budget };
+            let _ = heal(&mut sim, &mut buf, parse);
+            assert_eq!(sim.sector[PRIMARY][..rec.len()], rec[..], "budget {budget}");
+        }
     }
 
     // VERIFIES: REQ-CFG-10

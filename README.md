@@ -125,7 +125,7 @@ sectors at the very end of the flash and are not part of either slot, so neither
           | the staged (new) image, and    |                 | the staged (new) image, and    |
           | after a swap the old one       |                 | after a swap the old one       |
  0x3F2000 +--------------------------------+        0x1FA000 +--------------------------------+
-          | reserved (trust sector) 40 KiB |                 | reserved (trust sector) 12 KiB |
+          | copies + trust record   40 KiB |                 | copies + trust record   12 KiB |
  0x3FC000 +--------------------------------+        0x1FD000 +--------------------------------+
           | SETTINGS backup         4 KiB  |                 | SETTINGS backup         4 KiB  |
  0x3FD000 +--------------------------------+        0x1FE000 +--------------------------------+
@@ -435,6 +435,13 @@ read. Without a check, anybody who learns the web password or reaches the consol
 do the same. The official releases are signed with the project owner's key (GnuPG, fingerprint in `docs/design/adr/0006-firmware-update.md`);
 the clock trusts that key, a backup key, and nothing else. The version rule stops a signed old image from being put back.
 
+**Revoking a signing key.** If a key is lost or leaked, a release signed with the *other* key can revoke it: the release script builds
+it with `PICOCLOCK_REVOKE=1` (key 1) or `2` (key 2); the image then carries, inside its signed bytes, a note naming the key. When you
+install that release (`update apply`), the clock first records the revocation in its trust record and then swaps; from then on a
+signature by the revoked key is refused (`update` shows `keys    : key 1 REVOKED, key 2 trusted`). A release cannot revoke its own
+signer or both keys, and a factory reset does not undo a revocation. Limits: it protects only clocks that already run a version
+with this feature (0.2.2 and later), and the bootloader, which is never updated by a swap, does not know about revocations.
+
 ### Custom builds (run your own firmware)
 
 This is open source: you can build and install your own. The signature check is a compile-time choice, so the protection is on in
@@ -524,8 +531,12 @@ holds the settings, the one before it the HTTPS key and certificates, then the N
 settings. A save writes the backup first and the main copy second, and at start the first valid copy is used, so a power
 cut during a save leaves the old or the new settings, never none. The program image ends before them (`firmware/memory-*.x`).
 Before the settings come, from the start of flash: the bootloader (64 KiB), the bootloader state (4 KiB), the running image slot
-(Pico W 976 KiB, Pico 2 W 1984 KiB), the staged image slot (4 KiB longer) and free space for a later trust sector (Pico W 12 KiB,
-Pico 2 W 40 KiB). The Pico W image uses about 751 KiB of its 976 KiB.
+(Pico W 976 KiB, Pico 2 W 1984 KiB), the staged image slot (4 KiB longer) and the "trust sector" (Pico W 12 KiB, Pico 2 W 40 KiB). The
+trust sector holds, from the settings downwards: the second copy of the HTTPS record (Pico 2 W), the second copy of the NTS roots, and
+the trust record with its own second copy (which of the two built-in signing keys a release revoked; see below). The NTS roots and the
+HTTPS record are saved like the settings (second copy first, then the first), and a record that only one sector holds is copied to the
+other at start, so a clock updated from 0.2.1 gets its copies by itself. A factory reset erases both copies of everything except the
+trust record: a revoked key must stay revoked. The Pico W image uses about 751 KiB of its 976 KiB.
 A firmware from before this layout leaves these sectors blank or untouched, so updating loses nothing. Embassy is pinned by git revision in `firmware/Cargo.toml`
 because the networking APIs used here are newer than the crates.io releases. The CYW43 firmware blobs in
 `firmware/fw/` come from the Embassy repository under their own license.

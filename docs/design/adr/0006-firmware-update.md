@@ -119,6 +119,28 @@ stays limited**. Points 4 to 7 stand except where this section says otherwise.
     for a name the release script fixes), following any redirect to any GitHub host (REJECTED, assumed: widens who can serve a file),
     automatic download (REJECTED, assumed: the decision to fetch stays the user's, as the decision to install does).
 
+18. **Revocation and the copies in the trust sector (REQ-UPD-10, REQ-CFG-11; built 2026-10-20).** The "trust sector" of point 13 is
+    used without a layout change. From the settings downwards: the second copy of the HTTPS record (Pico 2 W), the second copy of the
+    NTS roots, the trust record and its second copy. The trust record (`PCT1 | revoked u8 | crc32`) is the set of built-in keys a release
+    revoked. A release revokes by a second 16-byte block right behind the info block (`PICOREV1 | mask u8`), inside the signed bytes; a
+    0.2.1 reads only the first 16 bytes and ignores it. The mask is applied by `update apply`, before the swap is marked (if the record
+    cannot be written the image is not installed). Rules: a signature by a revoked key is refused (`KeyRevoked`); an image cannot revoke
+    its own signer, cannot revoke every key, and cannot name a key that does not exist (`BadRevocation`); a factory reset keeps the
+    record. The mask is set with `PICOCLOCK_REVOKE` at build time (0 to 3). Limit: it works only on clocks that already run a version
+    with this feature, and the bootloader does not know it. Alternatives: a separate signed revocation file (REJECTED, assumed: another
+    format and another upload path for something a release already carries); extending the info block (REJECTED, assumed: the 0.2.1
+    reader would then refuse every later image).
+
+19. **A signature check inside the bootloader: not built (decision of 2026-10-20, ASSUMED, not measured).** Point 10 called the
+    bootloader check "the second line". Weighed against what it would cost it was left out for now: (a) the bootloader is never
+    updated by a swap, so only a clock that is flashed over BOOTSEL again would get it; the owner's clock and every clock running 0.2.1
+    keep the old one; (b) it needs the image length and the signature where the bootloader can find them before the swap (point 11's
+    trailer page), which neither the 0.2.1 images nor the embassy-boot state machine provide, plus Ed25519 and SHA-512 inside the
+    64 KiB bootloader of the Pico W (the verifier was estimated at 30 to 45 KiB, not measured), with an 8 s watchdog around hashing
+    1.4 MB; (c) it defends only against a bug in the application's own staging path, because code that can write the state sector
+    can also rewrite the bootloader. Revisit when the flash layout changes anyway and everybody has to reflash. Alternative kept: the
+    application re-verifies the staged image once more just before `update apply` marks the swap (cheap; not built either).
+
 Build order: release tooling and host verifier; memory maps and bootloader; upload path into the download slot (Pico W and Pico 2
 W, no network needed); streaming download with one redirect (Pico 2 W only); rollback rule and two-step confirmation; revocation.
 

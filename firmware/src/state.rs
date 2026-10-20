@@ -40,6 +40,7 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     geo: [GeoTry { stage: 0, bytes: 0, end: 0, addr: [0; 4] }; picoclock_core::geo::PROVIDERS.len()],
     sync_secure: false,
     https_state: 0,
+    revoked_keys: 0,
     rng_hardware: false,
     dhcp_ntp: [[0; 4]; 4],
     dhcp_ntp_n: 0,

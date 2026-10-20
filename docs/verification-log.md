@@ -958,3 +958,40 @@ chains verified) and `update` showed "0.2.1 is staged (signed by key 1)". `updat
 came back as 0.2.1, stayed on it after the 20 s confirmation window, kept its settings, WiFi and HTTPS certificate, and
 `update check` then said "up to date (0.2.1)". This closes the gap left in VR-77 for the download that ends in a staged image.
 Still not verified on hardware: a failure half way through a download and the browser's page refresh.
+
+### VR-79 · 2026-10-20 · host · Step limit, key revocation, second copies, `cert new` with HTTPS off
+
+Unit tests of `picoclock-core` (`cargo test -p picoclock-core --lib`, 206 passed): a time more than 1000 s from the clock is held back
+until a second reading of the same source agrees within 5 s (999 s is taken at once, 1001 s is not; a normal sample in between forgets the
+first far reading; a held-back sample does not make a lower source stand by; without a clock every sample is used); the revocation block
+is found behind the info block, an info block without it or with a damaged magic revokes nothing, and the 16-byte reader of 0.2.1 still
+finds the same info; a signature by a revoked key is `KeyRevoked`, the other key still works; an image may not revoke its own signer, every
+key, or a key that does not exist; the trust record round-trips and any single damaged byte reads as none; `heal` copies the valid sector
+over a missing or torn one, does nothing when both are valid or none is, and a power cut while healing leaves the valid sector intact;
+`cert new` with `https off` answers "HTTPS is off" and does nothing. **Not covered by a host test:** the flash and the cut power
+themselves (VR-80).
+
+Verifies: REQ-SRC-06, REQ-UPD-10, REQ-CFG-11
+
+### VR-80 · 2026-10-20 · hardware · Step limit, revocation, second copies, interrupted download, new bootloader (Pico 2 W)
+
+All on the Pico 2 W, flashed over BOOTSEL as the combined image. **Bootloader/linker:** the `.text` alignment warning is gone from both
+builds and the clock starts through the rebuilt bootloader (settings, WiFi and certificate kept). **Second copies:** after the first start
+the sectors for the roots and the certificate each held a second copy equal to the first (dump of the last 32 KiB of flash through the
+probe: records `PCR1` and `PCT1` in both sectors, trust sectors blank), made by the start-up heal. **Step limit:** a test build that
+made its first two NTP answers 2 h wrong: the first answer was held back ("far from the clock, waiting for a second reading"), the
+clock asked again within 0.6 s, the second (equally wrong) answer agreed and was used and the RTC set; with the next real answers
+(`sync`) the correction (-2 h) went the same way, again two readings, and the clock was right afterwards. (Two agreeing wrong answers are
+accepted by design; the limit stops a single wrong one.) **Revocation (official keys, test builds 0.9.5 to 0.9.9 signed through
+gpg-agent):** an image of key 2 that revokes key 2 and an image of key 1 that revokes both keys were refused ("the image revokes its own
+signing key or every key"); a 0.9.8 image signed by key 2 that revokes key 1 was staged, installed with `update apply`, came up and
+confirmed; `update` then showed `keys    : key 1 REVOKED, key 2 trusted`, also after a reboot; a 0.9.9 image signed by key 1 was refused
+("the signing key was revoked by an earlier release"). The trust sectors were erased again with a UF2 of 0xFF so that the real key 1
+works on this clock. **Not tested:** that a factory reset keeps the record (the code does not touch those sectors; a reset also erases
+the WiFi settings of the only clock). **Interrupted download:** a test build 0.1.5 started `update download` of the published 0.2.1 and was
+restarted with `reboot` while receiving; it came back on 0.1.5 with nothing staged (`update apply`: "nothing is staged"), and a second
+`update download` ended in "0.2.1 is staged (signed by key 1)". A real cable pull and the browser's refresh were not done. One slip: the
+DHCP watcher polled the console during the first upload attempt and corrupted it ("wrong length", correctly refused); the watcher was
+stopped for the tests. The RTC write no longer waits inside the display task; its effect on the buttons was not measured.
+
+Verifies: REQ-SRC-06, REQ-UPD-10, REQ-CFG-11, REQ-UPD-04

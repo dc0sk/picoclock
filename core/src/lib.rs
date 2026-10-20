@@ -39,6 +39,7 @@ pub mod sntp;
 pub mod time;
 pub mod update;
 pub mod tlsstore;
+pub mod trust;
 pub mod tz;
 pub mod ui;
 pub mod tzdb;

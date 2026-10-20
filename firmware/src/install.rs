@@ -42,6 +42,19 @@ fn active_len() -> usize {
     unsafe { (&__bootloader_active_end as *const u32 as u32 - &__bootloader_active_start as *const u32 as u32) as usize }
 }
 
+/// What a checked image brings with it.
+#[derive(Clone, Copy)]
+pub struct Checked {
+    pub version: Version,
+    /// Index of the key that signed it (`image::UNSIGNED` in a custom build).
+    pub key: u8,
+    /// The revoked keys after this image is installed (what was revoked before, plus what the image revokes); the trust record
+    /// is written from this at `update apply`.
+    pub revoked: u8,
+    /// Whether that differs from the trust record now.
+    pub revokes_more: bool,
+}
+
 /// An update file being written into the download slot.
 pub struct Stager {
     file_len: usize,
@@ -83,7 +96,7 @@ impl Stager {
 
     /// Reads the image back from flash, hashes it and applies the rules; returns the version and the number of the key that
     /// signed it. The caller keeps the result until the user says `update apply`.
-    pub async fn finish(&self, flash: &mut Store) -> Result<(Version, u8), Failure> {
+    pub async fn finish(&self, flash: &mut Store) -> Result<Checked, Failure> {
         if self.written != self.file_len {
             return Err(Failure::Refused(Refusal::BadLength));
         }
@@ -111,10 +124,12 @@ impl Stager {
         image::check_info(&found, CHIP, image::RUNNING, POLICY).map_err(Failure::Refused)?;
         if !POLICY.require_signature {
             warn!("install: custom build, the signature is not checked");
-            return Ok((found.version, image::UNSIGNED));
+            return Ok(Checked { version: found.version, key: image::UNSIGNED, revoked: 0, revokes_more: false });
         }
-        let key = image::verify(&image::KEYS, &digest, &sig).ok_or(Failure::Refused(Refusal::BadSignature))?;
-        Ok((found.version, key as u8))
+        let before = crate::storage::load_trust(flash).revoked;
+        let key = image::verify_unrevoked(&image::KEYS, before, &digest, &sig).map_err(Failure::Refused)?;
+        let revoked = image::accept_revocation(image::find_revocation(&head), key, before, image::KEYS.len()).map_err(Failure::Refused)?;
+        Ok(Checked { version: found.version, key: key as u8, revoked, revokes_more: revoked != before })
     }
 }
 
@@ -133,18 +148,18 @@ pub fn mark_swap(flash: &mut Store) -> Result<(), &'static str> {
     state.mark_updated().map_err(|_| "the swap mark could not be written")
 }
 
-pub fn log_result(r: &Result<(Version, u8), Failure>) {
+pub fn log_result(r: &Result<Checked, Failure>) {
     match r {
-        Ok((v, image::UNSIGNED)) => info!("install: {}.{}.{} staged, unsigned (custom build)", v.major, v.minor, v.patch),
-        Ok((v, key)) => info!("install: {}.{}.{} staged, signed by key {}", v.major, v.minor, v.patch, key + 1),
+        Ok(c) if c.key == image::UNSIGNED => info!("install: {}.{}.{} staged, unsigned (custom build)", c.version.major, c.version.minor, c.version.patch),
+        Ok(c) => info!("install: {}.{}.{} staged, signed by key {}, revokes {}", c.version.major, c.version.minor, c.version.patch, c.key + 1, c.revoked),
         Err(Failure::Refused(why)) => warn!("install: refused: {}", why.message()),
         Err(Failure::Flash) => warn!("install: flash error"),
     }
 }
 
-pub fn install_of(r: &Result<(Version, u8), Failure>) -> Install {
+pub fn install_of(r: &Result<Checked, Failure>) -> Install {
     match r {
-        Ok((v, key)) => Install::Staged(*v, *key),
+        Ok(c) => Install::Staged(c.version, c.key),
         Err(Failure::Refused(why)) => Install::Refused(*why),
         Err(Failure::Flash) => Install::WriteFailed,
     }

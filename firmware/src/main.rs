@@ -62,13 +62,25 @@ use panic_probe as _;
 /// (`picoclock_core::image`). The linker script keeps it within the first KiB of the image.
 #[used]
 #[unsafe(link_section = ".picoclock_info")]
-static IMAGE_INFO: [u8; picoclock_core::image::INFO_LEN] = picoclock_core::image::info_bytes(
+static IMAGE_INFO: [u8; 2 * picoclock_core::image::INFO_LEN] = picoclock_core::image::block_bytes(
     #[cfg(feature = "rp2040")]
     picoclock_core::image::Chip::Rp2040,
     #[cfg(feature = "rp235x")]
     picoclock_core::image::Chip::Rp2350,
     picoclock_core::image::RUNNING,
+    REVOKE,
 );
+
+/// Signing keys this release revokes when the user installs it (bit 0 = key 1): set at build time with
+/// `PICOCLOCK_REVOKE=1 cargo build ...` by the release script, 0 in an ordinary build.
+const REVOKE: u8 = match option_env!("PICOCLOCK_REVOKE") {
+    Some(s) => {
+        let b = s.as_bytes();
+        assert!(b.len() == 1 && b[0] >= b'0' && b[0] <= b'3', "PICOCLOCK_REVOKE is 0 to 3");
+        b[0] - b'0'
+    }
+    None => 0,
+};
 
 use picoclock_core::config::Brightness;
 use picoclock_core::frame::Frame;
@@ -120,6 +132,19 @@ fn merge(a: Out, b: Out) -> Out {
 /// and draws the result.
 /// How late the wake-up for the RTC write may be before it waits for the next second instead.
 const MAX_LATE_MS: u64 = 5;
+/// The loop spins this close to the planned RTC write instead of doing other work.
+const WRITE_SPIN_MS: u64 = 20;
+
+/// An RTC write waiting for its second boundary.
+struct Pending {
+    secs: u64,
+    ms: u16,
+    stamp: Instant,
+    planned: Instant,
+    /// The UTC second the RTC is set to at `planned`.
+    target: i64,
+    attempt: u8,
+}
 
 #[embassy_executor::task]
 async fn ui_task(mut rtc: Rtc) -> ! {
@@ -130,36 +155,48 @@ async fn ui_task(mut rtc: Rtc) -> ! {
     let mut frame = Frame::new();
     let mut temp_c10 = None;
     let mut next_temp = Instant::now();
+    let mut pending: Option<Pending> = None;
     loop {
         state::heartbeat();
+        // A new time to apply: the RTC is set exactly on the next UTC second boundary (the DS3231 restarts its second at the
+        // write, so writing mid-second would leave its seconds up to 1 s behind real time). Until then the loop keeps running,
+        // so buttons and the display are not held up for up to a second; `pending` holds the sample and the planned instant.
         if let Some((secs, ms, stamp)) = state::TIME_APPLY.try_take() {
-            // Set the RTC exactly on the next UTC second boundary: the DS3231 restarts its second at the write, so
-            // writing mid-second would leave its seconds up to 1 s behind real time.
-            let (mut target, mut wait_ms) = next_second_boundary(secs, ms, stamp.elapsed().as_millis());
-            // The executor is cooperative: a TLS handshake or a flash save in another task can make this wake-up late, and
-            // a late write would leave the RTC (and the NTP server's anchor) behind real time by that much. If the wake-up
-            // missed its boundary by more than a few ms, aim for the next one (the sample's age is still known).
-            for attempt in 0..4 {
-                let planned = Instant::now() + Duration::from_millis(wait_ms);
-                Timer::at(planned).await;
-                let late_ms = planned.elapsed().as_millis();
-                if late_ms <= MAX_LATE_MS || attempt == 3 {
+            let (target, wait_ms) = next_second_boundary(secs, ms, stamp.elapsed().as_millis());
+            pending = Some(Pending { secs, ms, stamp, planned: Instant::now() + Duration::from_millis(wait_ms), target, attempt: 0 });
+        }
+        if let Some(mut p) = pending.take() {
+            // Close to the boundary: wait for it here (at most WRITE_SPIN_MS), so no other work delays the write.
+            if p.planned.saturating_duration_since(Instant::now()) <= Duration::from_millis(WRITE_SPIN_MS) {
+                Timer::at(p.planned).await;
+                let late_ms = p.planned.elapsed().as_millis();
+                // The executor is cooperative: a TLS handshake or a flash save in another task can make this wake-up late, and
+                // a late write would leave the RTC (and the NTP server's anchor) behind real time by that much. If the wake-up
+                // missed its boundary by more than a few ms, aim for the next one (the sample's age is still known).
+                if late_ms > MAX_LATE_MS && p.attempt < 3 {
+                    warn!("rtc: woke {} ms late; waiting for the next second", late_ms);
+                    let (target, wait_ms) = next_second_boundary(p.secs, p.ms, p.stamp.elapsed().as_millis());
+                    p.target = target;
+                    p.planned = Instant::now() + Duration::from_millis(wait_ms);
+                    p.attempt += 1;
+                    pending = Some(p);
+                } else {
                     if late_ms > MAX_LATE_MS {
                         warn!("rtc: writing {} ms late; the executor stayed busy", late_ms);
                     }
-                    break;
+                    let target = p.target;
+                    let at = Instant::now();
+                    match rtc.set(&unix_to_datetime(target)).await {
+                        Ok(()) => {
+                            info!("rtc: set, unix {}", target);
+                            state::set_anchor(target, at);
+                            state::with_runtime(|r| r.last_sync_unix = Some(target));
+                        }
+                        Err(_) => warn!("rtc: write failed"),
+                    }
                 }
-                warn!("rtc: woke {} ms late; waiting for the next second", late_ms);
-                (target, wait_ms) = next_second_boundary(secs, ms, stamp.elapsed().as_millis());
-            }
-            let at = Instant::now();
-            match rtc.set(&unix_to_datetime(target)).await {
-                Ok(()) => {
-                    info!("rtc: set, unix {}", target);
-                    state::set_anchor(target, at);
-                    state::with_runtime(|r| r.last_sync_unix = Some(target));
-                }
-                Err(_) => warn!("rtc: write failed"),
+            } else {
+                pending = Some(p);
             }
         }
         let utc = rtc.read().await.ok().flatten();
@@ -206,7 +243,12 @@ async fn ui_task(mut rtc: Rtc) -> ! {
         if let (true, Some(before)) = (out.config_changed, before) {
             state::carry_to_persisted(&before, &state::config_snapshot(), false);
         }
-        select(Timer::after_millis(250), state::BUTTONS.ready_to_receive()).await;
+        // sleep until the next tick, a button, or the planned RTC write, whichever comes first
+        let wake = match &pending {
+            Some(p) => (Instant::now() + Duration::from_millis(250)).min(p.planned.checked_sub(Duration::from_millis(WRITE_SPIN_MS)).unwrap_or(Instant::now())),
+            None => Instant::now() + Duration::from_millis(250),
+        };
+        select(Timer::at(wake), state::BUTTONS.ready_to_receive()).await;
     }
 }
 
@@ -265,6 +307,11 @@ async fn main(spawner: Spawner) {
         }
         None => info!("config: none stored, using defaults"),
     }
+    let revoked = storage::load_trust(&mut flash).revoked;
+    if revoked != 0 {
+        info!("update: signing keys revoked by an earlier release: {}", revoked);
+    }
+    state::with_runtime(|r| r.revoked_keys = revoked);
     if let Some(roots) = storage::load_roots(&mut flash) {
         info!("nts: {} user root(s) loaded from flash", roots.len());
         state::set_roots(roots);

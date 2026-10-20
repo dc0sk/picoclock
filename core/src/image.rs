@@ -97,6 +97,14 @@ pub fn describe_install(out: &mut impl core::fmt::Write, i: Install) {
     };
 }
 
+/// The line `update` shows about the signing keys: which of the built-in keys are trusted and which a release revoked.
+pub fn describe_keys(out: &mut impl core::fmt::Write, revoked: u8) {
+    let _ = write!(out, "keys    : ");
+    for i in 0..KEYS.len() {
+        let _ = write!(out, "{}key {} {}", if i == 0 { "" } else { ", " }, i + 1, if revoked >> i & 1 == 1 { "REVOKED" } else { "trusted" });
+    }
+}
+
 /// What an image says about itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Info {
@@ -126,6 +134,43 @@ pub const fn info_bytes(chip: Chip, v: Version) -> [u8; INFO_LEN] {
     b
 }
 
+/// A second 16-byte block directly behind the info block: magic and a bitmask of the built-in keys this release revokes
+/// (bit 0 = key 1, bit 1 = key 2). An older firmware reads only the 16 bytes of the info block and ignores it. The block is
+/// covered by the signature like the rest of the image, and a clock acts on it only when the user installs the image.
+pub const REV_MAGIC: [u8; 8] = *b"PICOREV1";
+
+/// The info block followed by the revocation block, as the firmware puts it into its image.
+pub const fn block_bytes(chip: Chip, v: Version, revoke: u8) -> [u8; 2 * INFO_LEN] {
+    let info = info_bytes(chip, v);
+    let mut b = [0u8; 2 * INFO_LEN];
+    let mut i = 0;
+    while i < INFO_LEN {
+        b[i] = info[i];
+        i += 1;
+    }
+    let mut j = 0;
+    while j < 8 {
+        b[INFO_LEN + j] = REV_MAGIC[j];
+        j += 1;
+    }
+    b[INFO_LEN + 8] = revoke;
+    b
+}
+
+/// The keys the image revokes (bitmask), 0 if it carries no revocation block. Call it with the same bytes as [`find_info`].
+pub fn find_revocation(head: &[u8]) -> u8 {
+    let head = &head[..head.len().min(SCAN + INFO_LEN * 2)];
+    let mut at = 0;
+    while at + INFO_LEN <= head.len() && at < SCAN {
+        if head[at..at + 8] == MAGIC {
+            let r = at + INFO_LEN;
+            return if r + 9 <= head.len() && head[r..r + 8] == REV_MAGIC { head[r + 8] } else { 0 };
+        }
+        at += 4;
+    }
+    0
+}
+
 /// Finds the info block in the first `SCAN` bytes of an image (on a 4-byte boundary, as the linker places it).
 pub fn find_info(head: &[u8]) -> Option<Info> {
     let head = &head[..head.len().min(SCAN)];
@@ -151,6 +196,10 @@ pub enum Refusal {
     /// The image is not newer than the running one (rollback protection).
     NotNewer,
     BadSignature,
+    /// The signature is valid, but the key that made it was revoked by an earlier release.
+    KeyRevoked,
+    /// The image revokes its own signing key, or every key (the clock could never be updated again).
+    BadRevocation,
 }
 
 impl Refusal {
@@ -161,6 +210,8 @@ impl Refusal {
             Refusal::WrongChip => "the image is for the other chip",
             Refusal::NotNewer => "the image is not newer than the version that runs (no downgrades)",
             Refusal::BadSignature => "the signature is not valid for any trusted key",
+            Refusal::KeyRevoked => "the signing key was revoked by an earlier release",
+            Refusal::BadRevocation => "the image revokes its own signing key or every key",
         }
     }
 }
@@ -230,6 +281,25 @@ const fn hex32(s: &[u8; 64]) -> [u8; 32] {
 pub fn verify(keys: &[[u8; 32]], digest: &[u8; 64], signature: &[u8; 64]) -> Option<usize> {
     let sig = Signature::from_bytes(signature);
     keys.iter().position(|k| VerifyingKey::from_bytes(k).is_ok_and(|vk| vk.verify_strict(digest, &sig).is_ok()))
+}
+
+/// Like [`verify`], but a key whose bit is set in `revoked` is not trusted: a signature by such a key is [`Refusal::KeyRevoked`].
+pub fn verify_unrevoked(keys: &[[u8; 32]], revoked: u8, digest: &[u8; 64], signature: &[u8; 64]) -> Result<usize, Refusal> {
+    match verify(keys, digest, signature) {
+        Some(i) if revoked >> i & 1 == 1 => Err(Refusal::KeyRevoked),
+        Some(i) => Ok(i),
+        None => Err(Refusal::BadSignature),
+    }
+}
+
+/// The revocation an image asks for, if it may have it: the keys named must not include the signer, and some key must stay.
+pub fn accept_revocation(revoke: u8, signer: usize, already: u8, key_count: usize) -> Result<u8, Refusal> {
+    let valid = ((1u16 << key_count) - 1) as u8;
+    let all = already | (revoke & valid);
+    if revoke & !valid != 0 || revoke >> signer & 1 == 1 || all == valid {
+        return Err(Refusal::BadRevocation);
+    }
+    Ok(all)
 }
 
 #[cfg(test)]
@@ -375,5 +445,47 @@ mod tests {
         for k in KEYS {
             assert!(VerifyingKey::from_bytes(&k).is_ok());
         }
+    }
+
+    // VERIFIES: REQ-UPD-10
+    #[test]
+    fn a_revocation_block_follows_the_info_block_and_old_readers_ignore_it() {
+        let b = block_bytes(Chip::Rp2350, v(0, 3, 0), 0b01);
+        assert_eq!(b[..INFO_LEN], info_bytes(Chip::Rp2350, v(0, 3, 0)), "the first 16 bytes are the old info block");
+        let mut img = std::vec![0u8; 8192];
+        img[192..192 + 2 * INFO_LEN].copy_from_slice(&b);
+        assert_eq!(find_info(&img), Some(Info { chip: Chip::Rp2350, version: v(0, 3, 0) }));
+        assert_eq!(find_revocation(&img), 0b01);
+        // without the block, or with a damaged magic, nothing is revoked
+        let mut plain = std::vec![0u8; 8192];
+        plain[192..192 + INFO_LEN].copy_from_slice(&info_bytes(Chip::Rp2350, v(0, 3, 0)));
+        assert_eq!(find_revocation(&plain), 0);
+        img[192 + INFO_LEN] ^= 1;
+        assert_eq!(find_revocation(&img), 0);
+        assert_eq!(find_revocation(&[0u8; 100]), 0);
+        // an info block that ends the buffer
+        let short = &info_bytes(Chip::Rp2350, v(0, 3, 0));
+        assert_eq!(find_revocation(short), 0);
+    }
+
+    // VERIFIES: REQ-UPD-10
+    #[test]
+    fn a_revoked_key_is_refused_and_a_revocation_must_leave_a_key() {
+        let sk1 = SigningKey::from_bytes(&[7u8; 32]);
+        let sk2 = SigningKey::from_bytes(&[9u8; 32]);
+        let keys = [sk1.verifying_key().to_bytes(), sk2.verifying_key().to_bytes()];
+        let d = digest(b"image");
+        assert_eq!(verify_unrevoked(&keys, 0, &d, &sk1.sign(&d).to_bytes()), Ok(0));
+        assert_eq!(verify_unrevoked(&keys, 0b01, &d, &sk1.sign(&d).to_bytes()), Err(Refusal::KeyRevoked));
+        assert_eq!(verify_unrevoked(&keys, 0b01, &d, &sk2.sign(&d).to_bytes()), Ok(1), "the other key still works");
+        assert_eq!(verify_unrevoked(&keys, 0b10, &d, &[0u8; 64]), Err(Refusal::BadSignature));
+        // key 2 revokes key 1: accepted, and added to what was revoked before
+        assert_eq!(accept_revocation(0b01, 1, 0, 2), Ok(0b01));
+        assert_eq!(accept_revocation(0, 1, 0b01, 2), Ok(0b01), "nothing asked: what was revoked stays");
+        // a key cannot revoke itself, nothing may revoke every key, an unknown key number is refused
+        assert_eq!(accept_revocation(0b10, 1, 0, 2), Err(Refusal::BadRevocation));
+        assert_eq!(accept_revocation(0b11, 0, 0, 2), Err(Refusal::BadRevocation));
+        assert_eq!(accept_revocation(0b10, 0, 0b01, 2), Err(Refusal::BadRevocation), "that would leave no key");
+        assert_eq!(accept_revocation(0b100, 0, 0, 2), Err(Refusal::BadRevocation));
     }
 }

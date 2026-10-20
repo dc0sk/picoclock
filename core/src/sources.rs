@@ -108,6 +108,9 @@ pub enum Verdict {
     Outvoted,
     /// Mode `vote`: no group holds more than half of the vote power; the clock is left alone.
     NoMajority,
+    /// The sample is further from the clock than [`STEP_LIMIT_MS`] and nothing confirmed it yet: the clock is left alone and a
+    /// second reading that agrees (within [`CONFIRM_MS`]) is waited for.
+    Suspect,
     /// The source is not selected.
     Off,
 }
@@ -124,6 +127,8 @@ pub enum State {
     Standby,
     Outvoted,
     NoMajority,
+    /// The last time was far from the clock and is waiting for a second reading.
+    Suspect,
 }
 
 impl State {
@@ -136,6 +141,7 @@ impl State {
             State::Standby => "standby (a higher source decides)",
             State::Outvoted => "rejected (outvoted)",
             State::NoMajority => "no majority, clock left alone",
+            State::Suspect => "far from the clock, waiting for a second reading",
         }
     }
 }
@@ -153,15 +159,25 @@ pub struct Report {
 /// receiver has second resolution and some delay, and the clock's phase is better set by NTP.
 const DCF_KEEP_MS: i64 = 300;
 
+/// A time further than this from the clock (1000 s, the limit ntpd calls the panic threshold) is not taken from one reading: a
+/// wrong or forged answer must not move the clock by hours. It is used once a second reading of the same source agrees. Not
+/// applied while the clock has no valid time (nothing to compare with).
+pub const STEP_LIMIT_MS: i64 = 1_000_000;
+/// Two readings of a far-away time agree if they differ by no more than this.
+pub const CONFIRM_MS: i64 = 5_000;
+
 #[derive(Debug, Default)]
 pub struct Selector {
     last: [Option<Sample>; N],
     verdict: [Option<Verdict>; N],
+    /// The first reading of a far-away time, per source, and how many such readings in a row.
+    suspect: [Option<Sample>; N],
+    suspect_n: [u8; N],
 }
 
 impl Selector {
     pub const fn new() -> Self {
-        Self { last: [None; N], verdict: [None; N] }
+        Self { last: [None; N], verdict: [None; N], suspect: [None; N], suspect_n: [0; N] }
     }
 
     fn fresh(&self, s: Source, now_ms: u64) -> Option<Sample> {
@@ -170,6 +186,20 @@ impl Selector {
 
     /// A source delivered a time. `clock_ms` is the clock's own UTC time now in ms, if it has one.
     pub fn offer(&mut self, policy: &Policy, src: Source, sample: Sample, now_ms: u64, clock_ms: Option<i64>) -> Verdict {
+        let i = src.index();
+        if let Some(clock) = clock_ms.filter(|_| policy.selected(src)) {
+            if (sample.now_ms(now_ms) - clock).abs() > STEP_LIMIT_MS {
+                let confirmed = self.suspect[i].is_some_and(|first| (first.now_ms(now_ms) - sample.now_ms(now_ms)).abs() <= CONFIRM_MS);
+                if !confirmed {
+                    self.suspect[i] = Some(sample);
+                    self.suspect_n[i] = self.suspect_n[i].saturating_add(1);
+                    self.verdict[i] = Some(Verdict::Suspect);
+                    return Verdict::Suspect;
+                }
+            }
+        }
+        self.suspect[i] = None;
+        self.suspect_n[i] = 0;
         self.last[src.index()] = Some(sample);
         let verdict = self.decide(policy, src, sample, now_ms, clock_ms);
         self.verdict[src.index()] = Some(verdict);
@@ -199,6 +229,11 @@ impl Selector {
             _ => true,
         };
         Verdict::Use { write }
+    }
+
+    /// How many far-away readings of this source in a row are waiting for a confirmation.
+    pub fn suspect_count(&self, s: Source) -> u8 {
+        self.suspect_n[s.index()]
     }
 
     /// The sources of the group that holds the majority of the vote power, if there is one.
@@ -232,6 +267,8 @@ impl Selector {
             let fresh = self.fresh(source, now_ms);
             let state = if !policy.selected(source) {
                 State::Off
+            } else if self.verdict[i] == Some(Verdict::Suspect) {
+                State::Suspect
             } else if self.last[i].is_none() {
                 State::Waiting
             } else if fresh.is_none() {
@@ -263,6 +300,8 @@ impl Selector {
     pub fn forget(&mut self, s: Source) {
         self.last[s.index()] = None;
         self.verdict[s.index()] = None;
+        self.suspect[s.index()] = None;
+        self.suspect_n[s.index()] = 0;
     }
 }
 
@@ -299,6 +338,40 @@ mod tests {
             assert_eq!(s.offer(&p, Dcf77, at(0, 0), 0, clock(0)), Verdict::Off);
             assert_eq!(s.report(&p, 4 * H, clock(4 * H))[1].state, State::Off);
         }
+    }
+
+    // VERIFIES: REQ-SRC-06
+    #[test]
+    fn a_far_away_time_needs_a_second_agreeing_reading() {
+        let p = policy(Mode::Order, &[Ntp, Dcf77], [1, 1], 2);
+        let mut s = Selector::new();
+        let hours_ahead = 3 * H as i64;
+        // no clock yet: nothing to compare with, the sample is used
+        assert_eq!(s.offer(&p, Ntp, at(0, hours_ahead), 0, None), Verdict::Use { write: true });
+        // a clock exists: one far reading is held back, the clock stays, and a lower source is not pushed aside by it
+        assert_eq!(s.offer(&p, Ntp, at(MIN, 7 * H as i64), MIN, clock(MIN)), Verdict::Suspect);
+        assert_eq!(s.suspect_count(Ntp), 1);
+        assert_eq!(s.report(&p, MIN, clock(MIN))[0].state, State::Suspect);
+        // a second reading far away but different is held back too (a guess moves nothing)
+        assert_eq!(s.offer(&p, Ntp, at(2 * MIN, 9 * H as i64), 2 * MIN, clock(2 * MIN)), Verdict::Suspect);
+        assert_eq!(s.suspect_count(Ntp), 2);
+        // one that agrees with the previous reading is used
+        assert_eq!(s.offer(&p, Ntp, at(3 * MIN, 9 * H as i64 + 800), 3 * MIN, clock(3 * MIN)), Verdict::Use { write: true });
+        assert_eq!(s.suspect_count(Ntp), 0);
+        // a normal sample in between forgets the first far reading
+        let mut s = Selector::new();
+        assert_eq!(s.offer(&p, Ntp, at(0, 2 * H as i64), 0, clock(0)), Verdict::Suspect);
+        assert_eq!(s.offer(&p, Ntp, at(MIN, 20), MIN, clock(MIN)), Verdict::Use { write: true });
+        assert_eq!(s.offer(&p, Ntp, at(2 * MIN, 2 * H as i64), 2 * MIN, clock(2 * MIN)), Verdict::Suspect, "the old first reading is gone");
+        // near the limit (999 s) is still taken at once, 1001 s is not
+        let mut s = Selector::new();
+        assert_eq!(s.offer(&p, Ntp, at(0, 999_000), 0, clock(0)), Verdict::Use { write: true });
+        let mut s = Selector::new();
+        assert_eq!(s.offer(&p, Ntp, at(0, 1_001_000), 0, clock(0)), Verdict::Suspect);
+        // a suspect reading is not a fresh sample: the lower source is not held back by it
+        let mut s = Selector::new();
+        assert_eq!(s.offer(&p, Ntp, at(0, 2 * H as i64), 0, clock(0)), Verdict::Suspect);
+        assert_eq!(s.offer(&p, Dcf77, at(MIN, 400), MIN, clock(MIN)), Verdict::Use { write: true });
     }
 
     // VERIFIES: REQ-SRC-02
@@ -349,12 +422,12 @@ mod tests {
         // NTP agrees within 2 s: both in the group
         assert_eq!(s.offer(&p, Ntp, at(MIN, 900), MIN, clock(MIN)), Verdict::Use { write: true });
         assert_eq!(s.offer(&p, Dcf77, at(2 * MIN, 0), 2 * MIN, clock(2 * MIN)), Verdict::Use { write: false });
-        // NTP now claims an hour ahead: two sources with one vote each disagree, nobody has more than half
+        // NTP now claims 500 s ahead: two sources with one vote each disagree, nobody has more than half
         let now = 3 * MIN;
-        let spoofed = at(now, 3_600_000);
+        let spoofed = at(now, 500_000);
         assert_eq!(s.offer(&p, Ntp, spoofed, now, clock(now)), Verdict::NoMajority);
         let r = s.report(&p, now, clock(now));
-        assert_eq!((r[0].state, r[0].offset_ms), (State::NoMajority, Some(3_600_000)));
+        assert_eq!((r[0].state, r[0].offset_ms), (State::NoMajority, Some(500_000)));
         // DCF77 delivering meanwhile is also not used: the clock stays as it is
         assert_eq!(s.offer(&p, Dcf77, at(now + MIN, 0), now + MIN, clock(now + MIN)), Verdict::NoMajority);
     }
@@ -365,9 +438,9 @@ mod tests {
         // NTP counts twice: it outvotes a wrong DCF77 reading
         let p = policy(Mode::Vote, &[Ntp, Dcf77], [2, 1], 2);
         let mut s = Selector::new();
-        s.offer(&p, Dcf77, at(0, 7 * 3_600_000), 0, clock(0));
+        s.offer(&p, Dcf77, at(0, 7 * 500_000), 0, clock(0));
         assert_eq!(s.offer(&p, Ntp, at(10, 0), 10, clock(10)), Verdict::Use { write: true });
-        assert_eq!(s.offer(&p, Dcf77, at(MIN, 7 * 3_600_000), MIN, clock(MIN)), Verdict::Outvoted);
+        assert_eq!(s.offer(&p, Dcf77, at(MIN, 7 * 500_000), MIN, clock(MIN)), Verdict::Outvoted);
         assert_eq!(s.report(&p, MIN, clock(MIN))[1].state, State::Outvoted);
         // a source with power 0 is shown and compared but cannot set the clock
         let p = policy(Mode::Vote, &[Ntp, Dcf77], [0, 1], 2);

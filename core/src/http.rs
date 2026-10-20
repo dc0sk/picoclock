@@ -650,6 +650,11 @@ fn update_file(st: &Status, secure: bool, out: &mut impl Write) -> core::fmt::Re
         out.write_str("<p class=\"msg err\">Custom build: an update file is NOT checked against the signing keys. Only install files you built or trust.</p>")?;
     } else {
         out.write_str("<p>An update file (.pcu) is a firmware image with its signature. The clock checks the signature, the chip and that it is newer, and refuses anything else.</p>")?;
+        if st.revoked_keys != 0 {
+            let mut line = heapless::String::<80>::new();
+            crate::image::describe_keys(&mut line, st.revoked_keys);
+            write!(out, "<p>Signing {}</p>", Esc(&line))?;
+        }
     }
     if matches!(st.install, crate::image::Install::Downloading(_) | crate::image::Install::Receiving | crate::image::Install::DownloadFailed) {
         let mut line = heapless::String::<300>::new();
@@ -981,6 +986,7 @@ mod tests {
             update: crate::update::Check::Newer,
             update_latest: Some(crate::update::Version { major: 65535, minor: 65535, patch: 65535 }),
             update_checked_unix: Some(1_700_000_000),
+            revoked_keys: 0,
             install: crate::image::Install::Idle,
             custom_images: false,
             can_download: false,

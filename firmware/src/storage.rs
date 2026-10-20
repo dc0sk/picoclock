@@ -31,6 +31,23 @@ const ROOTS_OFFSET: u32 = (FLASH_SIZE - 2 * ERASE_SIZE) as u32;
 const BACKUP_OFFSET: u32 = (FLASH_SIZE - 4 * ERASE_SIZE) as u32;
 #[cfg(not(feature = "https"))]
 const BACKUP_OFFSET: u32 = (FLASH_SIZE - 3 * ERASE_SIZE) as u32;
+/// The second copies of the HTTPS record and of the NTS roots, and the trust record (revoked signing keys) with its second copy,
+/// all in the free sectors that `memory-*.x` keeps in front of the settings (the "trust sector"). Nothing here moves with a
+/// release: these sectors were reserved and empty.
+#[cfg(feature = "https")]
+const TLS_BACKUP_OFFSET: u32 = (FLASH_SIZE - 5 * ERASE_SIZE) as u32;
+#[cfg(feature = "https")]
+const ROOTS_BACKUP_OFFSET: u32 = (FLASH_SIZE - 6 * ERASE_SIZE) as u32;
+#[cfg(feature = "https")]
+const TRUST_OFFSET: u32 = (FLASH_SIZE - 7 * ERASE_SIZE) as u32;
+#[cfg(feature = "https")]
+const TRUST_BACKUP_OFFSET: u32 = (FLASH_SIZE - 8 * ERASE_SIZE) as u32;
+#[cfg(not(feature = "https"))]
+const ROOTS_BACKUP_OFFSET: u32 = (FLASH_SIZE - 4 * ERASE_SIZE) as u32;
+#[cfg(not(feature = "https"))]
+const TRUST_OFFSET: u32 = (FLASH_SIZE - 5 * ERASE_SIZE) as u32;
+#[cfg(not(feature = "https"))]
+const TRUST_BACKUP_OFFSET: u32 = (FLASH_SIZE - 6 * ERASE_SIZE) as u32;
 const RECORD: usize = 2048;
 /// Edits via buttons arrive in bursts; wait for this long without a new one before writing flash.
 const QUIET: Duration = Duration::from_secs(3);
@@ -65,32 +82,92 @@ pub fn load(flash: &mut Store) -> Option<Config> {
     picoclock_core::slots::load(&mut Settings(flash), &mut [0u8; RECORD], Config::from_bytes)
 }
 
+/// A record kept in two sectors (`picoclock_core::slots`): the offsets of the primary and the backup sector.
+struct Pair<'a>(&'a mut Store, u32, u32);
+
+impl picoclock_core::slots::Sectors for Pair<'_> {
+    type Error = embassy_rp::flash::Error;
+    fn read(&mut self, slot: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+        let at = self.at(slot);
+        self.0.blocking_read(at, buf)
+    }
+    fn erase(&mut self, slot: usize) -> Result<(), Self::Error> {
+        let at = self.at(slot);
+        self.0.blocking_erase(at, at + ERASE_SIZE as u32)
+    }
+    fn write(&mut self, slot: usize, data: &[u8]) -> Result<(), Self::Error> {
+        let at = self.at(slot);
+        self.0.blocking_write(at, data)
+    }
+}
+
+impl Pair<'_> {
+    fn at(&self, slot: usize) -> u32 {
+        if slot == picoclock_core::slots::PRIMARY { self.1 } else { self.2 }
+    }
+}
+
+#[cfg(feature = "https")]
+fn tls_pair(flash: &mut Store) -> Pair<'_> {
+    Pair(flash, TLS_OFFSET, TLS_BACKUP_OFFSET)
+}
+fn roots_pair(flash: &mut Store) -> Pair<'_> {
+    Pair(flash, ROOTS_OFFSET, ROOTS_BACKUP_OFFSET)
+}
+fn trust_pair(flash: &mut Store) -> Pair<'_> {
+    Pair(flash, TRUST_OFFSET, TRUST_BACKUP_OFFSET)
+}
+
 #[cfg(feature = "https")]
 pub fn load_tls(flash: &mut Store) -> Option<picoclock_core::tlsstore::Material> {
-    let mut buf = [0u8; picoclock_core::tlsstore::MAX_RECORD];
-    flash.blocking_read(TLS_OFFSET, &mut buf).ok()?;
-    picoclock_core::tlsstore::Material::decode(&buf)
+    picoclock_core::slots::load(&mut tls_pair(flash), &mut [0u8; picoclock_core::tlsstore::MAX_RECORD], picoclock_core::tlsstore::Material::decode)
 }
 
 #[cfg(feature = "https")]
 fn save_tls(flash: &mut Store, m: &picoclock_core::tlsstore::Material) -> Result<(), embassy_rp::flash::Error> {
     let mut buf = [0xFFu8; picoclock_core::tlsstore::MAX_RECORD];
     m.encode(&mut buf).ok_or(embassy_rp::flash::Error::OutOfBounds)?;
-    flash.blocking_erase(TLS_OFFSET, TLS_OFFSET + ERASE_SIZE as u32)?;
-    flash.blocking_write(TLS_OFFSET, &buf)
+    picoclock_core::slots::save(&mut tls_pair(flash), &buf)
 }
 
 pub fn load_roots(flash: &mut Store) -> Option<picoclock_core::rootstore::Roots> {
-    let mut buf = [0u8; picoclock_core::rootstore::MAX_RECORD];
-    flash.blocking_read(ROOTS_OFFSET, &mut buf).ok()?;
-    picoclock_core::rootstore::Roots::decode(&buf)
+    picoclock_core::slots::load(&mut roots_pair(flash), &mut [0u8; picoclock_core::rootstore::MAX_RECORD], picoclock_core::rootstore::Roots::decode)
 }
 
 fn save_roots(flash: &mut Store, roots: &picoclock_core::rootstore::Roots) -> Result<(), embassy_rp::flash::Error> {
     let mut buf = [0xFFu8; picoclock_core::rootstore::MAX_RECORD];
     roots.encode(&mut buf).ok_or(embassy_rp::flash::Error::OutOfBounds)?;
-    flash.blocking_erase(ROOTS_OFFSET, ROOTS_OFFSET + ERASE_SIZE as u32)?;
-    flash.blocking_write(ROOTS_OFFSET, &buf)
+    picoclock_core::slots::save(&mut roots_pair(flash), &buf)
+}
+
+/// The revoked signing keys (bitmask); nothing is revoked when no record exists.
+pub fn load_trust(flash: &mut Store) -> picoclock_core::trust::Trust {
+    picoclock_core::slots::load(&mut trust_pair(flash), &mut [0u8; 64], picoclock_core::trust::Trust::decode).unwrap_or_default()
+}
+
+pub fn save_trust(flash: &mut Store, t: &picoclock_core::trust::Trust) -> Result<(), embassy_rp::flash::Error> {
+    let mut buf = [0xFFu8; 64];
+    buf[..picoclock_core::trust::RECORD_LEN].copy_from_slice(&t.encode());
+    picoclock_core::slots::save(&mut trust_pair(flash), &buf)?;
+    if load_trust(flash) == *t { Ok(()) } else { Err(embassy_rp::flash::Error::OutOfBounds) }
+}
+
+/// Copies a record that only one of its two sectors holds (written before the second one existed, or torn) to the other.
+fn heal(flash: &mut Store) {
+    use picoclock_core::slots::heal;
+    #[cfg(feature = "https")]
+    if let Ok(true) = heal(&mut tls_pair(flash), &mut [0u8; picoclock_core::tlsstore::MAX_RECORD], picoclock_core::tlsstore::Material::decode) {
+        info!("storage: certificate copy restored");
+    }
+    if let Ok(true) = heal(&mut roots_pair(flash), &mut [0u8; picoclock_core::rootstore::MAX_RECORD], picoclock_core::rootstore::Roots::decode) {
+        info!("storage: NTS roots copy restored");
+    }
+    if let Ok(true) = heal(&mut trust_pair(flash), &mut [0u8; 64], picoclock_core::trust::Trust::decode) {
+        info!("storage: trust record copy restored");
+    }
+    if let Ok(true) = heal(&mut Settings(flash), &mut [0u8; RECORD], Config::from_bytes) {
+        info!("storage: settings copy restored");
+    }
 }
 
 /// Pending until the HTTPS certificate must be saved; never, in a build without HTTPS.
@@ -121,10 +198,11 @@ async fn factory_reset(flash: &mut Store) {
     let mut ok = true;
     // both copies of the settings: the backup would otherwise bring them back at the next start
     ok &= picoclock_core::slots::erase_all(&mut Settings(flash)).is_ok();
-    ok &= flash.blocking_erase(ROOTS_OFFSET, ROOTS_OFFSET + ERASE_SIZE as u32).is_ok();
+    // the trust record (revoked signing keys) is deliberately kept: a revoked key must not come back
+    ok &= picoclock_core::slots::erase_all(&mut roots_pair(flash)).is_ok();
     #[cfg(feature = "https")]
     {
-        ok &= flash.blocking_erase(TLS_OFFSET, TLS_OFFSET + ERASE_SIZE as u32).is_ok();
+        ok &= picoclock_core::slots::erase_all(&mut tls_pair(flash)).is_ok();
         ok &= load_tls(flash).is_none();
     }
     ok &= load(flash).is_none() && load_roots(flash).is_none();
@@ -164,13 +242,13 @@ fn confirm_boot(flash: &mut Store) {
 }
 
 /// One message of the install conversation (`crate::install`): the staged image waits here for `Apply`.
-async fn install_step(flash: &mut Store, msg: state::InstallMsg, stager: &mut Option<crate::install::Stager>, staged: &mut bool) {
+async fn install_step(flash: &mut Store, msg: state::InstallMsg, stager: &mut Option<crate::install::Stager>, staged: &mut Option<crate::install::Checked>) {
     use crate::install::{self, Failure};
     use picoclock_core::image::Install;
     use state::InstallMsg::*;
     match msg {
         Begin(len) => {
-            *staged = false;
+            *staged = None;
             *stager = None;
             match install::begin(len) {
                 Ok(s) => {
@@ -200,19 +278,33 @@ async fn install_step(flash: &mut Store, msg: state::InstallMsg, stager: &mut Op
                 None => Err(Failure::Flash),
             };
             install::log_result(&result);
-            *staged = result.is_ok();
+            *staged = result.as_ref().ok().copied();
             state::set_install(install::install_of(&result));
             state::INSTALL_REPLY.signal(result.is_ok());
         }
         Abort => {
             *stager = None;
-            *staged = false;
+            *staged = None;
             state::set_install(Install::Idle);
         }
         Apply => {
-            if !*staged {
+            let Some(checked) = *staged else {
                 state::INSTALL_REPLY.signal(false);
-            } else {
+                return;
+            };
+            {
+                // The revocation comes first: if the record cannot be written the image is not installed (a swap without it
+                // would leave the key the image revokes trusted). It stays recorded even if the new image does not confirm.
+                if checked.revokes_more {
+                    let trust = picoclock_core::trust::Trust { revoked: checked.revoked };
+                    if save_trust(flash, &trust).is_err() {
+                        warn!("install: the trust record could not be written; not installing");
+                        state::INSTALL_REPLY.signal(false);
+                        return;
+                    }
+                    state::with_runtime(|r| r.revoked_keys = checked.revoked);
+                    info!("install: signing keys revoked: {}", checked.revoked);
+                }
                 match install::mark_swap(flash) {
                     Ok(()) => {
                         info!("install: swap marked; restarting");
@@ -232,9 +324,10 @@ async fn install_step(flash: &mut Store, msg: state::InstallMsg, stager: &mut Op
 
 #[embassy_executor::task]
 pub async fn storage_task(mut flash: Store) -> ! {
+    heal(&mut flash);
     // the install conversation runs beside the 20-second wait for the boot confirmation, so an upload is never held up by it
     let mut stager: Option<crate::install::Stager> = None;
-    let mut staged = false;
+    let mut staged: Option<crate::install::Checked> = None;
     {
         use embassy_futures::select::{Either, select};
         let confirm = confirm_boot_signal();

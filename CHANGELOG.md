@@ -7,6 +7,21 @@ Settings saved by an older version keep working; new settings start at their def
 
 ## [Unreleased]
 
+### Added
+- **Key revocation** (REQ-UPD-10): a release signed with one built-in key can revoke the other (`PICOCLOCK_REVOKE` at build time, a signed
+  note behind the info block); recorded when the release is installed, kept over a factory reset, shown by `update`.
+- **A step limit for the clock** (REQ-SRC-06): a time more than 1000 s away from the running clock is used only after a second reading
+  of the same source agrees; NTP asks again at once (up to three times). Without a valid time every sample is used as before.
+
+### Changed
+- The NTS roots you added and the HTTPS key/certificate are now kept in two sectors each, like the settings, and a record held by only
+  one sector is copied to the other at start (REQ-CFG-11). No change to the flash layout; the sectors were reserved.
+- `cert new` while HTTPS is off now says so instead of waiting for a certificate that is never made.
+
+### Fixed
+- Setting the RTC on the next second boundary no longer holds up the buttons and the display for up to a second.
+- The linker warning about the `.text` alignment on the RP2350 (bootloader and firmware) is gone.
+
 ## [0.2.1] - 2026-10-19
 
 ### Added

@@ -65,7 +65,7 @@ code = ["core/src/update.rs", "core/src/download.rs"]
 [[cap]]
 id = "CAP-IMAGE"
 name = "Update files: info block, acceptance rules, Ed25519 check, staging in the download slot"
-code = ["core/src/image.rs", "firmware/src/install.rs"]
+code = ["core/src/image.rs", "core/src/trust.rs", "firmware/src/install.rs"]
 
 [[cap]]
 id = "CAP-BOOT"
@@ -562,6 +562,15 @@ rationale = "Found by the full-code review of 2026-10-17: a save erased the only
 cap = ["CAP-CONFIG", "CAP-APP"]
 
 [[req]]
+id = "REQ-CFG-11"
+area = "Configuration"
+status = "ratified"
+criticality = "medium"
+statement = "The NTS roots the user added and the HTTPS key and certificate shall each be kept in two flash sectors written one after the other, like the settings, so that a power cut while saving leaves the old or the new record; a record found in only one sector (written by an older version, or torn) shall be copied to the other at start, and a factory reset shall erase both copies."
+rationale = "Review of 2026-10-16: the roots and the certificate had a single sector each; a cut during the erase-write window lost them (the failure was only a missing root or a new self-signed certificate, but it is the same fault the settings backup already fixes). The free sectors before the settings made it possible without moving the bootloader layout."
+cap = ["CAP-CONFIG", "CAP-APP"]
+
+[[req]]
 id = "REQ-NET-10"
 area = "Network"
 status = "ratified"
@@ -652,6 +661,15 @@ rationale = "Decided in ADR-0006 points 4 and 8 and requested by the owner (2026
 cap = ["CAP-UPDATE", "CAP-IMAGE", "CAP-NTS", "CAP-HTTP", "CAP-CLI", "CAP-APP"]
 
 # ---------------------------------------------------------------------------------------------------- terminal
+
+[[req]]
+id = "REQ-UPD-10"
+area = "Update"
+status = "ratified"
+criticality = "high"
+statement = "A release signed by one of the two built-in keys shall be able to revoke the other: the image carries, in its signed bytes right behind the info block, a bitmask of revoked keys, and when the user installs that image (update apply) the clock shall record the mask in the trust record before it marks the swap. From then on a signature by a revoked key shall be refused, whatever the image. An image shall not revoke its own signing key, shall not revoke every key, and an unknown key number shall be refused. The trust record shall be kept in its own pair of flash sectors, survive a power cut during a write, and not be erased by a factory reset. A firmware that predates this block shall ignore it."
+rationale = "ADR-0006 point 10: the bootloader's key list can never change, so retiring a lost or leaked key has to be an application rule that a release signed with the other key can trigger. The signer cannot revoke itself and a compromised key cannot lock the owner out of the other, because some key must stay; a factory reset must not bring a revoked key back."
+cap = ["CAP-IMAGE", "CAP-CONFIG", "CAP-CLI", "CAP-APP"]
 
 [[req]]
 id = "REQ-CLI-01"
@@ -820,6 +838,15 @@ criticality = "medium"
 statement = "The terminal status and the web page shall show the selection mode and, for each selected source, its state, its last time and offset from the accepted time, its vote power in mode `vote`, and whether it was accepted or rejected; all of it shall be settable from the terminal and the web page and saved with the other settings."
 rationale = "A rejected source is a fault the owner needs to see; hidden voting would be unexplainable."
 cap = ["CAP-SOURCES", "CAP-CLI", "CAP-HTTP"]
+
+[[req]]
+id = "REQ-SRC-06"
+area = "Time sources"
+status = "ratified"
+criticality = "medium"
+statement = "When the clock has a valid time, a sample from a time source that differs from it by more than 1000 seconds shall not set the clock until a second reading of the same source agrees with it within 5 seconds; meanwhile the clock shall be left alone, the sample shall not count as fresh for the other sources, the status shall say so, and a far-away NTP time shall make the clock ask again at once (at most three times in a row). Without a valid time every sample is used."
+rationale = "Plain NTP is not authenticated and one wrong answer (a broken server, a forged reply on a foreign network) must not move the clock by hours; a real step (battery change, a wrong RTC) is accepted a minute later. The limit is the one ntpd calls its panic threshold. Found open by the review of 2026-10-16 (NTP plausibility)."
+cap = ["CAP-SOURCES"]
 
 [[req]]
 id = "REQ-DCF-01"

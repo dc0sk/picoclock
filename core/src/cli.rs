@@ -86,6 +86,8 @@ pub struct Status {
     pub update: crate::update::Check,
     pub update_latest: Option<crate::update::Version>,
     pub update_checked_unix: Option<i64>,
+    /// Signing keys a release revoked (bitmask, bit 0 = key 1).
+    pub revoked_keys: u8,
     /// Where an uploaded firmware image stands (ADR-0006).
     pub install: crate::image::Install,
     /// This is a custom build (cargo feature `custom-images`): uploaded images are not checked against the signing keys.
@@ -438,6 +440,9 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             }
             if st.custom_images {
                 let _ = out.write_str("\nimages  : custom build, uploads are not signature-checked");
+            } else if st.revoked_keys != 0 {
+                let _ = out.write_str("\n");
+                crate::image::describe_keys(out, st.revoked_keys);
             }
             let _ = write!(out, "\nsources : mode {}", cfg.time_mode.name());
             if cfg.time_mode == crate::sources::Mode::Vote {
@@ -571,6 +576,10 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
                     crate::image::describe_install(out, st.install);
                     let _ = out.write_str("\n");
                 }
+                if !st.custom_images {
+                    crate::image::describe_keys(out, st.revoked_keys);
+                    let _ = out.write_str("\n");
+                }
                 if st.custom_images {
                     let _ = out.write_str(CUSTOM_NOTICE);
                 }
@@ -627,6 +636,10 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
         "cert" => match (rest, st.https_state) {
             (_, 0) => {
                 let _ = out.write_str("no HTTPS in this build (Pico 2 W only)\n");
+                Action::None
+            }
+            (_, _) if !cfg.https && rest == "new" => {
+                let _ = out.write_str("HTTPS is off: nothing to replace ('set https on' first)\n");
                 Action::None
             }
             ("" | "show", 1) | ("new", 1) => {
@@ -898,6 +911,23 @@ mod tests {
         assert_eq!(line(&Status::default()), "synced  : never");
     }
 
+    // VERIFIES: REQ-UPD-10
+    #[test]
+    fn update_and_status_name_the_revoked_signing_keys() {
+        let mut c = Config::default();
+        let run = |c: &mut Config, line: &str, st: &Status| {
+            let mut out = String::new();
+            execute(line, c, st, &mut out);
+            out
+        };
+        let s = run(&mut c, "update", &Status::default());
+        assert!(s.contains("keys    : key 1 trusted, key 2 trusted"), "{s}");
+        let s = run(&mut c, "update", &Status { revoked_keys: 1, ..Default::default() });
+        assert!(s.contains("keys    : key 1 REVOKED, key 2 trusted"), "{s}");
+        assert!(run(&mut c, "status", &Status { revoked_keys: 1, ..Default::default() }).contains("key 1 REVOKED"));
+        assert!(!run(&mut c, "status", &Status::default()).contains("keys    :"), "status stays short while nothing is revoked");
+    }
+
     // VERIFIES: REQ-WEB-08
     #[test]
     fn cert_command_and_https_line_in_status() {
@@ -931,6 +961,10 @@ mod tests {
         assert_eq!(run(&mut c, "cert new", &ready).0, Action::NewCertificate);
         assert_eq!(run(&mut c, "cert new", &Status { https_state: 1, ..Default::default() }).0, Action::None, "nothing to replace yet");
         assert_eq!(run(&mut c, "cert new", &Status::default()).0, Action::None, "no HTTPS in this build");
+        c.set("https", "off").unwrap();
+        let (a, s) = run(&mut c, "cert new", &ready);
+        assert_eq!((a, s.contains("HTTPS is off")), (Action::None, true), "{s}");
+        c.set("https", "on").unwrap();
         assert!(run(&mut c, "cert", &Status::default()).1.contains("no HTTPS in this build"));
         assert!(run(&mut c, "cert bogus", &ready).1.contains("usage"));
         assert!(run(&mut c, "help", &ready).1.contains("cert new"));

@@ -10,8 +10,10 @@ use picoclock_core::sources::{SOURCES, Selector, Source, Verdict};
 use crate::state::{self, Offer};
 
 /// The clock's own UTC time in ms, from the moment the RTC was last set and the monotonic timer since.
+/// Before the first write since boot the RTC's own reading stands in (to the second), so that even the first sample after a
+/// restart is compared with a clock that was running.
 fn clock_ms() -> Option<i64> {
-    state::anchor().map(|(secs, at)| secs * 1000 + at.elapsed().as_millis() as i64)
+    state::anchor().map(|(secs, at)| secs * 1000 + at.elapsed().as_millis() as i64).or_else(|| state::status().utc_unix.map(|s| s * 1000))
 }
 
 /// An NTP time is only a reference for the receiver delay for this long after it arrived: the monotonic timer drifts by
@@ -20,6 +22,9 @@ const NTP_REFERENCE_MS: u64 = 300_000;
 /// A learned delay is written to flash when it moved by this much (ms) and the last write is older than the interval.
 const LEARNED_STEP_MS: u16 = 5;
 const LEARNED_SAVE_EVERY_MS: u64 = 600_000;
+
+/// How many times in a row a far-away NTP time makes the clock ask again at once (then the regular interval).
+const SUSPECT_ASKS: u8 = 3;
 
 #[embassy_executor::task]
 pub async fn sources_task() -> ! {
@@ -66,8 +71,13 @@ pub async fn sources_task() -> ! {
                 Verdict::Standby => "standby",
                 Verdict::Outvoted => "outvoted",
                 Verdict::NoMajority => "no majority",
+                Verdict::Suspect => "far from the clock, waiting for a second reading",
                 Verdict::Off => "not selected",
             });
+            if verdict == Verdict::Suspect && src == Source::Ntp && selector.suspect_count(src) < SUSPECT_ASKS {
+                // ask again at once: another server of the pool, or the same one again, must say the same
+                state::SYNC_NOW.signal(());
+            }
             if let Verdict::Use { write } = verdict {
                 let dcf = src == picoclock_core::sources::Source::Dcf77;
                 let projected_s = (sample.unix_ms + now_ms.saturating_sub(sample.at_ms) as i64).div_euclid(1000);

@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/srs.md
 status: living
-last_updated: 2026-10-19
+last_updated: 2026-10-20
 ---
 
 # Software requirements specification
@@ -301,6 +301,11 @@ The saved settings shall be kept in two flash sectors, written one after the oth
 *Why:* Found by the full-code review of 2026-10-17: a save erased the only copy before writing the new one, so a power cut in that window brought the clock back with default settings, no WiFi networks and a new HTTPS certificate. Decided by the owner the same day.  
 *Implemented by:* Configuration model and flash storage, Composition: task wiring, shared state, chip selection
 
+**REQ-CFG-11** (ratified, medium)  
+The NTS roots the user added and the HTTPS key and certificate shall each be kept in two flash sectors written one after the other, like the settings, so that a power cut while saving leaves the old or the new record; a record found in only one sector (written by an older version, or torn) shall be copied to the other at start, and a factory reset shall erase both copies.  
+*Why:* Review of 2026-10-16: the roots and the certificate had a single sector each; a cut during the erase-write window lost them (the failure was only a missing root or a new self-signed certificate, but it is the same fault the settings backup already fixes). The free sectors before the settings made it possible without moving the bootloader layout.  
+*Implemented by:* Configuration model and flash storage, Composition: task wiring, shared state, chip selection
+
 
 ### 4.8 Update
 
@@ -348,6 +353,11 @@ The Security page of the web interface shall take an update file (REQ-UPD-05) as
 On the Pico 2 W, `update download` and the Security page's button shall fetch the update file (REQ-UPD-05) of the release the update check found, from github.com via one redirect, into the download slot, and never install it: the file goes through the same checks as an upload and waits for the INSTALL confirmation. The requests shall name the asset picoclock-<version>-pico2-w.pcu of the release tag; the redirect shall be followed only to https://release-assets.githubusercontent.com and only if its address holds visible ASCII; github.com shall be trusted through the root of the update check and the download host through ISRG Root X1 only; the file shall be accepted only if the body is exactly as long as announced (no chunked answer) and both certificate checks passed after it. A custom build (REQ-UPD-07) and the Pico W shall not download. One file is received at a time across terminal, web and download.  
 *Why:* Decided in ADR-0006 points 4 and 8 and requested by the owner (2026-10-19): the Pico 2 W can verify GitHub's RSA download chain and so can fetch the file itself; the Pico W cannot and installs by upload. The signature, not the transport, decides what is installed, so the download adds only fetch-and-stage, with the same refusals as an upload; pinning one root per host and the single redirect keep the set of parties that can serve a file small.  
 *Implemented by:* Firmware update check (GitHub releases), Update files: info block, acceptance rules, Ed25519 check, staging in the download slot, NTS client: key exchange, authenticated packets, sessions, HTTP parsing, settings page and web server, Terminal commands and USB serial console, Composition: task wiring, shared state, chip selection
+
+**REQ-UPD-10** (ratified, high)  
+A release signed by one of the two built-in keys shall be able to revoke the other: the image carries, in its signed bytes right behind the info block, a bitmask of revoked keys, and when the user installs that image (update apply) the clock shall record the mask in the trust record before it marks the swap. From then on a signature by a revoked key shall be refused, whatever the image. An image shall not revoke its own signing key, shall not revoke every key, and an unknown key number shall be refused. The trust record shall be kept in its own pair of flash sectors, survive a power cut during a write, and not be erased by a factory reset. A firmware that predates this block shall ignore it.  
+*Why:* ADR-0006 point 10: the bootloader's key list can never change, so retiring a lost or leaked key has to be an application rule that a release signed with the other key can trigger. The signer cannot revoke itself and a compromised key cannot lock the owner out of the other, because some key must stay; a factory reset must not bring a revoked key back.  
+*Implemented by:* Update files: info block, acceptance rules, Ed25519 check, staging in the download slot, Configuration model and flash storage, Terminal commands and USB serial console, Composition: task wiring, shared state, chip selection
 
 
 ### 4.9 Terminal
@@ -447,6 +457,11 @@ In mode `vote` every selected source shall have a selectable vote power (a whole
 The terminal status and the web page shall show the selection mode and, for each selected source, its state, its last time and offset from the accepted time, its vote power in mode `vote`, and whether it was accepted or rejected; all of it shall be settable from the terminal and the web page and saved with the other settings.  
 *Why:* A rejected source is a fault the owner needs to see; hidden voting would be unexplainable.  
 *Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Terminal commands and USB serial console, HTTP parsing, settings page and web server
+
+**REQ-SRC-06** (ratified, medium)  
+When the clock has a valid time, a sample from a time source that differs from it by more than 1000 seconds shall not set the clock until a second reading of the same source agrees with it within 5 seconds; meanwhile the clock shall be left alone, the sample shall not count as fresh for the other sources, the status shall say so, and a far-away NTP time shall make the clock ask again at once (at most three times in a row). Without a valid time every sample is used.  
+*Why:* Plain NTP is not authenticated and one wrong answer (a broken server, a forged reply on a foreign network) must not move the clock by hours; a real step (battery change, a wrong RTC) is accepted a minute later. The limit is the one ntpd calls its panic threshold. Found open by the review of 2026-10-16 (NTP plausibility).  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver
 
 **REQ-DCF-01** (ratified, high)  
 The DCF77 decoder shall turn the 59 bits of a minute into the UTC time of the minute they announce, and refuse a frame whose start bit, time-zone bits, three parity bits, BCD digits, calendar date (including the number of days in the month) or transmitted weekday are wrong.  
