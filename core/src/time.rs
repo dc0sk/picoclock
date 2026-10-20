@@ -20,6 +20,14 @@ impl DateTime {
 /// Days since 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's algorithm).
 /// The RTC must be written exactly on a UTC second boundary. Time was `secs` + `ms` when the NTP reply arrived and
 /// `elapsed_ms` have passed since; returns the second to write (the next whole one) and how long to wait until it begins.
+/// The clock accepts times from 2020-01-01 up to the end of 2099 (the RTC keeps two year digits).
+pub const MIN_UNIX: i64 = 1_577_836_800;
+pub const MAX_UNIX: i64 = 4_102_444_799;
+
+pub fn plausible_unix(secs: i64) -> bool {
+    (MIN_UNIX..=MAX_UNIX).contains(&secs)
+}
+
 pub fn next_second_boundary(secs: u64, ms: u16, elapsed_ms: u64) -> (i64, u64) {
     let total = ms as u64 + elapsed_ms;
     (secs as i64 + (total / 1000) as i64 + 1, 1000 - total % 1000)

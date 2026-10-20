@@ -3,8 +3,9 @@
 //!
 //! Pico 2 W (RP2350): the chip's true random number generator (TRNG, with its built-in health tests), started once in
 //! `init_trng`. Pico W (RP2040): the chip has none, so bits are sampled from the ring oscillator's jitter, spaced out in time
-//! and hashed (`picoclock_core::entropy`). That is the best entropy the RP2040 offers, but it is not a certified TRNG. Either source feeds the TLS ephemeral keys,
-//! the HTTPS private key, the NTS unique identifiers, the AEAD nonces and the network stack's seed.
+//! and hashed (`picoclock_core::entropy`). That is the best entropy the RP2040 offers, but it is not a certified TRNG.
+//! Either source feeds the TLS ephemeral keys, the HTTPS private key, the NTS unique identifiers, the AEAD nonces, the plain-NTP
+//! origin nonces and the network stack's seed.
 
 use embassy_crypto::driver::Rng;
 use embassy_crypto_rustcrypto as _;

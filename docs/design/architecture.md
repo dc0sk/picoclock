@@ -376,19 +376,15 @@ crates.io releases.
 
 ## 10. Extension points (roadmap)
 
-- **Further time sources (u-blox GPS).** Source selection and DCF77 are delivered (ADR-0004). GPS needs a `Source` variant, a
-  producer task sending to `SAMPLES`, and the wiring in the table above; a PPS pulse could replace the anchor's free-running
-  phase and allow a lower stratum. The reviewer's notes from 2026-10-17 still apply: take the RTC write out of `ui_task`
-  (its second-boundary wait stalls the display up to a second), and give the NTP server a form of `last_sync_unix` per source.
-- **Random numbers.** Pico 2 W: the chip's TRNG. Pico W: ring-oscillator bits read with a pause between them and hashed 2:1
-  with the time and the previous state (`core::entropy`, REQ-RNG-01); the quality of the raw bits is not measured.
-
-## 10. Extension points (roadmap)
-
-- **Further time sources (DCF77, u-blox GPS).** Today the only producer of time is `wifi_task` through `NTP_TIME`.
-  A source abstraction would let several producers publish (seconds, sub-second, quality) and let `ui_task` pick the
-  best; a GPS with a PPS pulse could replace the anchor's free-running phase and allow a lower stratum. Needs free
-  GPIOs that reach the clock's case.
+- **Further time sources (u-blox GPS).** Source selection and DCF77 are delivered (ADR-0004), and the RTC write no longer stalls
+  the display (`Pending` in `ui_task`). What a third source needs, from the full-code review of 2026-10-20
+  (`docs/design/reviews/2026-10-20-full-code-review.md`): a `Source` variant appended last (it is also the vote enumeration order),
+  `SOURCES`, `fresh_for_ms` and the vote power key; a producer task; a keep rule per source instead of the DCF77-only `DCF_KEEP_MS`
+  and a minimum interval between RTC writes (a 1 Hz source would otherwise rewrite the RTC every second); PPS edges stamped in an
+  interrupt, not after a task wake-up; a confirmation of a far-away time by a *different* source (the same-source rule of
+  REQ-SRC-06 does not catch a receiver that is consistently wrong, e.g. a week rollover); `Status.sources`, the "synced" line
+  and the web/CLI/config keys that are written for two sources. A PPS pulse could replace the anchor's free-running phase and
+  allow a lower stratum.
 - **Random numbers.** Pico 2 W: the RP2350 hardware TRNG (`firmware/src/crypto.rs`, started at boot and kept only if a self-test passes, taken under a thread-mode lock so it cannot delay the display interrupt). Pico W: ring-oscillator jitter, because the RP2040 has no TRNG; `status` says which one is in use.
 - **HTTPS.** Needs a TLS *server*; nothing vetted builds for the RP2040. Implemented per ADR-0002: `rustls` on the Pico 2 W only (`firmware/src/{https,tls,heap}.rs`, record format in `core/src/tlsstore.rs`), a per-device certificate generated once the RTC is valid and stored in its own flash sector, uploadable replacement over HTTPS; the Pico W keeps HTTP.
 - **NTS trust.** The key exchange checks the recorded chain against all trusted roots in one connection (`core/src/nts_ke.rs`): the built-in ones (`core/roots/`; ISRG Root X1 only with the `rsa` feature, Pico 2 W) and up to four the user added (`core/src/rootstore.rs`, own flash sector, `root` commands, HTTPS page on the Pico 2 W). RSA chains need the heap, so the Pico W refuses them. See ADR-0003.

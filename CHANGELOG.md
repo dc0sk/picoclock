@@ -8,8 +8,11 @@ Settings saved by an older version keep working; new settings start at their def
 ## [Unreleased]
 
 ### Added
-- **Key revocation** (REQ-UPD-10): a release signed with one built-in key can revoke the other (`PICOCLOCK_REVOKE` at build time, a signed
-  note behind the info block); recorded when the release is installed, kept over a factory reset, shown by `update`.
+- **Key revocation** (REQ-UPD-11): a release signed with the backup key (key 2) can revoke key 1 (`PICOCLOCK_REVOKE=1` at build time, a
+  signed note behind the info block); recorded when the release is installed, kept over a factory reset, shown by `update`. Key 1
+  cannot revoke anything, so a leak of it cannot lock the owner out of key 2.
+- **Review record** `docs/design/reviews/2026-10-20-full-code-review.md`: the findings of the three Fable reviewers before the GPS phase
+  and what was done about each.
 - **A step limit for the clock** (REQ-SRC-06): a time more than 1000 s away from the running clock is used only after a second reading
   of the same source agrees; NTP asks again at once (up to three times). Without a valid time every sample is used as before.
 
@@ -17,8 +20,18 @@ Settings saved by an older version keep working; new settings start at their def
 - The NTS roots you added and the HTTPS key/certificate are now kept in two sectors each, like the settings, and a record held by only
   one sector is copied to the other at start (REQ-CFG-11). No change to the flash layout; the sectors were reserved.
 - `cert new` while HTTPS is off now says so instead of waiting for a certificate that is never made.
+- The web page no longer claims to need no JavaScript (the upload has a progress bar; REQ-WEB-12 replaces REQ-WEB-11). `tools/trace.py`
+  binds a `// VERIFIES:` line only to a `#[test]` function, and the gate runs its self-test and that of `check_docs.py`.
 
 ### Fixed
+- **Security:** an NTP answer with a date in 1968 to 1970 wrapped and wrote a garbage year into the RTC; dates outside 2020 to 2099 are
+  refused now. The plain port no longer tells a right web password from a wrong one (`POST /upload`), serves nothing while HTTPS is
+  still starting (with the redirect on), and a browser request must carry the clock's own address or name (DNS rebinding).
+  `web_enabled off` now closes the HTTPS port too. The plain-NTP nonce is random. A confirmation to install names the image that
+  was shown. The DCF77 delay is no longer learned from NTP times the vote rejected.
+- The terminal upload no longer drops bytes when a USB packet straddles a block; `help` is no longer cut short (16 settings were
+  missing); passwords keep their spaces; Fahrenheit rounds correctly for small negative values; a failed RTC write is retried;
+  the watchdog is armed before the radio starts; the layout check also covers the record sectors of `storage.rs`.
 - Setting the RTC on the next second boundary no longer holds up the buttons and the display for up to a second.
 - The linker warning about the `.text` alignment on the RP2350 (bootloader and firmware) is gone.
 

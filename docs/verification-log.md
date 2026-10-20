@@ -721,7 +721,9 @@ from HTTP to HTTPS keeping the `?tab=`, and saving from each page: the clock had
 192.168.1.1), which the Raspberry Pi used for testing (192.168.121.x) cannot reach, so the pages could not be fetched. They
 need one look in a browser.
 
-Verifies: REQ-WEB-11
+(Re-pointed from REQ-WEB-11 to its successor REQ-WEB-12 on 2026-10-20; the pages recorded here are unchanged.)
+
+Verifies: REQ-WEB-12
 
 ### VR-61 · 2026-10-18 · hardware · The six web pages on the Pico 2 W; one SSID on two networks
 
@@ -736,7 +738,9 @@ and 192.168.1.1). The clock joins whichever its scan finds first, so after a res
 answer there, hence `ntp: waiting`, and the Pi could not reach it) and three times in a row on 192.168.121.x. The firmware does
 not choose between access points of one SSID and does not log the BSSID.
 
-Verifies: REQ-WEB-11
+(Re-pointed from REQ-WEB-11 to its successor REQ-WEB-12 on 2026-10-20; the pages recorded here are unchanged.)
+
+Verifies: REQ-WEB-12
 
 ### VR-62 · 2026-10-18 · hardware · A second DHCP answer and the access points the clock hears
 
@@ -786,7 +790,9 @@ factory reset keep answering a POST with a page (the confirmation page, which as
 (curl only), and a message is kept for whichever page is loaded next, so a second browser could show it instead of the one that
 pressed the button.
 
-Verifies: REQ-WEB-11
+(Re-pointed from REQ-WEB-11 to its successor REQ-WEB-12 on 2026-10-20; the pages recorded here are unchanged.)
+
+Verifies: REQ-WEB-12
 
 ### VR-66 · 2026-10-18 · host · The timezone list link under the timezone field
 
@@ -798,7 +804,9 @@ link, and the screenshot in the README shows it. The screenshots were made again
 taken. **Not verified on the clock:** the Pico 2 W build with this change is flashed, but a web password is set, so a request without
 credentials gets `401` and the page could not be fetched from here; the owner is to look at the Time page in a browser.
 
-Verifies: REQ-WEB-11
+(Re-pointed from REQ-WEB-11 to its successor REQ-WEB-12 on 2026-10-20; the pages recorded here are unchanged.)
+
+Verifies: REQ-WEB-12
 
 ### VR-67 · 2026-10-18 · hardware · HAM mode and the DCF77 supply capacitor, reported by the owner
 
@@ -971,7 +979,9 @@ over a missing or torn one, does nothing when both are valid or none is, and a p
 `cert new` with `https off` answers "HTTPS is off" and does nothing. **Not covered by a host test:** the flash and the cut power
 themselves (VR-80).
 
-Verifies: REQ-SRC-06, REQ-UPD-10, REQ-CFG-11
+(Re-pointed from REQ-UPD-10 to its successor REQ-UPD-11 on 2026-10-20 before the first release; the key rule changed afterwards, see VR-81 and ADR-0006 point 18, so the revocation runs on this record are history of the first version.)
+
+Verifies: REQ-SRC-06, REQ-UPD-11, REQ-CFG-11
 
 ### VR-80 · 2026-10-20 · hardware · Step limit, revocation, second copies, interrupted download, new bootloader (Pico 2 W)
 
@@ -994,4 +1004,38 @@ restarted with `reboot` while receiving; it came back on 0.1.5 with nothing stag
 DHCP watcher polled the console during the first upload attempt and corrupted it ("wrong length", correctly refused); the watcher was
 stopped for the tests. The RTC write no longer waits inside the display task; its effect on the buttons was not measured.
 
-Verifies: REQ-SRC-06, REQ-UPD-10, REQ-CFG-11, REQ-UPD-04
+(Re-pointed from REQ-UPD-10 to its successor REQ-UPD-11 on 2026-10-20 before the first release; the key rule changed afterwards, see VR-81 and ADR-0006 point 18, so the revocation runs on this record are history of the first version.)
+
+Verifies: REQ-SRC-06, REQ-UPD-11, REQ-CFG-11, REQ-UPD-04
+
+### VR-81 · 2026-10-20 · host · Fixes after the full-code review
+
+Unit tests of `picoclock-core` (210 passed, also with the `rsa` feature): NTP seconds from 0x8000_0000 to the Unix epoch and beyond 2099
+are `Implausible`, never wrapped; only a later key may revoke an earlier one (key 1 revokes nothing, key 2 may revoke key 1, nobody
+revokes itself or a later key, an unknown key or signer is refused), an info block in the last 32 bytes of the scanned window is not
+accepted, the trust record has its own magic; a browser request whose `Host` is not an address or a name starting with the clock's
+own is refused (`host_is_own`), a script without an Origin is not affected; only a sample whose verdict was *use* is a reference for
+the DCF77 delay, and a held-back sample shows no offset; `help` fits the terminal's 3000 bytes; small negative Celsius values round
+correctly in Fahrenheit; `trace.py` rejects a `VERIFIES` line that is not directly above a `#[test]` (self-tested in the gate) and the
+layout check counts the record sectors of `storage.rs` (sabotage-tested: a seventh sector on the Pico W fails it). **Not covered:** the
+flash, the USB and the web server themselves (VR-82).
+
+Verifies: REQ-NTP-02, REQ-UPD-11, REQ-SRC-06, REQ-WEB-08, REQ-CLI-01, REQ-UI-02
+
+### VR-82 · 2026-10-20 · hardware · Fixes after the full-code review (Pico 2 W)
+
+Combined image of the fixed tree flashed over BOOTSEL (settings, WiFi, certificate kept). **Web (curl against the clock, HTTPS on, redirect on):**
+`POST /upload` on the plain port answered 403 for a wrong and for the right password alike (before: 401 vs 403); `GET /` on the plain port
+redirected; a request with `Host` and `Origin` both `evil.example` over HTTPS got 403, the same request with the clock's address and with
+`picoclock-d6.fritz.box` was accepted (303); `set web_enabled off` closed both the HTTPS and the plain port within 8 s and `status` said
+so, `set web_enabled on` brought them back. **Terminal upload:** a 1.4 MB update file written in chunks of 1000 and 777 bytes, and one
+with the first 40 file bytes in the same write as the command line, were both staged ("0.9.9 is staged (signed by key 1)"). **Help:**
+2238 bytes, ending with all settings (`morse_wpm` present), no truncation note. **Revocation (official keys):** a 0.9.7 image of key 1 that
+revokes key 2 was refused; a 0.9.8 image of key 2 that revokes key 1 was staged, installed through the two-step question (the question
+names the version), and the trust sectors then held `PTR1` records with the mask in both copies; a test image built before the magic
+changed shows "trusted" (it reads the old magic, an artefact of the test), the fixed tree shown after a reflash says `key 1 REVOKED` and
+refused a key-1 image ("the signing key was revoked by an earlier release"). The trust sectors were erased again with a UF2 of 0xFF.
+**Not verified:** the 503 of the plain port while HTTPS starts (needs a boot without time), the retry of a failed RTC write, the early
+watchdog (no way to provoke), the Pico W.
+
+Verifies: REQ-UPD-11, REQ-UPD-06, REQ-WEB-08, REQ-CLI-01

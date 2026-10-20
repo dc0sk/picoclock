@@ -54,9 +54,11 @@ def uf2(img, family):
     return bytes(out)
 
 
-CHIPS = {  # chip: (memory file suffix, flash size, bytes at the end of flash kept for the settings records)
-    "rp2040": ("rp2040", 2048 * 1024, 12 * 1024),
-    "rp2350-arm-s": ("rp235x", 4096 * 1024, 16 * 1024),
+# chip: (memory file suffix, flash size, bytes at the end of flash kept for the records of firmware/src/storage.rs: the settings,
+# the NTS roots and the HTTPS key (Pico 2 W) with a second copy of each, and the trust record with its second copy)
+CHIPS = {
+    "rp2040": ("rp2040", 2048 * 1024, 24 * 1024),
+    "rp2350-arm-s": ("rp235x", 4096 * 1024, 32 * 1024),
 }
 
 
@@ -106,9 +108,29 @@ def check_layout():
             bad.append(f"{chip}: firmware linker symbols {syms} differ from the bootloader's map {want}")
         if LAYOUT[chip] != (state[0], active[0], active[1]):
             bad.append(f"{chip}: LAYOUT in this tool {LAYOUT[chip]} differs from the maps {(state[0], active[0], active[1])}")
-        # the trust sector (ADR-0006 point 10) sits between the download slot and the settings
+        # the record sectors of storage.rs must not reach into the download slot: the lowest one counted from the end of flash
+        storage = open(f"{here}/../firmware/src/storage.rs").read()
+        https = chip == "rp2350-arm-s"
+        lowest, cfg = 1, None
+        for line in storage.splitlines():
+            if line.strip().startswith("#[cfg("):
+                cfg = line.strip()
+            m = re.match(r"const \w+_OFFSET: u32 = \(FLASH_SIZE - (?:(\d+) \* )?ERASE_SIZE\) as u32;", line)
+            if m:
+                applies = True
+                if cfg and 'feature = "https"' in cfg:
+                    applies = https if "not(" not in cfg else not https
+                if applies:
+                    lowest = max(lowest, int(m.group(1) or 1))
+            if not line.strip().startswith("#["):
+                cfg = None
+        records = lowest * 4096
+        if records != settings:
+            bad.append(f"{chip}: storage.rs uses {lowest} sectors at the end of flash, this tool expects {settings // 4096}")
+        if size - records < dfu[0] + dfu[1]:
+            bad.append(f"{chip}: the record sectors of storage.rs ({lowest}) reach into the download slot")
         print(f"{chip}: state {state[0]:#x}, active {active[0]:#x}+{active[1] // 1024}K, download {dfu[0]:#x}+{dfu[1] // 1024}K, "
-              f"{(size - settings - dfu[0] - dfu[1]) // 1024}K free before the settings")
+              f"{lowest} record sectors, {(size - records - dfu[0] - dfu[1]) // 1024}K free between")
     if bad:
         raise SystemExit("layout problems:\n  " + "\n  ".join(bad))
     print("layout: ok")

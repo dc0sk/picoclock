@@ -107,7 +107,8 @@ pub async fn https_task(stack: Stack<'static>) -> ! {
     let mut server: Option<Arc<rustls::ServerConfig>> = None;
     let mut rebuild = true;
     loop {
-        if !state::with_config(|c| c.https) {
+        // `web_enabled off` switches the whole web interface off, the HTTPS port included
+        if !state::with_config(|c| c.https && c.web_enabled) {
             // switched off: stop listening, forget the configuration; `status` says "off"
             if listening {
                 listener.close();

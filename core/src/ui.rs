@@ -323,8 +323,10 @@ impl Ui {
                 None => f.put_dashes(),
                 Some(c10) => {
                     // Round to whole degrees in the chosen unit.
-                    let tenths = if cfg.fahrenheit { c10 as i32 * 9 / 5 + 320 } else { c10 as i32 };
-                    let deg = (tenths + if tenths >= 0 { 5 } else { -5 }) / 10;
+                    // in the unit's tenths of a fifth (Fahrenheit: tenths of C times 9 plus 32 degrees) so that nothing truncates
+                    // before the rounding to whole degrees, half away from zero
+                    let (scaled, step) = if cfg.fahrenheit { (c10 as i32 * 9 + 1600, 50) } else { (c10 as i32, 10) };
+                    let deg = (scaled + if scaled >= 0 { step / 2 } else { -step / 2 }) / step;
                     let deg = deg.clamp(-99, 99);
                     if deg < 0 {
                         f.put_char(0, '-');
@@ -720,6 +722,32 @@ mod tests {
         let mut dashes = Frame::new();
         dashes.put_dashes();
         assert_eq!(px(&rendered(&ui, &cfg, &e), 4), px(&dashes, 4));
+    }
+
+    // VERIFIES: REQ-UI-02
+    #[test]
+    fn small_negative_celsius_rounds_correctly_in_fahrenheit() {
+        let (mut ui, mut cfg) = (Ui::new(), Config::default());
+        press(&mut ui, &mut cfg, Button::Set, Press::Short, 0);
+        press(&mut ui, &mut cfg, Button::Set, Press::Short, 0);
+        cfg.fahrenheit = true;
+        let mut e = env(Some(dt(1, 1, 1)), 0);
+        // -0.3 C is 31.46 F -> 31 (the old integer division gave 32); -3.1 C is 26.42 F -> 26 (it gave 27); 0.0 C = 32 F
+        for (c10, f) in [(-3i16, "31"), (-31, "26"), (0, "32"), (-178, "0")] {
+            e.temp_c10 = Some(c10);
+            let got = rendered(&ui, &cfg, &e);
+            let mut want = Frame::new();
+            let (a, b) = (f.chars().next().unwrap(), f.chars().nth(1));
+            match b {
+                Some(b) => {
+                    want.put_char(3, a);
+                    want.put_char(8, b);
+                }
+                None => want.put_char(8, a),
+            }
+            want.put_glyph(14, SYMBOL_FAHRENHEIT);
+            assert_eq!(px(&got, 4), px(&want, 4), "{c10} tenths of a degree C");
+        }
     }
 
     // VERIFIES: REQ-UI-08

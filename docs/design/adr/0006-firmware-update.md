@@ -9,10 +9,13 @@ last_updated: 2026-10-19
 
 ## Status
 
-Step 1 (the check) is **Accepted** and delivered (REQ-UPD-01 to 03). Step 2 (the install) is **Proposed**; its first part, the bootloader with swap and swap-back, is **built and tested on the Pico 2 W**
-(REQ-UPD-04, VR-68 to VR-70; not yet on the Pico W). It was revised after the design review of
-2026-10-18 (see "Revision after the design review"): the owner agreed on 2026-10-18 to the approach (check first, notify, install only on the user's request; GitHub releases as the source; a signing key
-of their own in GnuPG; a one-time bootloader reflash on both boards), but nothing of it is built.
+Step 1 (the check) is **Accepted** and delivered (REQ-UPD-01 to 03). Step 2 (the install) is **Accepted and delivered in 0.2.1**:
+the bootloader with swap and swap-back, install from the terminal and the web page, download from GitHub on the Pico 2 W
+(REQ-UPD-04 to 09, VR-68 to VR-78), and, after 0.2.1, key revocation (REQ-UPD-11). Tested on the Pico 2 W; **not yet on the Pico W**.
+Points 1 to 14 were written as a proposal and revised after the design review of 2026-10-18; the owner agreed on 2026-10-18 to
+the approach (check first, notify, install only on the user's request; GitHub releases as the source; a signing key of their own
+in GnuPG; a one-time bootloader reflash on both boards). The signature check inside the bootloader (point 10's "second line") is
+**not built** (point 19).
 
 ## Context
 
@@ -119,17 +122,26 @@ stays limited**. Points 4 to 7 stand except where this section says otherwise.
     for a name the release script fixes), following any redirect to any GitHub host (REJECTED, assumed: widens who can serve a file),
     automatic download (REJECTED, assumed: the decision to fetch stays the user's, as the decision to install does).
 
-18. **Revocation and the copies in the trust sector (REQ-UPD-10, REQ-CFG-11; built 2026-10-20).** The "trust sector" of point 13 is
+18. **Revocation and the copies in the trust sector (REQ-UPD-11, REQ-CFG-11; built 2026-10-20).** The "trust sector" of point 13 is
     used without a layout change. From the settings downwards: the second copy of the HTTPS record (Pico 2 W), the second copy of the
-    NTS roots, the trust record and its second copy. The trust record (`PCT1 | revoked u8 | crc32`) is the set of built-in keys a release
+    NTS roots, the trust record and its second copy. The trust record (`PTR1 | revoked u8 | crc32`) is the set of built-in keys a release
     revoked. A release revokes by a second 16-byte block right behind the info block (`PICOREV1 | mask u8`), inside the signed bytes; a
-    0.2.1 reads only the first 16 bytes and ignores it. The mask is applied by `update apply`, before the swap is marked (if the record
-    cannot be written the image is not installed). Rules: a signature by a revoked key is refused (`KeyRevoked`); an image cannot revoke
-    its own signer, cannot revoke every key, and cannot name a key that does not exist (`BadRevocation`); a factory reset keeps the
-    record. The mask is set with `PICOCLOCK_REVOKE` at build time (0 to 3). Limit: it works only on clocks that already run a version
-    with this feature, and the bootloader does not know it. Alternatives: a separate signed revocation file (REJECTED, assumed: another
-    format and another upload path for something a release already carries); extending the info block (REJECTED, assumed: the 0.2.1
-    reader would then refuse every later image).
+    0.2.1 reads only the first 16 bytes and ignores it. The mask is applied by `update apply`, after the clock has checked that the swap
+    can be marked and before it marks it (if the record cannot be written the image is not installed). **Only a later key may revoke
+    an earlier one: key 2 (the backup) can revoke key 1, never the reverse** (first built 2026-10-20 as "either key may revoke the other";
+    the same-day review showed that key 1, which signs every release on the build machine and is the one likely to leak, could then
+    revoke key 2 and lock the owner out for good, because a factory reset keeps the record and BOOTSEL does not clear it: REQ-UPD-10 was
+    retired for REQ-UPD-11). A signature by a revoked key is refused (`KeyRevoked`); an image cannot revoke its own signer or a later key,
+    so none can revoke every key, and an unknown key number is refused (`BadRevocation`). A factory reset keeps the record. The mask is
+    set with `PICOCLOCK_REVOKE=1` at build time, and `tools/release.sh` insists on the backup key for it. The confirmation given by the
+    user (terminal or web) names the version it was shown, and the clock installs only a staged image of that version, one conversation
+    with the storage task at a time (the claim of an upload or download also covers `update apply`). Limit: it works only on clocks
+    that already run a version with this feature, and the bootloader does not know it. Alternatives: a separate signed revocation file
+    (REJECTED, assumed: another format and another upload path for something a release already carries); extending the info block
+    (REJECTED, assumed: the 0.2.1 reader would then refuse every later image); letting the factory image erase the trust record so that
+    BOOTSEL is a way back (REJECTED, assumed: a revocation would silently disappear when the owner reflashes). Known and accepted:
+    embassy-boot's `mark_booted` writes the progress byte, erases the state sector and writes the boot magic, so a power cut in the
+    ~50 ms of that erase makes the bootloader revert a good image at the next start (a safe outcome, once per install).
 
 19. **A signature check inside the bootloader: not built (decision of 2026-10-20, ASSUMED, not measured).** Point 10 called the
     bootloader check "the second line". Weighed against what it would cost it was left out for now: (a) the bootloader is never

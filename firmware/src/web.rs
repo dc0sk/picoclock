@@ -22,7 +22,7 @@ const UPLOAD_TOTAL: Duration = Duration::from_secs(300);
 const PORT: u16 = 80;
 
 async fn respond<S: Write>(io: &mut S, status: &str, ctype: &str, extra: &str, body: &str) -> Result<(), S::Error> {
-    let mut head = heapless::String::<256>::new();
+    let mut head = heapless::String::<512>::new();
     let _ = write!(
         head,
         "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\n{extra}Cache-Control: no-store\r\nX-Frame-Options: DENY\r\nConnection: close\r\n\r\n",
@@ -51,8 +51,27 @@ async fn after_post<S: Write>(io: &mut S, msg: &str, is_error: bool, tab: Tab) -
     respond(io, "303 See Other", "text/plain", &location, "done; see the page\n").await
 }
 
+/// What `upload_allowed` should see: while HTTPS is switched on (even if it is still starting) the plain port takes no update file.
+fn https_for_upload() -> u8 {
+    let st = state::status().https_state;
+    if st != 0 && state::with_config(|c| c.https) { 2 } else { st }
+}
+
+/// The request comes from a page of this clock, not from another site: same Origin as Host, and a Host that is the clock's own
+/// address or name (a name rebound to the clock by an attacker's DNS is refused).
+fn browser_ok(req: &Request<'_>, secure: bool) -> bool {
+    let mac_last = state::status().mac.map(|m| m[5]).unwrap_or(0);
+    let name = state::with_config(|c| c.device_name(mac_last));
+    http::same_origin(req, secure) && http::host_is_own(req, &name)
+}
+
 async fn handle<S: Write>(io: &mut S, req: &Request<'_>, secure: bool) -> Result<(), S::Error> {
     let cfg = state::config_snapshot();
+    // While HTTPS is starting (it needs a valid time first), the plain port serves nothing either: a password or a setting sent
+    // now would travel in clear.
+    if !secure && cfg.https && cfg.http_redirect && state::status().https_state != 2 {
+        return respond(io, "503 Service Unavailable", "text/plain", "Retry-After: 30\r\n", "HTTPS is not ready yet (it starts once the clock knows the time); try again in a minute\n").await;
+    }
     // While HTTPS is up, the plain port only points to it: nothing is served and nothing is accepted over it.
     if !secure && cfg.https && cfg.http_redirect && state::status().https_state == 2 {
         let mut own = heapless::String::<20>::new();
@@ -102,7 +121,7 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             io.flush().await
         }
         (Method::Post, "/save") => {
-            if !http::same_origin(req, secure) {
+            if !browser_ok(req, secure) {
                 return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
             }
             let mut errors = heapless::String::<256>::new();
@@ -112,7 +131,7 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             after_post(io, &msg, !errors.is_empty(), tab).await
         }
         (Method::Post, "/update-check") => {
-            if !http::same_origin(req, secure) {
+            if !browser_ok(req, secure) {
                 return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
             }
             state::with_runtime(|r| r.update = picoclock_core::update::Check::Checking);
@@ -131,7 +150,7 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             if !http::reset_allowed(secure, https_on) {
                 return respond(io, "403 Forbidden", "text/plain", "", "a factory reset is only accepted over HTTPS while HTTPS is on\n").await;
             }
-            if !http::same_origin(req, secure) {
+            if !browser_ok(req, secure) {
                 return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
             }
             let form = http::parse_reset_form(req.body);
@@ -148,10 +167,10 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             respond(io, "200 OK", "text/html; charset=utf-8", "", &body).await
         }
         (Method::Post, "/download") => {
-            if !http::upload_allowed(secure, state::status().https_state) {
+            if !http::upload_allowed(secure, https_for_upload()) {
                 return respond(io, "403 Forbidden", "text/plain", "", "downloading is only accepted over HTTPS while HTTPS is on\n").await;
             }
-            if !http::same_origin(req, secure) {
+            if !browser_ok(req, secure) {
                 return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
             }
             let st = state::status();
@@ -168,10 +187,10 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             respond(io, "303 See Other", "text/plain", "Location: /?tab=security\r\n", "downloading; see the page\n").await
         }
         (Method::Post, "/install") => {
-            if !http::upload_allowed(secure, state::status().https_state) {
+            if !http::upload_allowed(secure, https_for_upload()) {
                 return respond(io, "403 Forbidden", "text/plain", "", "installing is only accepted over HTTPS while HTTPS is on\n").await;
             }
-            if !http::same_origin(req, secure) {
+            if !browser_ok(req, secure) {
                 return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
             }
             let picoclock_core::image::Install::Staged(version, _) = state::status().install else {
@@ -179,11 +198,18 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             };
             let form = http::parse_install_form(req.body);
             if form == http::ResetForm::Confirmed {
+                // the confirmation counts for the version the page showed, and only while no file is being received
+                let Some(shown) = http::install_form_version(req.body).filter(|v| *v == version) else {
+                    return after_post(io, "Not installed: the staged image is not the one that was confirmed. Look at it again.", true, Tab::Security).await;
+                };
+                let Some(_claim) = state::InstallClaim::take() else {
+                    return after_post(io, "Not installed: a file is being received just now. Try again when it is done.", true, Tab::Security).await;
+                };
                 respond(io, "200 OK", "text/html; charset=utf-8", "", http::INSTALL_DONE_PAGE).await?;
                 // the clock restarts in the storage task; this only returns when the install was refused
-                state::INSTALL_IN.send(state::InstallMsg::Apply).await;
+                state::INSTALL_IN.send(state::InstallMsg::Apply(shown)).await;
                 let _ = state::INSTALL_REPLY.wait().await;
-                state::set_flash_message("Not installed: the running image has not confirmed itself yet. Try again in a moment.", true);
+                state::set_flash_message("Not installed: the staged image changed, or the running image has not confirmed itself yet. Try again in a moment.", true);
                 return Ok(());
             }
             let mut body = heapless::String::<2048>::new();
@@ -198,7 +224,7 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             if !secure {
                 return respond(io, "403 Forbidden", "text/plain", "", "a certificate and key are only accepted over HTTPS\n").await;
             }
-            if !http::same_origin(req, secure) {
+            if !browser_ok(req, secure) {
                 return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
             }
             let now = state::status().utc_unix.unwrap_or(0);
@@ -216,7 +242,7 @@ async fn handle_authorized<S: Write>(io: &mut S, req: &Request<'_>, secure: bool
             if !secure {
                 return respond(io, "403 Forbidden", "text/plain", "", "trusted authorities can only be changed over HTTPS or the USB terminal\n").await;
             }
-            if !http::same_origin(req, secure) {
+            if !browser_ok(req, secure) {
                 return respond(io, "403 Forbidden", "text/plain", "", "cross-site request refused\n").await;
             }
             let now = state::status().utc_unix;
@@ -304,15 +330,16 @@ async fn upload<S: Read + Write>(io: &mut S, buf: &[u8], secure: bool) -> Result
     let early = &early[..early.len().min(len)];
     let left = len - early.len();
     let cfg = state::config_snapshot();
+    // The plain port is refused before the password is looked at: otherwise it would tell a right password from a wrong one.
+    if !http::upload_allowed(secure, https_for_upload()) {
+        return refuse_upload(io, "403 Forbidden", "an update file is only accepted over HTTPS while HTTPS is on\n", left).await;
+    }
     if !http::authorized(&cfg, req.authorization) {
         respond(io, "401 Unauthorized", "text/plain", "WWW-Authenticate: Basic realm=\"picoclock\"\r\n", "login required\n").await.map_err(|_| ())?;
         drain(io, left).await;
         return Ok(());
     }
-    if !http::upload_allowed(secure, state::status().https_state) {
-        return refuse_upload(io, "403 Forbidden", "an update file is only accepted over HTTPS while HTTPS is on\n", left).await;
-    }
-    if !http::same_origin(req, secure) {
+    if !browser_ok(req, secure) {
         return refuse_upload(io, "403 Forbidden", "cross-site request refused\n", left).await;
     }
     let Some(_claim) = state::InstallClaim::take() else {

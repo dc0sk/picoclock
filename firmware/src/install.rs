@@ -136,16 +136,26 @@ impl Stager {
 /// Marks the staged image for the bootloader's swap at the next start. Refused while the running image has not confirmed itself
 /// yet (the state would still say "swapped, not confirmed", and a second mark would lose the way back).
 pub fn mark_swap(flash: &mut Store) -> Result<(), &'static str> {
+    check_markable(flash)?;
+    let shared = Mutex::<NoopRawMutex, _>::new(RefCell::new(&mut *flash));
+    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&shared, &shared);
+    let mut magic = AlignedBuffer([0; 1]);
+    let mut state = BlockingFirmwareState::from_config(config, &mut magic.0);
+    state.mark_updated().map_err(|_| "the swap mark could not be written")
+}
+
+/// Whether the swap can be marked now. Asked before anything is changed for the install (the revocation record), so that a refusal
+/// leaves no trace.
+pub fn check_markable(flash: &mut Store) -> Result<(), &'static str> {
     let shared = Mutex::<NoopRawMutex, _>::new(RefCell::new(&mut *flash));
     let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&shared, &shared);
     let mut magic = AlignedBuffer([0; 1]);
     let mut state = BlockingFirmwareState::from_config(config, &mut magic.0);
     match state.get_state() {
-        Ok(State::Swap) => return Err("the running image has not confirmed itself yet (wait until 20 s after the start)"),
-        Ok(_) => {}
-        Err(_) => return Err("the bootloader state could not be read"),
+        Ok(State::Swap) => Err("the running image has not confirmed itself yet (wait until 20 s after the start)"),
+        Ok(_) => Ok(()),
+        Err(_) => Err("the bootloader state could not be read"),
     }
-    state.mark_updated().map_err(|_| "the swap mark could not be written")
 }
 
 pub fn log_result(r: &Result<Checked, Failure>) {

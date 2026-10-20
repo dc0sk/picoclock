@@ -44,6 +44,12 @@ source needs a rule for which of them may set the RTC, and the owner asked for t
    and a time is reported only when two consecutive frames announce minutes exactly 60 s apart. German local time is converted
    to UTC with the transmitted CET/CEST bits, not with the clock's timezone setting.
 7. **The receiver is wired to GP0 (PON, low = on) and GP1 (TCO)**, edges timed with the microsecond timer in an async task.
+8. **Added after 0.2.0 (REQ-SRC-06, 2026-10-20): a step limit.** A sample more than 1000 s from the running clock is used only
+   after a second reading of the same source agrees within 5 s; meanwhile the clock is left alone and the sample does not count as
+   fresh for the other sources. This does not protect against a source that is consistently wrong (a repeated week rollover would
+   confirm itself): a GPS source needs the confirmation by a *different* source or a date floor (see the extension points in
+   `docs/design/architecture.md`). "Stalls up to a second at an RTC write" in alternative A below describes the state of 0.2.0;
+   since then the write waits in `Pending` without holding up the display.
 
 ## Alternatives considered
 

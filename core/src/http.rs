@@ -157,6 +157,22 @@ pub fn same_origin(req: &Request, secure: bool) -> bool {
     }
 }
 
+/// DNS-rebinding defence for browser requests (those with an Origin): the Host the browser used must be an address (IPv4 or IPv6
+/// literal) or a name that starts with this clock's own name (`picoclock-d6`, `picoclock-d6.local`, `picoclock-d6.fritz.box`).
+/// Otherwise a web page on another site, whose name was rebound to the clock's address, could make the browser talk to the clock
+/// with matching Origin and Host, which `same_origin` alone cannot tell from the real page.
+pub fn host_is_own(req: &Request, device_name: &str) -> bool {
+    if req.origin.is_none() {
+        return true; // not a browser form (curl, scripts); they are not subject to rebinding
+    }
+    let Some(bare) = req.host.and_then(host_part) else { return false };
+    if bare.starts_with('[') || bare.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+        return true;
+    }
+    let first = bare.split('.').next().unwrap_or("");
+    first.eq_ignore_ascii_case(device_name) || bare.eq_ignore_ascii_case("localhost")
+}
+
 fn b64_val(c: u8) -> Option<u8> {
     match c {
         b'A'..=b'Z' => Some(c - b'A'),
@@ -361,6 +377,14 @@ pub fn parse_install_form(body: &[u8]) -> ResetForm {
     parse_confirm_form(body, crate::cli::install_confirmed)
 }
 
+/// The version the install form was shown for (hidden field `version`), if the body names one. The clock installs only the image
+/// of that version, so an upload that finished in between is not installed under a confirmation given for another.
+pub fn install_form_version(body: &[u8]) -> Option<crate::update::Version> {
+    let body = core::str::from_utf8(body).ok()?;
+    let v = body.split('&').find_map(|p| p.strip_prefix("version="))?;
+    crate::update::Version::parse(v)
+}
+
 fn parse_confirm_form(body: &[u8], confirmed: fn(&str) -> bool) -> ResetForm {
     let Ok(body) = core::str::from_utf8(body) else { return ResetForm::Refused };
     for pair in body.split('&') {
@@ -405,7 +429,7 @@ pub fn render_install_confirm(version: crate::update::Version, msg: Option<&str>
         out,
         "<h2>Install {version}</h2><p>The clock swaps the staged image in and restarts. If the new image does not confirm itself within \
 about 20 seconds of running, the bootloader puts the old one back at the next restart. Settings, WiFi and certificates stay.</p>\
-<form method=post action=/install><label>Type {} to confirm<input name=confirm autocomplete=off required></label>\
+<form method=post action=/install><input type=hidden name=version value=\"{version}\"><label>Type {} to confirm<input name=confirm autocomplete=off required></label>\
 <button>Install and restart</button></form><p><a href=\"/?tab=security\">Cancel</a></p></body></html>",
         crate::cli::INSTALL_WORD
     )
@@ -805,6 +829,23 @@ mod tests {
         assert!(same_origin(&mk(Some("https://picoclock-d6:443"), Some("picoclock-d6:443")), true), "a port is part of both");
     }
 
+    // VERIFIES: REQ-WEB-08
+    #[test]
+    fn a_rebound_name_is_not_the_clock() {
+        let mk = |origin, host| Request { method: Method::Post, path: "/", body: b"", authorization: None, host, origin };
+        // an attacker page whose name now points at the clock: Origin and Host agree, but the name is not the clock's
+        let evil = mk(Some("http://evil.example"), Some("evil.example"));
+        assert!(same_origin(&evil, false), "same_origin alone cannot tell");
+        assert!(!host_is_own(&evil, "picoclock-d6"));
+        assert!(!host_is_own(&mk(Some("http://picoclock-d6.evil.example"), Some("picoclock-d6.evil.example")), "picoclock-d7"));
+        for ok in ["192.168.121.41", "192.168.121.41:80", "[fe80::1]:443", "picoclock-d6", "picoclock-d6.local", "PicoClock-D6.fritz.box:443", "localhost"] {
+            assert!(host_is_own(&mk(Some("http://x"), Some(ok)), "picoclock-d6"), "{ok}");
+        }
+        assert!(!host_is_own(&mk(Some("http://x"), None), "picoclock-d6"));
+        assert!(!host_is_own(&mk(Some("http://x"), Some("")), "picoclock-d6"));
+        assert!(host_is_own(&mk(None, Some("anything.example")), "picoclock-d6"), "a script without Origin");
+    }
+
     // VERIFIES: REQ-WEB-04
     #[test]
     fn basic_auth() {
@@ -1059,7 +1100,7 @@ mod tests {
         assert_eq!(https_redirect(&get(None, "/"), "evil\r\nX: y"), None);
     }
 
-    // VERIFIES: REQ-WEB-11
+    // VERIFIES: REQ-WEB-12
     #[test]
     fn every_setting_is_on_exactly_one_tab() {
         let c = Config::default();
@@ -1123,7 +1164,7 @@ mod tests {
         assert!(!checking.contains("action=/save"));
     }
 
-    // VERIFIES: REQ-WEB-11
+    // VERIFIES: REQ-WEB-12
     #[test]
     fn the_timezone_list_link_sits_right_under_the_timezone_field() {
         let mut p = heapless::String::<12288>::new();
@@ -1139,7 +1180,7 @@ mod tests {
         }
     }
 
-    // VERIFIES: REQ-WEB-11
+    // VERIFIES: REQ-WEB-12
     #[test]
     fn the_tab_comes_from_the_query_and_is_never_echoed() {
         for (q, want) in [("", Tab::Status), ("tab=wifi", Tab::Wifi), ("tab=WIFI", Tab::Wifi), ("x=1&tab=time", Tab::Time), ("tab=clock&x", Tab::Clock),
@@ -1155,7 +1196,7 @@ mod tests {
         assert!(!page.contains("alert(1)"));
     }
 
-    // VERIFIES: REQ-WEB-11 REQ-WEB-01
+    // VERIFIES: REQ-WEB-12 REQ-WEB-01
     #[test]
     fn the_busiest_pages_fit_with_room_to_spare() {
         // the busy status block alone, and the security page with four trust anchors and a long error message
@@ -1176,7 +1217,7 @@ mod tests {
         assert!(!busy.is_empty());
     }
 
-    // VERIFIES: REQ-WEB-11
+    // VERIFIES: REQ-WEB-12
     #[test]
     fn a_tab_saves_what_it_sends_and_ignores_nothing_it_knows() {
         // the form of one tab posts only its own settings; a body with a setting from another tab is still applied (the

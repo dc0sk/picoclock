@@ -121,6 +121,14 @@ pub fn forget_watchdog_marker() {
     });
 }
 
+/// Feeds only while the clock task still heartbeats (as `watchdog_task` does), for code that has to feed during a long job.
+pub fn feed_watchdog_if_alive() {
+    let age_ms = (embassy_time::Instant::now().as_millis() as u32).wrapping_sub(HEARTBEAT_MS.load(core::sync::atomic::Ordering::Relaxed));
+    if age_ms < 5_000 {
+        feed_watchdog();
+    }
+}
+
 pub fn feed_watchdog() {
     WATCHDOG.lock(|d| {
         if let Some(w) = d.borrow_mut().as_mut() {
@@ -173,7 +181,8 @@ pub enum InstallMsg {
     Block(heapless::Vec<u8, 4096>),
     Finish,
     Abort,
-    Apply,
+    /// Install the staged image, which the user was shown as this version.
+    Apply(picoclock_core::update::Version),
 }
 pub static INSTALL_IN: Channel<Cs, InstallMsg, 1> = Channel::new();
 /// The storage task's answer to `Begin` (`true` = ready for blocks), `Finish` (`true` = staged) and `Apply` (`false` = refused;

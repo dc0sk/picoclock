@@ -50,6 +50,7 @@ def load():
     reqs, caps = data.get("req", []), data.get("cap", [])
     files = files_matching(SOURCE_GLOBS)
     bindings = {}  # req id -> [(file, test name)]
+    unbound = []  # (file, line) of a VERIFIES line that is not directly above a #[test] function
     for path in files_matching(TEST_GLOBS):
         lines = open(os.path.join(ROOT, path), encoding="utf-8").read().split("\n")
         for i, line in enumerate(lines):
@@ -57,9 +58,15 @@ def load():
             if not m:
                 continue
             j = i + 1
-            while j < len(lines) and not re.match(r"\s*(?:async\s+)?fn \w+", lines[j]):
+            attrs = []
+            # between the binding and its function only comments and attributes may stand, and one attribute must be #[test]
+            while j < len(lines) and re.match(r"\s*(//|#\[)", lines[j]):
+                attrs.append(lines[j].strip())
                 j += 1
-            name = re.match(r"\s*(?:async\s+)?fn (\w+)", lines[j]).group(1) if j < len(lines) else "?"
+            if j >= len(lines) or not re.match(r"\s*(?:async\s+)?fn \w+", lines[j]) or not any(re.match(r"#\[(?:\w+::)?test\b", a) for a in attrs):
+                unbound.append((path, i + 1))
+                continue
+            name = re.match(r"\s*(?:async\s+)?fn (\w+)", lines[j]).group(1)
             for rid in m.group(1).split():
                 bindings.setdefault(rid, []).append((path, name))
     records = []
@@ -68,7 +75,7 @@ def load():
         v = re.search(r"^Verifies: (.+)$", m.group(5), re.M)
         records.append({"id": m.group(1), "date": m.group(2), "tier": m.group(3), "title": m.group(4),
                         "verifies": [x.strip() for x in v.group(1).split(",")] if v else []})
-    return {"reqs": reqs, "caps": caps, "files": files, "bindings": bindings, "records": records}
+    return {"reqs": reqs, "caps": caps, "files": files, "bindings": bindings, "records": records, "unbound": unbound}
 
 
 def evidence(model, rid):
@@ -114,6 +121,8 @@ def check(model, tests_output=None):
         elif n > 1:
             bad.append(("AMBIGUOUS", f"{f} belongs to several capabilities: {owner[f]}"))
     # evidence
+    for path, line in model.get("unbound", []):
+        bad.append(("UNBOUND-VERIFIES", f"{path}:{line}: a VERIFIES line that is not directly above a #[test] function proves nothing"))
     for rid, items in model["bindings"].items():
         if rid not in reqs:
             bad.append(("DANGLING", f"test binding names unknown {rid}: {items[0][0]}::{items[0][1]}"))
@@ -328,6 +337,7 @@ def self_test(model):
         or m["bindings"].pop("REQ-CFG-03"),
         "STALE-WAIVER": lambda m: [r for r in m["reqs"] if r["id"] == "REQ-NTP-01"][0].update(unverified="x"),
         "NO-CAPABILITY": lambda m: [r for r in m["reqs"] if r["id"] == "REQ-NTP-01"][0].update(cap=[]),
+        "UNBOUND-VERIFIES": lambda m: m["unbound"].append(("core/src/x.rs", 1)),
         "ORPHAN-CAP": lambda m: m["caps"].append({"id": "CAP-LONELY", "name": "x", "code": ["core/src/lib.rs"]}),
     }
     failed = 0

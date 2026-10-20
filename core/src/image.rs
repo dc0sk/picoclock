@@ -159,12 +159,12 @@ pub const fn block_bytes(chip: Chip, v: Version, revoke: u8) -> [u8; 2 * INFO_LE
 
 /// The keys the image revokes (bitmask), 0 if it carries no revocation block. Call it with the same bytes as [`find_info`].
 pub fn find_revocation(head: &[u8]) -> u8 {
-    let head = &head[..head.len().min(SCAN + INFO_LEN * 2)];
+    let head = &head[..head.len().min(SCAN)];
     let mut at = 0;
-    while at + INFO_LEN <= head.len() && at < SCAN {
+    while at + 2 * INFO_LEN <= head.len() {
         if head[at..at + 8] == MAGIC {
             let r = at + INFO_LEN;
-            return if r + 9 <= head.len() && head[r..r + 8] == REV_MAGIC { head[r + 8] } else { 0 };
+            return if head[r..r + 8] == REV_MAGIC { head[r + 8] } else { 0 };
         }
         at += 4;
     }
@@ -175,7 +175,8 @@ pub fn find_revocation(head: &[u8]) -> u8 {
 pub fn find_info(head: &[u8]) -> Option<Info> {
     let head = &head[..head.len().min(SCAN)];
     let mut at = 0;
-    while at + INFO_LEN <= head.len() {
+    // the revocation block may follow, so the info block must leave room for both inside the scanned bytes
+    while at + 2 * INFO_LEN <= head.len() {
         if head[at..at + 8] == MAGIC {
             let u = |o: usize| u16::from_le_bytes([head[at + o], head[at + o + 1]]);
             return Some(Info { chip: Chip::from_u16(u(8))?, version: Version { major: u(10), minor: u(12), patch: u(14) } });
@@ -292,14 +293,16 @@ pub fn verify_unrevoked(keys: &[[u8; 32]], revoked: u8, digest: &[u8; 64], signa
     }
 }
 
-/// The revocation an image asks for, if it may have it: the keys named must not include the signer, and some key must stay.
+/// The revocation an image asks for, if it may have it. **Only a later key may revoke an earlier one** (the backup, key 2, may
+/// revoke the primary, key 1; never the other way round): key 1 is the one that signs every release and lives on the build
+/// machine, so a leaked key 1 must not be able to lock the owner out of key 2. Consequently no image can revoke its own signer or
+/// every key, and an unknown key number is refused. Returns the set of revoked keys after the image is installed.
 pub fn accept_revocation(revoke: u8, signer: usize, already: u8, key_count: usize) -> Result<u8, Refusal> {
-    let valid = ((1u16 << key_count) - 1) as u8;
-    let all = already | (revoke & valid);
-    if revoke & !valid != 0 || revoke >> signer & 1 == 1 || all == valid {
+    let later_than_signer_is_forbidden = (1u16 << signer.min(7)) as u8 - 1; // bits of the keys with a lower number than the signer
+    if signer >= key_count || revoke & !later_than_signer_is_forbidden != 0 {
         return Err(Refusal::BadRevocation);
     }
-    Ok(all)
+    Ok(already | revoke)
 }
 
 #[cfg(test)]
@@ -447,7 +450,7 @@ mod tests {
         }
     }
 
-    // VERIFIES: REQ-UPD-10
+    // VERIFIES: REQ-UPD-11
     #[test]
     fn a_revocation_block_follows_the_info_block_and_old_readers_ignore_it() {
         let b = block_bytes(Chip::Rp2350, v(0, 3, 0), 0b01);
@@ -466,11 +469,18 @@ mod tests {
         // an info block that ends the buffer
         let short = &info_bytes(Chip::Rp2350, v(0, 3, 0));
         assert_eq!(find_revocation(short), 0);
+        // an info block in the last 32 bytes of the scanned window is not accepted: the revocation block could not follow it
+        let mut edge = std::vec![0u8; 8192];
+        edge[SCAN - 2 * INFO_LEN..SCAN - INFO_LEN].copy_from_slice(&info_bytes(Chip::Rp2350, v(0, 3, 0)));
+        assert!(find_info(&edge).is_some(), "the last position that leaves room");
+        let mut edge = std::vec![0u8; 8192];
+        edge[SCAN - INFO_LEN..SCAN].copy_from_slice(&info_bytes(Chip::Rp2350, v(0, 3, 0)));
+        assert_eq!(find_info(&edge), None);
     }
 
-    // VERIFIES: REQ-UPD-10
+    // VERIFIES: REQ-UPD-11
     #[test]
-    fn a_revoked_key_is_refused_and_a_revocation_must_leave_a_key() {
+    fn a_revoked_key_is_refused_and_only_a_later_key_may_revoke_an_earlier_one() {
         let sk1 = SigningKey::from_bytes(&[7u8; 32]);
         let sk2 = SigningKey::from_bytes(&[9u8; 32]);
         let keys = [sk1.verifying_key().to_bytes(), sk2.verifying_key().to_bytes()];
@@ -482,10 +492,15 @@ mod tests {
         // key 2 revokes key 1: accepted, and added to what was revoked before
         assert_eq!(accept_revocation(0b01, 1, 0, 2), Ok(0b01));
         assert_eq!(accept_revocation(0, 1, 0b01, 2), Ok(0b01), "nothing asked: what was revoked stays");
-        // a key cannot revoke itself, nothing may revoke every key, an unknown key number is refused
-        assert_eq!(accept_revocation(0b10, 1, 0, 2), Err(Refusal::BadRevocation));
+        assert_eq!(accept_revocation(0, 0, 0, 2), Ok(0), "an ordinary release revokes nothing");
+        // key 1 (the signing key on the build machine) can revoke nothing: a leak of it cannot lock the owner out of key 2
+        assert_eq!(accept_revocation(0b10, 0, 0, 2), Err(Refusal::BadRevocation));
         assert_eq!(accept_revocation(0b11, 0, 0, 2), Err(Refusal::BadRevocation));
-        assert_eq!(accept_revocation(0b10, 0, 0b01, 2), Err(Refusal::BadRevocation), "that would leave no key");
-        assert_eq!(accept_revocation(0b100, 0, 0, 2), Err(Refusal::BadRevocation));
+        assert_eq!(accept_revocation(0b01, 0, 0, 2), Err(Refusal::BadRevocation), "not even itself");
+        // key 2 cannot revoke itself, an unknown key number or an unknown signer is refused
+        assert_eq!(accept_revocation(0b10, 1, 0, 2), Err(Refusal::BadRevocation));
+        assert_eq!(accept_revocation(0b11, 1, 0, 2), Err(Refusal::BadRevocation));
+        assert_eq!(accept_revocation(0b100, 1, 0, 2), Err(Refusal::BadRevocation));
+        assert_eq!(accept_revocation(0, 2, 0, 2), Err(Refusal::BadRevocation));
     }
 }

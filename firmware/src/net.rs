@@ -249,7 +249,7 @@ impl picoclock_core::nts_ke::StreamSink for Download {
         match self.sink.as_mut() {
             Some(sink) => {
                 sink.push(data).await;
-                state::feed_watchdog();
+                state::feed_watchdog_if_alive();
                 true
             }
             None => false,
@@ -569,8 +569,8 @@ pub async fn mdns_task(stack: Stack<'static>) -> ! {
     }
 }
 
-/// Optional NTP server (`ntp_serve=on`): answers client requests on UDP 123 from the RTC. Accuracy is about +-1 s
-/// because the DS3231 has whole-second resolution; replies are marked unsynchronised unless NTP synced within a day.
+/// Optional NTP server (`ntp_serve=on`): answers client requests on UDP 123 from the clock (the time of the last
+/// RTC write plus the monotonic timer since, to the millisecond); replies are marked unsynchronised unless a source set the clock within a day.
 #[embassy_executor::task]
 pub async fn ntp_server_task(stack: Stack<'static>) -> ! {
     use embassy_net::udp::UdpSocket;

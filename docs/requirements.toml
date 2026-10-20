@@ -665,10 +665,22 @@ cap = ["CAP-UPDATE", "CAP-IMAGE", "CAP-NTS", "CAP-HTTP", "CAP-CLI", "CAP-APP"]
 [[req]]
 id = "REQ-UPD-10"
 area = "Update"
-status = "ratified"
+status = "retired"
 criticality = "high"
 statement = "A release signed by one of the two built-in keys shall be able to revoke the other: the image carries, in its signed bytes right behind the info block, a bitmask of revoked keys, and when the user installs that image (update apply) the clock shall record the mask in the trust record before it marks the swap. From then on a signature by a revoked key shall be refused, whatever the image. An image shall not revoke its own signing key, shall not revoke every key, and an unknown key number shall be refused. The trust record shall be kept in its own pair of flash sectors, survive a power cut during a write, and not be erased by a factory reset. A firmware that predates this block shall ignore it."
 rationale = "ADR-0006 point 10: the bootloader's key list can never change, so retiring a lost or leaked key has to be an application rule that a release signed with the other key can trigger. The signer cannot revoke itself and a compromised key cannot lock the owner out of the other, because some key must stay; a factory reset must not bring a revoked key back."
+cap = []
+superseded_by = "REQ-UPD-11"
+retired_because = "Allowed either key to revoke the other. The review of 2026-10-20 showed that key 1, the one that signs every release on the build machine, could then be used by whoever leaks it to revoke key 2 and lock the owner out of every later release, and a factory reset keeps the record; the statement claimed the opposite."
+
+[[req]]
+id = "REQ-UPD-11"
+area = "Update"
+status = "ratified"
+criticality = "high"
+supersedes = "REQ-UPD-10"
+statement = "A release signed by the later of the two built-in keys (key 2, the backup) shall be able to revoke the earlier one (key 1): the image carries, in its signed bytes right behind the info block, a bitmask of revoked keys, and when the user installs that image (update apply) the clock shall record the mask in the trust record before it marks the swap, and only if the swap can be marked. From then on a signature by a revoked key shall be refused, whatever the image. A key shall never revoke itself or a later key, so no image can revoke every key and a leak of key 1 cannot lock the owner out of key 2; an unknown key number shall be refused. The trust record shall be kept in its own pair of flash sectors, survive a power cut during a write, and not be erased by a factory reset. A firmware that predates this block shall ignore it."
+rationale = "ADR-0006 points 10 and 18: the bootloader's key list can never change, so retiring a lost or leaked key has to be an application rule that a release signed with the other key can trigger. Key 1 signs every release on the build machine and is the one likely to leak; key 2 stays apart, so the revocation runs one way only, from key 2 to key 1."
 cap = ["CAP-IMAGE", "CAP-CONFIG", "CAP-CLI", "CAP-APP"]
 
 [[req]]
@@ -784,11 +796,27 @@ cap = ["CAP-HTTP"]
 [[req]]
 id = "REQ-WEB-11"
 area = "Web"
-status = "ratified"
+status = "retired"
 criticality = "medium"
 statement = "The web interface shall consist of six pages selected by `?tab=` (Status, WiFi, Time, Clock, Web, Security; an unknown or missing tab is the status page), without JavaScript: the status text only on the Status page, each setting on exactly one of the four settings pages, each of which is its own form saving only the settings it shows, and the factory reset, the certificate upload and the NTS trust anchors on the Security page; every page shall fit its buffer with room to spare, with every optional part present."
 rationale = "Requested by the owner (2026-10-18) because the settings had grown to about 45 on one page. Fable's review of the options measured a latent overflow of the 12 KB page buffer when a busy status block, four trust anchors and a message were all on one page; one page per group removes it. REQ-WEB-01 (the page fits) still holds, now for each page."
+cap = []
+superseded_by = "REQ-WEB-12"
+retired_because = "Said the pages need no JavaScript. The upload of an update file (REQ-UPD-08, added later) sends a raw body with XMLHttpRequest to show a progress bar, so the statement and the README no longer matched the code; the review of 2026-10-20 found it."
+
+# ---------------------------------------------------------------------------------------------------- time source selection
+# Requested by the owner on 2026-10-16 ahead of the DCF77 and GPS sources; ratified on 2026-10-18 with the DCF77 source
+# (software 0.2.0), design in ADR-0004. The GPS source is a later release.
+
+[[req]]
+id = "REQ-WEB-12"
+area = "Web"
+status = "ratified"
+criticality = "medium"
+statement = "The web interface shall consist of six pages selected by `?tab=` (Status, WiFi, Time, Clock, Web, Security; an unknown or missing tab is the status page), without JavaScript, except the progress bar of the update-file upload on the Security page (the upload itself also works without it, with a command-line client): the status text only on the Status page, each setting on exactly one of the four settings pages, each of which is its own form saving only the settings it shows, and the factory reset, the certificate upload and the NTS trust anchors on the Security page; every page shall fit its buffer with room to spare, with every optional part present."
+rationale = "Requested by the owner (2026-10-18) because the settings had grown to about 45 on one page. Fable's review of the options measured a latent overflow of the 12 KB page buffer when a busy status block, four trust anchors and a message were all on one page; one page per group removes it. REQ-WEB-01 (the page fits) still holds, now for each page."
 cap = ["CAP-HTTP", "CAP-CONFIG"]
+supersedes = "REQ-WEB-11"
 
 # ---------------------------------------------------------------------------------------------------- time source selection
 # Requested by the owner on 2026-10-16 ahead of the DCF77 and GPS sources; ratified on 2026-10-18 with the DCF77 source

@@ -8,7 +8,7 @@ A plain Pico or Pico 2 has no WiFi. Both have run in the clock; the Pico W has h
 
 | | Pico W (RP2040) | Pico 2 W (RP2350) |
 |---|---|---|
-| Web page | plain HTTP only | **HTTPS** (TLS 1.3), plain HTTP only redirects to it |
+| Web page | plain HTTP only | **HTTPS** (TLS 1.3), plain HTTP only redirects to it (unless you switch the redirect off) |
 | Random numbers | ring-oscillator jitter (no hardware generator) | hardware TRNG |
 | NTS key exchange | about 5 to 7 s once per boot | about 1 s |
 | NTS servers with **RSA** certificates (Netnod, PTB, NIC.br, ...) | **not supported** | supported |
@@ -16,7 +16,7 @@ A plain Pico or Pico 2 has no WiFi. Both have run in the clock; the Pico W has h
 
 **HTTPS is available only on the Pico 2 W.** The TLS server library (`rustls`) does not build for the RP2040, so a Pico W
 serves the web page, the web password and the WiFi passphrases over plain HTTP. If that matters, use a Pico 2 W, set a
-`web_password`, or `set web_enabled off`. See *HTTPS (Pico 2 W)* below.
+`web_password`, or `set web_enabled off` (that also closes the HTTPS port). See *HTTPS (Pico 2 W)* below.
 
 ## Features
 
@@ -200,7 +200,7 @@ picoclock> save
 picoclock> status
 ```
 
-`factory-reset` erases everything (see below). `help` lists every command and setting; `tz europe/` lists matching zone names; `time` shows UTC and local time.
+`factory-reset` erases everything (see below). The terminal takes printable ASCII only, so an SSID or passphrase with other characters has to be entered on the web page. `help` lists every command and setting; `tz europe/` lists matching zone names; `time` shows UTC and local time.
 Changes apply immediately but are only written to flash by `save` (the web page and the buttons save for you).
 
 | setting | meaning | default |
@@ -356,13 +356,14 @@ each (`/?tab=status`, `wifi`, `time`, `clock`, `web`, `security`): **Status** (t
 `time`), the settings in four groups, **WiFi**, **Time** (timezone, NTP/NTS, time sources and votes, DCF77), **Clock**
 (display, alarm, chime, HAM mode) and **Web** (name, mDNS, web password, HTTPS), and **Security** (factory reset and, over
 HTTPS, the certificate and the NTS trust anchors). Each settings page is its own form with its own *Save*, which saves only
-the settings on that page; switching pages drops what you typed and did not save. There is no JavaScript. Every page ends with
+the settings on that page; switching pages drops what you typed and did not save. There is no JavaScript except the progress bar of the update-file upload on the Security tab (the upload also works with `curl`). Every page ends with
 the software version, the repository link and the license.
 
 - **Pico 2 W:** HTTPS. `http://<ip>/` redirects to `https://<ip>/`; accept the clock's certificate once (compare the
   fingerprint with `cert` in the terminal), see *HTTPS (Pico 2 W)*.
 - **Pico W: plain HTTP only.** The web password and WiFi passphrase cross your LAN unencrypted, and without a web
-  password anyone on the LAN can change the settings. Set `web_password`, or `set web_enabled off`, if that matters to you.
+  password anyone on the LAN can change the settings (a web page on another site cannot: the clock refuses browser requests whose
+  `Host` is not its own address or name, which defeats DNS rebinding). Set `web_password`, or `set web_enabled off`, if that matters to you.
 Password fields are never echoed; leave them blank to keep the current value. Cross-site form posts are refused.
 
 ### Screenshots
@@ -389,7 +390,7 @@ Made with invented data (names, addresses and fingerprints are not from a real c
 | **UP / DOWN** | brightness step up / down (auto, 20, 40 ... 100 %) | in the menu: change value, auto-repeating |
 
 Menu items in order: alarm on/off, alarm hour, alarm minute, hourly chime, key beep, 12/24 h, C/F, brightness.
-While the alarm rings, any button stops it. Menu and brightness edits are saved a few seconds after the last press.
+While the alarm rings, any button stops it. The alarm is kept by the local wall clock: at 02:30 it does not ring on the day the clocks go forward (there is no 02:30) and rings once on the day they go back. Menu and brightness edits are saved a few seconds after the last press.
 
 Status icons: alarm = alarm enabled, bell = hourly chime, auto-light = auto brightness, AM/PM in 12 h mode,
 C/F = unit, **count-up icon = time was synced by NTP within the last 3 h**. The colon is steady by default (blinking can cause radio interference, QRM); `set colon_blink on` makes it blink once synced, and it stays
@@ -426,7 +427,7 @@ GitHub* button on the Security tab) fetches that release's update file, `picoclo
 upload uses: it asks `github.com`, follows the one redirect to `release-assets.githubusercontent.com` (no other host is followed),
 and streams the file to flash, about a minute. The two connections are pinned to the roots GitHub's certificates end at (USERTrust
 ECC and ISRG Root X1). **Nothing is installed by this**: the file gets the same checks as an upload (signature first), and you still
-confirm with `INSTALL`. While it runs the display may stutter for a moment (decrypting 16 KB records occupies the processor).
+confirm with `INSTALL`. While it runs the display may stutter for a moment (decrypting 16 KB records occupies the processor, and each 4 KiB block written to flash stops the display for the length of a sector erase).
 The Pico W cannot verify GitHub's download certificate (RSA), so it does not download: use the upload. A custom build does not download
 either.
 
@@ -663,14 +664,13 @@ documentation drift. Fixed after the owner decided on the rest: web and button s
 a certificate chain of 3 KB uploads (8 KiB request limit, REQ-WEB-10); Pico W random numbers are spaced out and hashed
 (REQ-RNG-01, not measured on a Pico W); settings live in two sectors so a power cut during a save loses nothing
 (REQ-CFG-10); a hardware watchdog restarts a hung clock (REQ-NFR-03); a factory reset is refused over plain HTTP while HTTPS is
-on (REQ-WEB-09). Still open:
+on (REQ-WEB-09). Of what was still open then: the plausibility check of a time is the vote (REQ-SRC-03, 0.2.0) and, for a time far from
+the clock, the step limit (REQ-SRC-06); the single copy of the NTS roots and the HTTPS certificate is fixed (REQ-CFG-11); `cert new`
+while HTTPS is off now says so. Still open: **the NTP server is silent until the first sync after boot** (decided: stays, documented
+above).
 
-- **A time that is not plausible is applied.** The first answer sets the RTC and there is no step limit or comparison with
-  the RTC; this is what REQ-SRC-03 (`vote`) is meant to close, built together with the first extra source (DCF77).
-- **The NTP server is silent until the first sync after boot** (decided: stays, documented above).
-- **The NTS roots and the HTTPS certificate sectors have a single copy.** A power cut while one is saved loses it (the
-  certificate is made again, the roots are added again); only the settings have a backup copy.
-- **`cert new` is accepted while HTTPS is off** and makes a certificate that nothing uses until HTTPS is switched on.
+**Found by the full-code review of 2026-10-20** (Fable, three reviewers, before the GPS phase): the findings and what was done about each
+are in `docs/design/reviews/2026-10-20-full-code-review.md`.
 
 ## Provisioning from a local file
 

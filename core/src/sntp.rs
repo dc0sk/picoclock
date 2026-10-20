@@ -12,6 +12,8 @@ pub enum SntpError {
     /// The reply does not echo our transmit timestamp (stale or spoofed).
     OriginMismatch,
     NoTimestamp,
+    /// A date before 2024 or after 2099: a forged or broken answer (the 32-bit seconds of 1968-1970 would otherwise wrap).
+    Implausible,
 }
 
 /// Builds a client request. `nonce` goes in the transmit timestamp and must come back as the origin timestamp.
@@ -44,7 +46,9 @@ pub fn parse_response(buf: &[u8], nonce: [u8; 8]) -> Result<(u64, u16), SntpErro
     }
     // Era 0 ends in 2036; a clear MSB means the timestamp is in era 1.
     let ntp = if secs & 0x8000_0000 == 0 { secs + (1 << 32) } else { secs };
-    Ok((ntp - NTP_TO_UNIX, ((frac * 1000) >> 32) as u16))
+    // 1968 to 1970 (seconds 0x8000_0000..0x83AA_7E80) are before the Unix epoch: refuse instead of wrapping
+    let unix = ntp.checked_sub(NTP_TO_UNIX).filter(|u| crate::time::plausible_unix(*u as i64)).ok_or(SntpError::Implausible)?;
+    Ok((unix, ((frac * 1000) >> 32) as u16))
 }
 
 /// Stratum we claim when synchronised. The upstream stratum is not tracked, so this is deliberately high: a client
@@ -96,6 +100,19 @@ mod tests {
         p[40..44].copy_from_slice(&secs.to_be_bytes());
         p[44..48].copy_from_slice(&frac.to_be_bytes());
         p
+    }
+
+    // VERIFIES: REQ-NTP-02
+    #[test]
+    fn a_time_outside_2020_to_2099_is_refused_never_wrapped() {
+        let n = [7u8; 8];
+        // seconds from 0x8000_0000 to the Unix epoch (1968 to 1970): the subtraction of the epoch offset used to wrap
+        for secs in [0x8000_0000u32, 0x83AA_7E7F, 0x83AA_7E80, 0x9000_0000 /* 1971 */] {
+            assert_eq!(parse_response(&reply(n, secs, 0), n), Err(SntpError::Implausible), "{secs:#x}");
+        }
+        // era 1 beyond 2099 (2103)
+        assert_eq!(parse_response(&reply(n, 0x7F00_0000, 0), n), Err(SntpError::Implausible));
+        assert!(parse_response(&reply(n, (1_700_000_000u64 + NTP_TO_UNIX) as u32, 0), n).is_ok());
     }
 
     // VERIFIES: REQ-NTP-01

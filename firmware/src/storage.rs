@@ -12,6 +12,9 @@ use picoclock_core::config::Config;
 
 use crate::state;
 
+#[cfg(all(feature = "rp2040", feature = "https"))]
+compile_error!("the HTTPS records of storage.rs only fit the Pico 2 W layout (tools/combine_image.py check-layout)");
+
 /// Pico W: 2 MiB, Pico 2 W: 4 MiB. The configuration lives in the last sector (memory-*.x keeps it free).
 #[cfg(feature = "rp2040")]
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
@@ -287,11 +290,22 @@ async fn install_step(flash: &mut Store, msg: state::InstallMsg, stager: &mut Op
             *staged = None;
             state::set_install(Install::Idle);
         }
-        Apply => {
+        Apply(shown) => {
             let Some(checked) = *staged else {
                 state::INSTALL_REPLY.signal(false);
                 return;
             };
+            // the user confirmed the image that was shown to them; a different one may have been staged since
+            if checked.version != shown {
+                warn!("install: the staged image is not the one that was confirmed");
+                state::INSTALL_REPLY.signal(false);
+                return;
+            }
+            if let Err(why) = install::check_markable(flash) {
+                warn!("install: {}", why);
+                state::INSTALL_REPLY.signal(false);
+                return;
+            }
             {
                 // The revocation comes first: if the record cannot be written the image is not installed (a swap without it
                 // would leave the key the image revokes trusted). It stays recorded even if the new image does not confirm.

@@ -285,10 +285,16 @@ impl Selector {
             Report {
                 source,
                 state,
-                offset_ms: fresh.zip(clock_ms).map(|(x, c)| x.now_ms(now_ms) - c),
-                age_s: self.last[i].map(|x| now_ms.saturating_sub(x.at_ms) / 1000),
+                offset_ms: fresh.zip(clock_ms).filter(|_| state != State::Suspect).map(|(x, c)| x.now_ms(now_ms) - c),
+                age_s: self.last[i].filter(|_| state != State::Suspect).map(|x| now_ms.saturating_sub(x.at_ms) / 1000),
             }
         })
+    }
+
+    /// The source's latest sample if it is younger than `max_age_ms` and was used to set the clock (a sample that was outvoted, on
+    /// standby or held back is no reference for anything else).
+    pub fn recent_used(&self, s: Source, now_ms: u64, max_age_ms: u64) -> Option<Sample> {
+        self.recent(s, now_ms, max_age_ms).filter(|_| matches!(self.verdict[s.index()], Some(Verdict::Use { .. })))
     }
 
     /// The source's latest sample if it is younger than `max_age_ms`.
@@ -338,6 +344,26 @@ mod tests {
             assert_eq!(s.offer(&p, Dcf77, at(0, 0), 0, clock(0)), Verdict::Off);
             assert_eq!(s.report(&p, 4 * H, clock(4 * H))[1].state, State::Off);
         }
+    }
+
+    // VERIFIES: REQ-SRC-03
+    #[test]
+    fn only_a_sample_that_was_used_is_a_reference_for_the_dcf77_delay() {
+        let p = policy(Mode::Vote, &[Dcf77, Ntp], [1, 1], 2);
+        let mut s = Selector::new();
+        assert_eq!(s.offer(&p, Ntp, at(0, 0), 0, clock(0)), Verdict::Use { write: true });
+        assert_eq!(s.offer(&p, Dcf77, at(1, 1500), 1, clock(1)), Verdict::Use { write: true });
+        // used samples are references; one that was outvoted or held back is not
+        assert!(s.recent_used(Ntp, 2, 10_000).is_some());
+        let q = policy(Mode::Order, &[Dcf77, Ntp], [1, 1], 2);
+        let mut s = Selector::new();
+        s.offer(&q, Dcf77, at(0, 0), 0, clock(0));
+        s.offer(&q, Ntp, at(1, 0), 1, clock(1)); // standby behind DCF77
+        assert!(s.recent(Ntp, 2, 10_000).is_some() && s.recent_used(Ntp, 2, 10_000).is_none());
+        let mut s = Selector::new();
+        s.offer(&q, Ntp, at(0, 5_000_000), 0, clock(0)); // held back
+        assert!(s.recent_used(Ntp, 1, 10_000).is_none());
+        assert_eq!(s.report(&q, 1, clock(1))[0].offset_ms, None, "a held-back sample shows no offset");
     }
 
     // VERIFIES: REQ-SRC-06

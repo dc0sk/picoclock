@@ -1,7 +1,7 @@
 //! Pico-Clock-Green firmware for the Raspberry Pi Pico W (RP2040) and Pico 2 W (RP2350, feature `rp235x`).
 //!
 //! The DS3231 RTC runs on UTC; local time is derived at display time from the configured timezone (or UTC is shown
-//! directly). Time is kept in sync over WiFi/NTP. Settings come from flash and are edited over the USB serial
+//! directly). The time comes from NTP/NTS over WiFi and from a DCF77 receiver, chosen by `order` or `vote`. Settings come from flash and are edited over the USB serial
 //! console, a small web page, or the three buttons.
 #![no_std]
 #![no_main]
@@ -128,8 +128,6 @@ fn merge(a: Out, b: Out) -> Out {
     Out { beep: b.beep.or(a.beep), config_changed: a.config_changed || b.config_changed }
 }
 
-/// Owns the RTC and the UI: applies NTP results, reads time and temperature, feeds buttons to the UI state machine,
-/// and draws the result.
 /// How late the wake-up for the RTC write may be before it waits for the next second instead.
 const MAX_LATE_MS: u64 = 5;
 /// The loop spins this close to the planned RTC write instead of doing other work.
@@ -146,6 +144,8 @@ struct Pending {
     attempt: u8,
 }
 
+/// Owns the RTC and the UI: applies the accepted time samples (on the next second boundary, without holding up the buttons and the
+/// display), reads time and temperature, feeds buttons to the UI state machine, and draws the result.
 #[embassy_executor::task]
 async fn ui_task(mut rtc: Rtc) -> ! {
     if rtc.init().await.is_err() {
@@ -185,12 +185,25 @@ async fn ui_task(mut rtc: Rtc) -> ! {
                         warn!("rtc: writing {} ms late; the executor stayed busy", late_ms);
                     }
                     let target = p.target;
+                    if !picoclock_core::time::plausible_unix(target) {
+                        warn!("rtc: refusing to write the date {}", target);
+                        continue;
+                    }
                     let at = Instant::now();
                     match rtc.set(&unix_to_datetime(target)).await {
                         Ok(()) => {
                             info!("rtc: set, unix {}", target);
                             state::set_anchor(target, at);
                             state::with_runtime(|r| r.last_sync_unix = Some(target));
+                        }
+                        Err(_) if p.attempt < 3 => {
+                            // an I2C hiccup: the sample was accepted, so try again on the next second boundary
+                            warn!("rtc: write failed; trying again");
+                            let (target, wait_ms) = next_second_boundary(p.secs, p.ms, p.stamp.elapsed().as_millis());
+                            p.target = target;
+                            p.planned = Instant::now() + Duration::from_millis(wait_ms);
+                            p.attempt += 1;
+                            pending = Some(p);
                         }
                         Err(_) => warn!("rtc: write failed"),
                     }
@@ -348,13 +361,17 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(sources::sources_task()));
     // DCF77 receiver module: PON on GP0 (starts high = off), TCO on GP1.
     spawner.spawn(unwrap!(dcf77::dcf77_task(Input::new(p.PIN_1, Pull::Down), Output::new(p.PIN_0, Level::High))));
-    // After the reset reason is read: the watchdog is started once everything that can take long at boot (flash, USB) is done.
+    // After the reset reason is read: the watchdog is started once the flash and USB set-up is done and before the radio starts.
     let mut watchdog = embassy_rp::watchdog::Watchdog::new(p.WATCHDOG);
     let reset_by_watchdog = state::watchdog_caused_last_reset(&mut watchdog);
     state::with_runtime(|r| r.watchdog_reset = reset_by_watchdog);
     if reset_by_watchdog {
         warn!("watchdog: the last restart was a watchdog reset");
     }
+    // Started before the radio is brought up (its firmware load takes a while): the bootloader's 8 s watchdog is still counting
+    // down from its own start until this takes over, and the tasks spawned above heartbeat while main waits.
+    state::watchdog_start(watchdog);
+    spawner.spawn(unwrap!(watchdog_task()));
     let adc = Adc::new(p.ADC, Irqs, adc::Config::default());
     spawner.spawn(unwrap!(light_task(adc, Channel::new_pin(p.PIN_26, Pull::None), Channel::new_temp_sensor(p.ADC_TEMP_SENSOR))));
 
@@ -425,6 +442,4 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(web::web_task(stack)));
     #[cfg(feature = "https")]
     spawner.spawn(unwrap!(https::https_task(stack)));
-    state::watchdog_start(watchdog);
-    spawner.spawn(unwrap!(watchdog_task()));
 }

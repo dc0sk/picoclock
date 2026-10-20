@@ -356,7 +356,8 @@ fn on_off(b: bool) -> &'static str {
 
 impl Config {
     pub fn set(&mut self, key: &str, value: &str) -> Result<(), ConfigError> {
-        let value = value.trim();
+        // a password keeps its spaces (only a line end is dropped); every other value is trimmed
+        let value = if key.ends_with("password") { value.trim_end_matches(['\r', '\n']) } else { value.trim() };
         match key {
             k if wifi_key(k).is_some() => {
                 let (slot, is_password) = wifi_key(k).ok_or(ConfigError::UnknownKey)?;

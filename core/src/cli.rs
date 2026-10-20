@@ -172,6 +172,10 @@ pub fn reset_confirmed(answer: &str) -> bool {
     answer.trim() == RESET_WORD
 }
 
+/// The longest answer the terminal sends (`firmware/src/usb_cli.rs` has a buffer of this size and cuts what is longer); `help`
+/// has to fit, or the settings listed last cannot be found.
+pub const OUTPUT_MAX: usize = 3000;
+
 /// Longest pasted certificate text (one PEM certificate is about 2.1 KB for the largest we accept).
 pub const PASTE_MAX: usize = 3000;
 
@@ -530,6 +534,7 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             match (st.https_state, cfg.https) {
                 (0, _) => { let _ = out.write_str("not in this build (Pico 2 W only)"); }
                 (_, false) => { let _ = out.write_str("off"); }
+                (_, true) if !cfg.web_enabled => { let _ = out.write_str("off (the web interface is switched off: web_enabled)"); }
                 (1, true) => { let _ = out.write_str("starting (needs a valid time)"); }
                 _ => {
                     let _ = write!(out, "on, certificate {} ({}), valid until {}", crate::x509::fingerprint_hex(&st.cert_fp), if st.cert_uploaded { "uploaded" } else { "self-signed" }, date(st.cert_not_after));
@@ -784,8 +789,7 @@ mod tests {
         assert!(out.contains("192.168.1.50") && out.contains("connected") && out.contains("-2.5 C") && out.contains("unsaved"), "{out}");
     }
 
-    // VERIFIES: REQ-HW-01 REQ-HW-02 REQ-NET-02
-        // VERIFIES: REQ-NET-10
+    // VERIFIES: REQ-NET-10
     #[test]
     fn status_names_the_dhcp_server_the_access_points_and_a_changed_lease() {
         let ap = |last: u8, ch, rssi| Some(ApSeen { bssid: [0xdc, 0x39, 0x6f, 0xce, 0x6d, last], channel: ch, rssi });
@@ -816,6 +820,7 @@ mod tests {
         assert!(!out.contains("dhcp    :") && !out.contains("ap      :"), "{out}");
     }
 
+    // VERIFIES: REQ-HW-01 REQ-HW-02 REQ-NET-02
     #[test]
     fn negative_sub_degree_temperature() {
         let mut c = Config::default();
@@ -873,6 +878,7 @@ mod tests {
         for k in KEYS {
             assert!(out.contains(k.name), "{}", k.name);
         }
+        assert!(out.len() <= OUTPUT_MAX - 100, "help is {} bytes; the terminal cuts at {}", out.len(), OUTPUT_MAX);
     }
 
     // VERIFIES: REQ-DSP-02 REQ-TZ-04
@@ -911,7 +917,7 @@ mod tests {
         assert_eq!(line(&Status::default()), "synced  : never");
     }
 
-    // VERIFIES: REQ-UPD-10
+    // VERIFIES: REQ-UPD-11
     #[test]
     fn update_and_status_name_the_revoked_signing_keys() {
         let mut c = Config::default();

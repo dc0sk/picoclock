@@ -20,6 +20,7 @@ cargo test -p picoclock-core --target "$HOST" --features rsa 2>&1 | tee -a "$OUT
 
 echo "== traceability"
 python3 tools/trace.py check --tests-output "$OUT"
+python3 tools/trace.py self-test | tail -3
 
 echo "== image signing tool"
 python3 tools/sign_image.py self-test
@@ -27,6 +28,7 @@ python3 tools/combine_image.py check-layout
 
 echo "== document headers"
 python3 tools/check_docs.py
+python3 tools/check_docs.py self-test | tail -1
 
 if [ "${GATE_FAST:-0}" != "1" ]; then
   echo "== firmware: Pico W"

@@ -75,9 +75,9 @@ async fn exchange(stack: Stack<'static>, server: IpAddr) -> Result<(u64, u16), (
     let mut socket = UdpSocket::new(stack).map_err(|_| ())?;
     socket.bind(0, ListenSocketAddr::UNSPECIFIED).map_err(|_| ())?;
 
-    // Uptime in microseconds is unique per request and unguessable enough for an origin check.
+    // A random origin nonce (hardware TRNG on the Pico 2 W): the uptime shown by `status` would make it guessable.
     let sent = Instant::now();
-    let nonce = sent.as_micros().to_be_bytes();
+    let nonce = crate::crypto::next_u64().to_be_bytes();
     socket
         .send_to(&sntp::build_request(nonce), SocketAddr::new(server, NTP_PORT))
         .await

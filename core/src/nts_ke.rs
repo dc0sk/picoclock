@@ -37,13 +37,13 @@ const USERTRUST_ECC: &[u8] = include_bytes!("../roots/usertrust-ecc.der");
 /// of the one connection that tells the clock a new firmware exists (installing one is guarded by a signature anyway).
 pub const UPDATE_ROOTS: &[&[u8]] = &[USERTRUST_ECC];
 
-/// The built-in roots. A server is trusted if its chain ends at any of them (and the host name and dates match). ECDSA chains
-/// can always be verified; RSA chains only in builds with the `rsa` feature (Pico 2 W), so on the Pico W a server with an
-/// RSA certificate fails with a certificate error.
 /// The only root the release download trusts for GitHub's download host (its chain is RSA, ISRG Root X1; `rsa` builds only).
 #[cfg(feature = "rsa")]
 pub const DOWNLOAD_ROOTS: &[&[u8]] = &[ISRG_ROOT_X1];
 
+/// The built-in roots. A server is trusted if its chain ends at any of them (and the host name and dates match). ECDSA chains
+/// can always be verified; RSA chains only in builds with the `rsa` feature (Pico 2 W), so on the Pico W a server with an
+/// RSA certificate fails with a certificate error.
 #[cfg(feature = "rsa")]
 pub const BUILT_IN_ROOTS: &[&[u8]] = &[ISRG_ROOT_X2, SSL_COM_ROOT_ECC, ISRG_ROOT_X1];
 #[cfg(not(feature = "rsa"))]

@@ -5,12 +5,19 @@
 #            picoclock-<version>-<board>.pcu  the update file (application + Ed25519 signature) for upload or download
 # and SHA256SUMS. The signature is made in a temporary GnuPG home (the owner's keyring is never touched), checked against the
 # public key the firmware carries, and the finished .pcu is verified once more. Refuses to run on a modified tree: a release is
-# something one can rebuild from its commit. PICOCLOCK_REVOKE=1 (or 2) in the environment builds a release that revokes that signing key
-# (ADR-0006 point 18); sign it with the OTHER key (KEYDIR, and PICOCLOCK_PUBKEY set to that key's raw public key).
+# something one can rebuild from its commit. PICOCLOCK_REVOKE=1 in the environment builds a release that revokes key 1
+# (ADR-0006 point 18); only the backup key can sign it (KEYDIR=local/firmware-signing-backup, PICOCLOCK_PUBKEY=<its raw public key>).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 KEY="${1:-local/firmware-signing}"
 PUBKEY="${PICOCLOCK_PUBKEY:-347fe5f208d22b3d4fb3e040ef9760dda05d1fc3f5cfaa8b3a2ce56f77aca933}"
+BACKUP_PUBKEY=408f3847c547330335d35394d36c405c872a208a908c6cec5c2e44997c409f8b
+# only the backup key (key 2) may revoke the primary (key 1); the clock would refuse any other combination (ADR-0006 point 18)
+case "${PICOCLOCK_REVOKE:-0}" in
+  0) ;;
+  1) [ "$PUBKEY" = "$BACKUP_PUBKEY" ] || { echo "PICOCLOCK_REVOKE=1 needs the backup key: KEYDIR=local/firmware-signing-backup and PICOCLOCK_PUBKEY=$BACKUP_PUBKEY"; exit 1; } ;;
+  *) echo "PICOCLOCK_REVOKE can only be 1 (key 2 revokes key 1)"; exit 1 ;;
+esac
 [ -z "$(git status --porcelain)" ] || { echo "the working tree is not clean: commit first"; exit 1; }
 for f in secret-key.asc passphrase.txt fingerprint.txt; do [ -f "$KEY/$f" ] || { echo "missing $KEY/$f"; exit 1; }; done
 VER="$(sed -n '0,/^version = "\(.*\)"/s//\1/p' firmware/Cargo.toml | head -1)"

@@ -72,20 +72,20 @@ async fn add_root(class: &mut Class, text: &str) -> Result<(), Disconnected> {
 }
 
 async fn run_line(class: &mut Class, line: &str) -> Result<Action, Disconnected> {
-    let mut out = heapless::String::<2048>::new();
+    let mut out = heapless::String::<3072>::new();
     let st = state::status();
     let action = state::with_config(|cfg| cli::execute(line, cfg, &st, &mut out));
     // A full buffer truncates silently; make that visible instead of looking like a complete answer.
-    if out.len() > 2000 {
+    if out.len() > cli::OUTPUT_MAX {
         // cut on a character boundary: an SSID or name may hold multi-byte characters, and `truncate` panics inside one
-        let mut end = 2000;
+        let mut end = cli::OUTPUT_MAX;
         while !out.is_char_boundary(end) {
             end -= 1;
         }
         out.truncate(end);
         let _ = out.push_str("\n[output truncated]\n");
     }
-    let mut crlf = heapless::String::<2200>::new();
+    let mut crlf = heapless::String::<3400>::new();
     for c in out.chars() {
         if c == '\n' {
             let _ = crlf.push('\r');
@@ -156,10 +156,10 @@ async fn run_line(class: &mut Class, line: &str) -> Result<Action, Disconnected>
     Ok(action)
 }
 
-/// An update file arriving over the console: the bytes still to come and the block being collected for the storage task.
+/// An update file arriving over the console: the sink cuts the bytes into 4 KiB blocks for the storage task, whatever the size
+/// of the packets the host writes.
 struct Upload {
-    remaining: usize,
-    block: heapless::Vec<u8, 4096>,
+    sink: crate::install::BlockSink,
     /// Keeps a web upload out while this one runs.
     _claim: state::InstallClaim,
 }
@@ -175,11 +175,18 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
     // after `factory-reset`: the next line is the answer to the second question
     let mut confirm_reset = false;
     // after `update apply`: the next line is the answer
-    let mut confirm_install = false;
+    let mut confirm_install: Option<picoclock_core::update::Version> = None;
     // after `update upload <n>`: the next bytes are the update file (not echoed, not commands)
     let mut upload: Option<Upload> = None;
+    // bytes of the packet that held the `update upload` line and came after it: they belong to the file
+    let mut carry: heapless::Vec<u8, 64> = heapless::Vec::new();
     loop {
-        let n = if upload.is_some() {
+        let n = if !carry.is_empty() {
+            buf[..carry.len()].copy_from_slice(&carry);
+            let n = carry.len();
+            carry.clear();
+            n
+        } else if upload.is_some() {
             match with_timeout(Duration::from_secs(10), class.read_packet(&mut buf)).await {
                 Ok(r) => r?,
                 Err(_) => {
@@ -194,19 +201,8 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
             class.read_packet(&mut buf).await?
         };
         if let Some(up) = upload.as_mut() {
-            let take = n.min(up.remaining);
-            for chunk in buf[..take].chunks(64) {
-                for &b in chunk {
-                    let _ = up.block.push(b);
-                }
-            }
-            // a full block (or the last one) goes to the storage task, which writes it while the next packets arrive
-            up.remaining -= take;
-            if up.block.is_full() || (up.remaining == 0 && !up.block.is_empty()) {
-                let block = core::mem::take(&mut up.block);
-                state::INSTALL_IN.send(state::InstallMsg::Block(block)).await;
-            }
-            if up.remaining == 0 {
+            up.sink.push(&buf[..n]).await;
+            if up.sink.remaining == 0 {
                 upload = None;
                 state::INSTALL_IN.send(state::InstallMsg::Finish).await;
                 send(class, "received; checking the signature (a few seconds)...\r\n").await?;
@@ -219,7 +215,7 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
             }
             continue;
         }
-        for &b in &buf[..n] {
+        for (at, &b) in buf[..n].iter().enumerate() {
             let was_cr = core::mem::replace(&mut last_was_cr, b == b'\r');
             match b {
                 b'\n' if was_cr => {} // second half of CRLF
@@ -228,12 +224,17 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
                         send(class, "\r\n").await?;
                     }
                     let l = core::mem::take(&mut line);
-                    if core::mem::take(&mut confirm_install) {
+                    if let Some(shown) = confirm_install.take() {
                         if cli::install_confirmed(&l) {
-                            send(class, "installing; the clock restarts\r\n").await?;
-                            state::INSTALL_IN.send(state::InstallMsg::Apply).await;
-                            let _ = state::INSTALL_REPLY.wait().await; // only returns when the install was refused
-                            send(class, "not installed: the running image has not confirmed itself yet; try again in a moment\r\n").await?;
+                            // one conversation with the storage task at a time (an upload or a download holds the claim)
+                            if let Some(_claim) = state::InstallClaim::take() {
+                                send(class, "installing; the clock restarts\r\n").await?;
+                                state::INSTALL_IN.send(state::InstallMsg::Apply(shown)).await;
+                                let _ = state::INSTALL_REPLY.wait().await; // only returns when the install was refused
+                                send(class, "not installed: the staged image changed, or the running image has not confirmed itself yet (type 'update' and try again in a moment)\r\n").await?;
+                            } else {
+                                send(class, "not installed: a file is being received just now; try again when it is done\r\n").await?;
+                            }
                         } else {
                             send(class, "cancelled; the staged image stays staged\r\n").await?;
                         }
@@ -271,8 +272,12 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
                                 continue;
                             }
                             Action::ImageApply => {
+                                let picoclock_core::image::Install::Staged(version, _) = state::status().install else {
+                                    send(class, PROMPT).await?;
+                                    continue;
+                                };
                                 send(class, "Type INSTALL (capitals) to install it, anything else cancels: ").await?;
-                                confirm_install = true;
+                                confirm_install = Some(version);
                                 continue;
                             }
                             Action::ImageUpload(len) => {
@@ -284,8 +289,15 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
                                 state::INSTALL_IN.send(state::InstallMsg::Begin(len)).await;
                                 if state::INSTALL_REPLY.wait().await {
                                     send(class, "ready: send the file now\r\n").await?;
-                                    upload = Some(Upload { remaining: len, block: heapless::Vec::new(), _claim: claim });
-                                    continue;
+                                    upload = Some(Upload { sink: crate::install::BlockSink::new(len), _claim: claim });
+                                    // the rest of this packet is the start of the file, except the second half of a CRLF
+                                    let mut rest = &buf[at + 1..n];
+                                    if b == b'\r' && rest.first() == Some(&b'\n') {
+                                        rest = &rest[1..];
+                                    }
+                                    let _ = carry.extend_from_slice(rest);
+                                    last_was_cr = false;
+                                    break;
                                 }
                                 let mut text = heapless::String::<300>::new();
                                 picoclock_core::image::describe_install(&mut text, state::status().install);
@@ -306,7 +318,7 @@ async fn session(class: &mut Class) -> Result<(), Disconnected> {
                     line.clear();
                     paste = None;
                     confirm_reset = false;
-                    confirm_install = false;
+                    confirm_install = None;
                     send(class, "^C\r\n").await?;
                     send(class, PROMPT).await?;
                 }
