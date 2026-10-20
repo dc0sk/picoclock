@@ -80,6 +80,7 @@ pub fn status() -> Status {
         sources: [
             Some(Report { source: Source::Ntp, state: State::Used, offset_ms: Some(2), age_s: Some(640) }),
             Some(Report { source: Source::Dcf77, state: State::Used, offset_ms: Some(-12), age_s: Some(95) }),
+            Some(Report { source: Source::Gps, state: State::Off, offset_ms: None, age_s: None }),
         ],
         dcf: picoclock_core::dcf77::Stats { pulses: 5_420, frames_ok: 83, frames_bad: 6, pulses_bad: 11 },
         ..Default::default()
