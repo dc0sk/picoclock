@@ -1039,3 +1039,20 @@ refused a key-1 image ("the signing key was revoked by an earlier release"). The
 watchdog (no way to provoke), the Pico W.
 
 Verifies: REQ-UPD-11, REQ-UPD-06, REQ-WEB-08, REQ-CLI-01
+
+### VR-83 · 2026-10-20 · hardware · Release 0.2.2: update through the web page, factory reset keeps the trust record (Pico 2 W)
+
+Release v0.2.2 (tag on the release commit 2e5c500, signed by key 1, built by `tools/release.sh`, gate ok) was published first. **Update path
+through the web page** (curl against the clock, HTTPS on, web password set, clock on the 0.2.1 build with both keys trusted): `POST /update-check`
+made the Security page say "0.2.2 is available on GitHub"; `POST /download` staged the file ("0.2.2 is staged and checked"); `POST /install`
+without a word showed the confirmation page ("Type INSTALL to confirm"), with the wrong word it refused ("not the confirmation word, so
+nothing was installed"), and with `version=0.2.2&confirm=INSTALL` it answered the restart page. The clock came back as 0.2.2, stayed on it
+past the 20 s confirmation window, kept its settings, WiFi, web password and HTTPS certificate, and synced by NTP again. A browser was not
+used for the clicks, so the Security page's refresh while the download runs was not seen. **Factory reset keeps the trust record:** a
+backup-signed test image 0.9.8 with `PICOCLOCK_REVOKE=1` was installed over the terminal; both trust sectors then began with `PTR1` and mask 1
+(read with openocd); `factory-reset` and `RESET` erased the settings and both sectors still held the same record; the current tree then
+showed `keys    : key 1 REVOKED, key 2 trusted`. The sectors were erased afterwards with a UF2 of 0xFF and the clock's WiFi was given
+again with `tools/provision.py`. **Not verified:** the 503 of the plain port while HTTPS starts, the retry of a failed RTC write, the early
+watchdog, a real cable pull, the Pico W.
+
+Verifies: REQ-UPD-09, REQ-UPD-08, REQ-UPD-11, REQ-CFG-11

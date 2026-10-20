@@ -11,7 +11,7 @@ last_updated: 2026-10-19
 
 Step 1 (the check) is **Accepted** and delivered (REQ-UPD-01 to 03). Step 2 (the install) is **Accepted and delivered in 0.2.1**:
 the bootloader with swap and swap-back, install from the terminal and the web page, download from GitHub on the Pico 2 W
-(REQ-UPD-04 to 09, VR-68 to VR-78), and, after 0.2.1, key revocation (REQ-UPD-11). Tested on the Pico 2 W; **not yet on the Pico W**.
+(REQ-UPD-04 to 09, VR-68 to VR-78), and, since 0.2.2, key revocation (REQ-UPD-11). Tested on the Pico 2 W; **not yet on the Pico W**.
 Points 1 to 14 were written as a proposal and revised after the design review of 2026-10-18; the owner agreed on 2026-10-18 to
 the approach (check first, notify, install only on the user's request; GitHub releases as the source; a signing key of their own
 in GnuPG; a one-time bootloader reflash on both boards). The signature check inside the bootloader (point 10's "second line") is
