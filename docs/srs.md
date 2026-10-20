@@ -495,6 +495,62 @@ The DCF77 receiver delay (how late the receiver's pulse edges are) shall be sett
 *Why:* Requested by the owner (2026-10-18). On the first receiver the DCF77 time was about 55 ms behind NTP; with a vote tolerance of a second this is harmless, but it makes the offset display and the sub-second phase of a DCF77-only clock wrong by the receiver's delay.  
 *Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Configuration model and flash storage, Terminal commands and USB serial console
 
+**REQ-GPS-01** (draft, high)  
+The GPS decoder shall read NMEA 0183 sentences from the receiver's serial line and turn a GxRMC sentence into the UTC time of the second it names, accepting it only if the checksum is right, every field it needs is present and in range (including the calendar date), the status is A (valid) and the mode indicator, when present, is A or D; any talker (GP, GN, GL, GA, GB) is accepted. A sentence that fails any of these shall be counted and ignored, never partly used.  
+*Why:* ADR-0007 point 2. The receiver's factory setting already sends RMC, which carries time, date and validity, so the clock needs no command to the module; NMEA has a checksum, a receiver without a fix sends empty fields, and a half-read sentence must not set the clock.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver
+
+**REQ-GPS-02** (draft, high)  
+A GPS time shall be tied to the rising edge of the receiver's 1-pulse-per-second output: the sentence names the second that began at the most recent edge, and the sample's instant is that edge. A sentence for which no edge was stamped in the 900 ms before its last byte, or for which two edges fall in that window, shall be discarded and counted. Without a PPS connection the GPS source delivers no time.  
+*Why:* ADR-0007 points 3 and 10. The time of arrival of a sentence on the serial line is only known to some hundreds of milliseconds; the edge is known to microseconds. Accepting the sentence without the edge would give the clock a worse time than NTP and still call it GPS.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Composition: task wiring, shared state, chip selection
+
+**REQ-GPS-03** (draft, high)  
+A GPS time shall be offered to the source selection only after 30 consecutive seconds in each of which a valid sentence arrived, the named second was exactly one more than the second before, and the PPS edges were 1000 ms apart within 10 ms; any second that breaks one of these shall start the count again and the status shall say that the receiver is settling.  
+*Why:* ADR-0007 point 4. A receiver that has just got a fix may still send GPS time instead of UTC (a difference of 18 s) or a position-dependent time; a noisy PPS line or a receiver that skips seconds is not to be trusted. Like the two consecutive frames of DCF77 (REQ-DCF-02), the cost is a short wait and the benefit is that one lucky epoch cannot set the clock.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver
+
+**REQ-GPS-04** (draft, medium)  
+While the receiver stays settled, one GPS time shall be offered to the source selection every 60 seconds (not every second), and it shall count as fresh for 10 minutes; when the fix is lost the count of REQ-GPS-03 starts again and the time becomes stale after those 10 minutes.  
+*Why:* ADR-0007 point 5. A 1 Hz source would rewrite the RTC, log and copy the settings every second (review of 2026-10-20, B10 and B16); the RTC drifts by milliseconds in a minute. Ten minutes of freshness bridge a short loss of the fix indoors without letting an old time stand in for long.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver
+
+**REQ-GPS-05** (draft, medium)  
+The GPS receiver shall be wired to UART1 (TX on GP4, RX on GP5, 3.3 V logic) and its PPS output to GP3; the serial line shall be read at the speed of the setting `gps_baud` (9600, 19200, 38400, 57600, 115200; default 38400, the NEO-M9N's factory setting), and the receiver shall be listened to only while `gps` is in `time_sources`. The clock shall never send anything to the module. The vote power shall be settable as `vote_gps` like that of the other sources.  
+*Why:* ADR-0007 points 1 and 9; pins planned in docs/design/architecture.md. Sending configuration to a module the clock cannot see on the bench is a risk for no gain in 0.3.0.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Configuration model and flash storage, Terminal commands and USB serial console, Composition: task wiring, shared state, chip selection
+
+**REQ-GPS-06** (draft, medium)  
+The terminal status and the web page shall show for the GPS source: whether the receiver is silent, settling (with the count of REQ-GPS-03) or settled, the number of valid sentences, of sentences with a bad checksum or without a fix, of PPS edges and of discarded sentences, and the age of the last PPS edge; the source's line follows REQ-SRC-05 like the others.  
+*Why:* ADR-0007 point 9. With a receiver on a wire nothing else tells a silent line, a missing PPS, a wrong baud rate and a missing fix apart.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Terminal commands and USB serial console, HTTP parsing, settings page and web server
+
+**REQ-GPS-07** (draft, high)  
+The PPS edge shall be stamped with the microsecond timer by a task on an interrupt executor of higher priority than the main executor (and lower than the display's), so that a stalled main executor (an NTS key exchange blocks it for up to 7 s on the RP2040) cannot delay the stamp; the stamp shall be within 1 ms of the edge in the measurement of the verification log.  
+*Why:* ADR-0007 point 6. The assumption that this is enough is not measured; the requirement says what has to be measured before the source is delivered.  
+*Implemented by:* Composition: task wiring, shared state, chip selection, Time source selection (order, vote) and the DCF77 receiver  
+*Unverified:* no receiver is connected yet (2026-10-20); the jitter is measured when it is
+
+**REQ-SRC-07** (draft, high)  
+Replaces REQ-SRC-06 when implemented. When the clock has a valid time, a sample from a time source that differs from it by more than 1000 seconds shall not set the clock until (a) a second reading of the same source agrees with it within 5 seconds and (b) no other selected source with a fresh sample disagrees with it by more than the vote tolerance; while either is missing the clock shall be left alone, the sample shall not count as fresh for the other sources, and the status shall say which. A far-away NTP time shall still make the clock ask again at once (at most three times in a row). Without a valid time every sample is used.  
+*Why:* A receiver that is consistently wrong (a GPS week rollover, a spoofed signal) passes the same-source rule of REQ-SRC-06 because it repeats itself; the full-code review of 2026-10-20 (B3) asked for a confirmation by a different source. If no other source delivers, nothing can contradict it and the date floor of REQ-SRC-10 is the remaining defence.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver
+
+**REQ-SRC-08** (draft, medium)  
+A sample shall rewrite the RTC only if the clock differs from it by more than a limit that belongs to its source (NTP 0 ms: always; DCF77 300 ms; GPS 50 ms), otherwise it only renews the time of the last synchronisation; a source other than NTP shall not rewrite the RTC more often than every 10 seconds unless the difference exceeds 1000 ms.  
+*Why:* ADR-0007 point 7. The DCF77-only rule (ADR-0004 point 5) becomes a table; without a minimum interval a faulty 1 Hz source would reset the RTC's prescaler every second. The GPS limit is a guess, to be set by the first measurements.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver
+
+**REQ-SRC-09** (draft, medium)  
+In mode `vote`, when several groups of sources agree within the tolerance and hold the same vote power and the same number of sources, the group that contains the best-ranked source of `time_sources` shall win, whatever the order in which the sources are enumerated; the rule shall be the same with two and with three sources.  
+*Why:* ADR-0007 point 8; found by the review of 2026-10-20 (B8): with three sources the groups {A,B} and {B,C} can overlap and the winner was decided by enumeration order, i.e. by chance of the code.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver
+
+**REQ-SRC-10** (draft, medium)  
+A sample dated before 2026-10-01 (the date floor, raised by the maintainer when a release is made) or after 2099 shall be ignored by the source selection and shall never be written to the RTC, whatever its source.  
+*Why:* ADR-0007 point 7. The old lower bound (2020) lets a receiver that repeats a past GPS week (a rollover) and no other source to contradict it set the clock to 2007; a firmware cannot be older than its own build.  
+*Implemented by:* Time source selection (order, vote) and the DCF77 receiver, Calendar maths
+
 
 ### 4.12 Buzzer
 
