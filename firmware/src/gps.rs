@@ -1,118 +1,121 @@
-//! GPS receiver (u-blox NEO-M9N, ADR-0007): NMEA on UART1 RX (GP5, the module's TX) and the 1 pulse per second on GP3. Runs on an
-//! interrupt executor of higher priority than the main one, so that a stalled main executor (the NTS key exchange blocks it for
-//! up to 7 s on the RP2040) cannot delay the stamp of a PPS edge. The edge is stamped with the microsecond timer the moment
-//! the task wakes; sentences and edges go to `picoclock_core::gps::Tracker`, which pairs them, settles and decides when a time
-//! is offered to the source selection. The clock never sends anything to the module.
+//! GPS receiver (u-blox NEO-M9N, ADR-0007): NMEA on UART1 RX (GP5, the module's TX) and the 1 pulse per second on GP3.
+//!
+//! Two tasks. `gps_io_task` runs on an interrupt executor of higher priority than the main one (below the display), so that a
+//! stalled main executor (the NTS key exchange blocks it for up to 7 s on the RP2040) cannot delay the stamp of a PPS edge: it
+//! stamps every edge with the microsecond timer the moment it wakes, cuts the serial bytes into lines, and sends edges and RMC
+//! lines with their stamps through `EVENTS`. It must not touch `state::with_config` and the like: those are thread-mode
+//! mutexes and panic from an interrupt (found by the first run of the simulated receiver). `gps_task` runs in thread mode, pairs
+//! the events (`picoclock_core::gps::Tracker`), and offers a time to the source selection. The clock never sends anything to the module.
 
-use defmt::{info, warn};
-#[cfg(not(feature = "gps-sim"))]
-use embassy_futures::select::{Either, select};
-use embassy_rp::Peri;
-use embassy_rp::gpio::Input;
-use embassy_rp::peripherals::{PIN_5, UART1};
-#[cfg(not(feature = "gps-sim"))]
-use embassy_rp::uart::{self, BufferedUartRx};
-#[cfg(not(feature = "gps-sim"))]
-use embassy_time::Duration;
+use defmt::info;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex as Cs;
+use embassy_sync::channel::Channel;
 use embassy_time::{Instant, Timer};
-#[cfg(not(feature = "gps-sim"))]
-use static_cell::StaticCell;
-use picoclock_core::gps::{LineBuffer, Report, Tracker};
+use picoclock_core::gps::{LINE_MAX, Report, Tracker};
 use picoclock_core::sources::{Sample, Source};
+use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
 use crate::state::{self, Offer};
 
-/// No byte for this long: the line is silent and a run of good seconds is over.
-#[cfg(not(feature = "gps-sim"))]
-const SILENT_AFTER: Duration = Duration::from_secs(3);
+/// What the interrupt-level task tells the thread-mode task, in the order it happened.
+pub enum Event {
+    /// A PPS edge, stamped (microseconds of the monotonic timer).
+    Edge(u64),
+    /// A finished RMC line and the instant its last byte was read.
+    Line(u64, heapless::Vec<u8, LINE_MAX>),
+}
+
+/// Room for a stall of the main executor: 2 events a second, a stall of up to 7 s.
+static EVENTS: Channel<Cs, Event, 16> = Channel::new();
+/// The speed to listen at, 0 = do not listen (set by `gps_task` from the settings).
+static LISTEN_BAUD: AtomicU32 = AtomicU32::new(0);
+/// Bytes received since the receiver was switched on, and errors of the serial line plus events that could not be queued.
+static BYTES: AtomicU32 = AtomicU32::new(0);
+static ERRORS: AtomicU32 = AtomicU32::new(0);
+
+/// Whole seconds without a byte after which the line counts as silent.
+const SILENT_TICKS: u8 = 3;
 
 fn wanted() -> Option<u32> {
     state::with_config(|c| c.time_sources.contains(&Source::Gps).then_some(c.gps_baud))
 }
 
-fn publish(tracker: &Tracker, bytes: u32, silent: bool, uart_errors: u32, lines: &LineBuffer) {
-    let report = Report {
-        stats: tracker.stats,
-        run: tracker.run(),
-        bytes,
-        silent,
-        since_edge_ms: tracker.since_edge(Instant::now().as_micros()).map(|us| (us / 1000).min(u32::MAX as u64) as u32),
-        uart_errors: uart_errors.wrapping_add(lines.overlong),
-    };
-    state::with_runtime(|r| r.gps = report);
-}
-
 #[cfg(not(feature = "gps-sim"))]
-#[embassy_executor::task]
-pub async fn gps_task(mut uart: Peri<'static, UART1>, mut rx_pin: Peri<'static, PIN_5>, mut pps: Input<'static>) -> ! {
-    static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
-    let buf: &'static mut [u8; 256] = RX_BUF.init([0; 256]);
-    loop {
-        // not listening: the UART is not set up, the pins are idle, the old counters are cleared
-        let baud = loop {
-            if let Some(b) = wanted() {
-                break b;
+mod io {
+    use embassy_futures::select::{Either, select};
+    use embassy_rp::Peri;
+    use embassy_rp::gpio::Input;
+    use embassy_rp::peripherals::{PIN_5, UART1};
+    use embassy_rp::uart::{self, BufferedUartRx};
+    use embassy_time::{Instant, Timer};
+    use picoclock_core::gps::LineBuffer;
+    use static_cell::StaticCell;
+
+    use super::{BYTES, ERRORS, EVENTS, Event, LISTEN_BAUD};
+    use core::sync::atomic::Ordering::Relaxed;
+
+    #[embassy_executor::task]
+    pub async fn gps_io_task(mut uart: Peri<'static, UART1>, mut rx_pin: Peri<'static, PIN_5>, mut pps: Input<'static>) -> ! {
+        static RX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
+        let buf: &'static mut [u8; 256] = RX_BUF.init([0; 256]);
+        loop {
+            let baud = LISTEN_BAUD.load(Relaxed);
+            if baud == 0 {
+                Timer::after_millis(500).await;
+                continue;
             }
-            state::with_runtime(|r| r.gps = Report::default());
-            Timer::after_secs(1).await;
-        };
-        info!("gps: listening at {} baud", baud);
-        let mut config = uart::Config::default();
-        config.baudrate = baud;
-        let mut rx = BufferedUartRx::new(uart.reborrow(), rx_pin.reborrow(), crate::Irqs, &mut buf[..], config);
-        let mut tracker = Tracker::new();
-        let mut lines = LineBuffer::new();
-        let (mut bytes, mut uart_errors, mut silent) = (0u32, 0u32, false);
-        let mut chunk = [0u8; 64];
-        let mut deadline = Instant::now() + SILENT_AFTER;
-        'listen: loop {
-            // one edge future for as long as it takes an edge to come: dropping and re-creating it on every chunk of bytes would
-            // leave short gaps in which an edge is not noticed
-            let mut edge = core::pin::pin!(pps.wait_for_rising_edge());
-            loop {
-                // the silence deadline moves only when a byte arrives (an edge every second must not postpone it)
-                match select(&mut edge, select(rx.read(&mut chunk), Timer::at(deadline))).await {
-                    Either::First(()) => {
-                        // stamped first, before anything else is done
-                        tracker.edge(Instant::now().as_micros());
-                        publish(&tracker, bytes, silent, uart_errors, &lines);
-                        break;
-                    }
-                    Either::Second(Either::Second(())) => {
-                        if !silent && bytes > 0 {
-                            warn!("gps: no data for {} s", SILENT_AFTER.as_secs());
-                        }
-                        silent = true;
-                        tracker.silent();
-                        deadline = Instant::now() + SILENT_AFTER;
-                        if wanted() != Some(baud) {
-                            break 'listen;
-                        }
-                    }
-                    Either::Second(Either::First(Err(_))) => uart_errors = uart_errors.wrapping_add(1),
-                    Either::Second(Either::First(Ok(n))) => {
-                        let now = Instant::now();
-                        deadline = now + SILENT_AFTER;
-                        silent = false;
-                        bytes = bytes.wrapping_add(n as u32);
-                        for &b in &chunk[..n] {
-                            let Some(line) = lines.push(b) else { continue };
-                            if let Some(fix) = tracker.line(line, now.as_micros()) {
-                                let (unix_ms, at_ms) = fix.sample_ms();
-                                info!("gps: time offered ({} consecutive seconds)", tracker.run());
-                                let _ = state::SAMPLES.try_send(Offer { src: Source::Gps, sample: Sample { unix_ms, at_ms }, secure: false });
+            let mut config = uart::Config::default();
+            config.baudrate = baud;
+            let mut rx = BufferedUartRx::new(uart.reborrow(), rx_pin.reborrow(), crate::Irqs, &mut buf[..], config);
+            let mut lines = LineBuffer::new();
+            let mut chunk = [0u8; 64];
+            'listen: loop {
+                // one edge future for as long as it takes an edge to come: dropping and re-creating it on every chunk of bytes
+                // would leave short gaps in which an edge is not noticed
+                let mut edge = core::pin::pin!(pps.wait_for_rising_edge());
+                loop {
+                    match select(&mut edge, select(rx.read(&mut chunk), Timer::after_secs(1))).await {
+                        Either::First(()) => {
+                            // stamped first, before anything else is done
+                            let at = Instant::now().as_micros();
+                            if EVENTS.try_send(Event::Edge(at)).is_err() {
+                                ERRORS.fetch_add(1, Relaxed);
                             }
-                            lines.done();
+                            break;
+                        }
+                        Either::Second(Either::Second(())) => {
+                            if LISTEN_BAUD.load(Relaxed) != baud {
+                                break 'listen;
+                            }
+                        }
+                        Either::Second(Either::First(Err(_))) => {
+                            ERRORS.fetch_add(1, Relaxed);
+                        }
+                        Either::Second(Either::First(Ok(n))) => {
+                            let at = Instant::now().as_micros();
+                            BYTES.fetch_add(n as u32, Relaxed);
+                            for &b in &chunk[..n] {
+                                let Some(line) = lines.push(b) else { continue };
+                                // only the RMC sentence is of use; the receiver sends five or six others a second
+                                if line.len() >= 6 && &line[3..6] == b"RMC" {
+                                    let mut v = heapless::Vec::new();
+                                    let _ = v.extend_from_slice(line);
+                                    if EVENTS.try_send(Event::Line(at, v)).is_err() {
+                                        ERRORS.fetch_add(1, Relaxed);
+                                    }
+                                }
+                                lines.done();
+                            }
                         }
                     }
                 }
-                publish(&tracker, bytes, silent, uart_errors, &lines);
             }
+            drop(rx);
         }
-        drop(rx);
-        info!("gps: receiver off");
     }
 }
+#[cfg(not(feature = "gps-sim"))]
+pub use io::gps_io_task;
 
 /// The seconds the simulated receiver is ahead of the clock (build-time `GPS_SIM_OFFSET_S`, may be negative).
 #[cfg(feature = "gps-sim")]
@@ -131,44 +134,92 @@ const SIM_OFFSET_S: i64 = {
     if neg { -v } else { v }
 };
 
-/// The simulated receiver: a PPS edge on every second boundary of the clock (the RTC anchor is set on one), and 300 ms later the
-/// sentence of that second, `SIM_OFFSET_S` ahead of the clock. Everything after the edge and the line is the real code path.
+/// The simulated receiver (test build, ADR-0007 point 10): a PPS edge on every second boundary of the clock (the RTC anchor is set
+/// on one), and 300 ms later the sentence of that second, `SIM_OFFSET_S` ahead of the clock. Everything after the events is the real
+/// code path.
 #[cfg(feature = "gps-sim")]
 #[embassy_executor::task]
-pub async fn gps_task(_uart: Peri<'static, UART1>, _rx_pin: Peri<'static, PIN_5>, _pps: Input<'static>) -> ! {
-    use embassy_time::Duration as D;
-    warn!("gps: SIMULATED receiver, {} s from the clock", SIM_OFFSET_S);
-    let mut tracker = Tracker::new();
-    let mut lines = LineBuffer::new();
-    let mut bytes = 0u32;
+pub async fn gps_sim_task() -> ! {
+    use embassy_time::Duration;
+    defmt::warn!("gps: SIMULATED receiver, {} s from the clock", SIM_OFFSET_S);
     loop {
-        let (Some(_), Some((secs, anchor_at))) = (wanted(), state::anchor()) else {
-            if wanted().is_none() {
-                state::with_runtime(|r| r.gps = Report::default());
-            }
-            tracker = Tracker::new();
+        let (true, Some((secs, anchor_at))) = (LISTEN_BAUD.load(Relaxed) != 0, state::anchor()) else {
             Timer::after_secs(1).await;
             continue;
         };
         let k = anchor_at.elapsed().as_millis() / 1000 + 1;
-        let edge_at = anchor_at + D::from_millis(k * 1000);
-        Timer::at(edge_at).await;
-        tracker.edge(Instant::now().as_micros());
+        Timer::at(anchor_at + Duration::from_millis(k * 1000)).await;
+        let _ = EVENTS.try_send(Event::Edge(Instant::now().as_micros()));
         let mut text = heapless::String::<120>::new();
         let _ = picoclock_core::gps::build_rmc(secs + k as i64 + SIM_OFFSET_S, &mut text);
-        text.push_str("\r\n").ok();
         Timer::after_millis(300).await;
-        let now = Instant::now();
-        bytes = bytes.wrapping_add(text.len() as u32);
-        for &b in text.as_bytes() {
-            let Some(line) = lines.push(b) else { continue };
-            if let Some(fix) = tracker.line(line, now.as_micros()) {
-                let (unix_ms, at_ms) = fix.sample_ms();
-                info!("gps (simulated): time offered ({} consecutive seconds)", tracker.run());
-                let _ = state::SAMPLES.try_send(Offer { src: Source::Gps, sample: Sample { unix_ms, at_ms }, secure: false });
-            }
-            lines.done();
+        let mut v = heapless::Vec::new();
+        let _ = v.extend_from_slice(text.as_bytes());
+        BYTES.fetch_add(text.len() as u32 + 2, Relaxed);
+        let _ = EVENTS.try_send(Event::Line(Instant::now().as_micros(), v));
+    }
+}
+
+#[embassy_executor::task]
+pub async fn gps_task() -> ! {
+    let mut tracker = Tracker::new();
+    let mut last_bytes = 0u32;
+    let (mut quiet, mut silent) = (0u8, false);
+    // the once-a-second check has a fixed time, so that the events (two a second) do not keep postponing it
+    let mut tick = Instant::now() + embassy_time::Duration::from_secs(1);
+    loop {
+        let baud = wanted();
+        let before = LISTEN_BAUD.swap(baud.unwrap_or(0), Relaxed);
+        if before != baud.unwrap_or(0) {
+            // switched on, off or to another speed: start from nothing
+            info!("gps: {}", if baud.is_some() { "listening" } else { "off" });
+            tracker = Tracker::new();
+            BYTES.store(0, Relaxed);
+            ERRORS.store(0, Relaxed);
+            last_bytes = 0;
+            (quiet, silent) = (0, false);
+            while EVENTS.try_receive().is_ok() {}
+            state::with_runtime(|r| r.gps = Report::default());
         }
-        publish(&tracker, bytes, false, 0, &lines);
+        match embassy_futures::select::select(EVENTS.receive(), Timer::at(tick)).await {
+            embassy_futures::select::Either::First(event) if baud.is_some() => match event {
+                Event::Edge(at) => tracker.edge(at),
+                Event::Line(at, line) => {
+                    if let Some(fix) = tracker.line(&line, at) {
+                        let (unix_ms, at_ms) = fix.sample_ms();
+                        info!("gps: time offered ({} consecutive seconds)", tracker.run());
+                        let _ = state::SAMPLES.try_send(Offer { src: Source::Gps, sample: Sample { unix_ms, at_ms }, secure: false });
+                    }
+                }
+            },
+            embassy_futures::select::Either::First(_) => {}
+            embassy_futures::select::Either::Second(()) => {
+                // once a second: has anything arrived?
+                tick += embassy_time::Duration::from_secs(1);
+                let bytes = BYTES.load(Relaxed);
+                if bytes != last_bytes {
+                    (quiet, silent) = (0, false);
+                } else if baud.is_some() {
+                    quiet = quiet.saturating_add(1);
+                    if quiet >= SILENT_TICKS && !silent {
+                        silent = true;
+                        tracker.silent();
+                        info!("gps: no data for {} s", SILENT_TICKS);
+                    }
+                }
+                last_bytes = bytes;
+            }
+        }
+        if baud.is_some() {
+            let report = Report {
+                stats: tracker.stats,
+                run: tracker.run(),
+                bytes: BYTES.load(Relaxed),
+                silent,
+                since_edge_ms: tracker.since_edge(Instant::now().as_micros()).map(|us| (us / 1000).min(u32::MAX as u64) as u32),
+                uart_errors: ERRORS.load(Relaxed),
+            };
+            state::with_runtime(|r| r.gps = report);
+        }
     }
 }

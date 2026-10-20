@@ -45,5 +45,8 @@ if [ "${GATE_FAST:-0}" != "1" ]; then
   python3 tools/uf2_family.py check "$UF2/w.uf2" rp2040
   python3 tools/uf2_family.py check "$UF2/w2.uf2" rp2350-arm-s
   rm -rf "$UF2"
+  # the test build with a simulated GPS receiver must keep compiling (it overwrites the Pico 2 W artefact, so it comes last)
+  echo "== firmware: Pico 2 W with the simulated GPS receiver (test build)"
+  cargo build --release -p picoclock --no-default-features --features rp235x,gps-sim --target thumbv8m.main-none-eabihf
 fi
 echo "gate: ok"

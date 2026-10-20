@@ -60,7 +60,7 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     cert_uploaded: false,
     unsaved: false,
     watchdog_reset: false,
-    sync_dcf: false,
+    sync_source: picoclock_core::sources::Source::Ntp,
     sources: [None; picoclock_core::sources::SOURCES.len()],
     dcf: picoclock_core::dcf77::Stats { pulses: 0, frames_ok: 0, frames_bad: 0, pulses_bad: 0 },
     gps: picoclock_core::gps::Report { stats: picoclock_core::gps::Stats { valid: 0, bad_checksum: 0, no_fix: 0, malformed: 0, edges: 0, unpaired: 0, breaks: 0 }, run: 0, bytes: 0, silent: false, since_edge_ms: None, uart_errors: 0 },

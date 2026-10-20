@@ -97,11 +97,10 @@ pub async fn sources_task() -> ! {
                 state::SYNC_NOW.signal(());
             }
             if let Verdict::Use { write } = verdict {
-                let dcf = src == picoclock_core::sources::Source::Dcf77;
                 let projected_s = (sample.unix_ms + now_ms.saturating_sub(sample.at_ms) as i64).div_euclid(1000);
                 state::with_runtime(|r| {
                     r.sync_secure = secure;
-                    r.sync_dcf = dcf;
+                    r.sync_source = src;
                     if !write {
                         r.last_sync_unix = Some(projected_s);
                     }

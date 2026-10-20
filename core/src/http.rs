@@ -1012,7 +1012,7 @@ mod tests {
             cert_uploaded: true,
             unsaved: true,
             watchdog_reset: false,
-            sync_dcf: false,
+            sync_source: crate::sources::Source::Ntp,
             sources: [
                 Some(crate::sources::Report { source: crate::sources::Source::Ntp, state: crate::sources::State::NoMajority, offset_ms: Some(-3_600_000), age_s: Some(10_800) }),
                 Some(crate::sources::Report { source: crate::sources::Source::Dcf77, state: crate::sources::State::Standby, offset_ms: Some(3_600_000), age_s: Some(900) }),

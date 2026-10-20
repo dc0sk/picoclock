@@ -66,8 +66,8 @@ pub struct Status {
     pub unsaved: bool,
     /// The previous start was a reset by the watchdog (a task hung or the program crashed).
     pub watchdog_reset: bool,
-    /// The clock was last set from DCF77 (otherwise from NTP, see `sync_secure`).
-    pub sync_dcf: bool,
+    /// The source that last set the clock (`sync_secure` says whether an NTP time was authenticated).
+    pub sync_source: crate::sources::Source,
     /// What the source selection made of each source's last time (index = `Source as usize`); `None` before the first look.
     pub sources: [Option<crate::sources::Report>; crate::sources::SOURCES.len()],
     /// DCF77 receiver counters.
@@ -430,7 +430,12 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             let _ = out.write_str("\nsynced  : ");
             match (st.last_sync_unix, st.utc_unix) {
                 (Some(s), Some(now)) => {
-                    let how = if st.sync_dcf { "DCF77" } else if st.sync_secure { "NTS, authenticated" } else { "plain NTP" };
+                    let how = match st.sync_source {
+                        crate::sources::Source::Dcf77 => "DCF77",
+                        crate::sources::Source::Gps => "GPS",
+                        crate::sources::Source::Ntp if st.sync_secure => "NTS, authenticated",
+                        crate::sources::Source::Ntp => "plain NTP",
+                    };
                     let _ = write!(out, "{} s ago ({})", (now - s).max(0), how);
                 }
                 _ => {
@@ -919,6 +924,8 @@ mod tests {
         };
         assert_eq!(line(&base), "synced  : 10 s ago (plain NTP)");
         assert_eq!(line(&Status { sync_secure: true, ..base }), "synced  : 10 s ago (NTS, authenticated)");
+        assert_eq!(line(&Status { sync_source: crate::sources::Source::Gps, ..base }), "synced  : 10 s ago (GPS)");
+        assert_eq!(line(&Status { sync_source: crate::sources::Source::Dcf77, sync_secure: true, ..base }), "synced  : 10 s ago (DCF77)");
         assert_eq!(line(&Status::default()), "synced  : never");
     }
 

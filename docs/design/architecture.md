@@ -46,8 +46,8 @@ document which pads are reachable, so the wiring below is a plan until it has be
 | DCF77 (WHP0027V3: PON, TCO)    | TCO (data)  | GP1 (pin 2)       | any GPIO can time the pulses; next to GND at pin 3                  |
 | DCF77                          | PON (power) | GP0 (pin 1)       | the firmware can switch the receiver off (display and WiFi noise)   |
 | DCF77                          | GND, VCC    | pin 3, 3V3 (36)   | VCC by a wire: pin 4 is GP2, the SET button                         |
-| u-blox GPS (later)             | UART1 TX/RX | GP4, GP5 (pins 6, 7) | UART1 default pins; keeps UART0 pins GP0/GP1 for the DCF77 module |
-| u-blox GPS (later)             | PPS         | GP3 (pin 5)       | edge capture; next to the UART pins                                 |
+| u-blox GPS (in development)    | UART1 TX/RX | GP4, GP5 (pins 6, 7) | UART1 default pins; keeps UART0 pins GP0/GP1 for the DCF77 module |
+| u-blox GPS (in development)    | PPS         | GP3 (pin 5)       | edge capture; next to the UART pins                                 |
 
 DCF77 module facts (Pollin DCF1, order no. 810 054, datasheet D810054-B; the WHP0027V3 has the same four pins): supply 1.2 to
 3.3 V (typically 3 V), under 90 µA; `PON` low = receiver on, `PON` high = off, and the receiver starts on the falling edge
@@ -371,6 +371,20 @@ crates.io releases.
   before it starts. `reboot`, `bootsel` and the factory reset stop the watchdog and clear a marker in a watchdog scratch
   register; at start the marker plus the "timed out" reset reason mean "the watchdog fired" (the boot ROM also resets through the
   watchdog after a UF2 upload, so the reason alone is not enough), shown by `status` as `reset:`.
+- **Random numbers.** Pico 2 W: the chip's TRNG. Pico W: ring-oscillator bits read with a pause between them and hashed 2:1
+  with the time and the previous state (`core::entropy`, REQ-RNG-01); the quality of the raw bits is not measured.
+
+## 10. Extension points (roadmap)
+
+- **GPS (u-blox).** Designed in ADR-0007 and built on the branch `feat/gps` (module not connected yet); the items the review of 2026-10-20 asked
+  for are settled there: `Source::Gps` (last in the enumeration), `fresh_for_ms` 10 min, `keep_ms` per source and a 10 s gap between RTC writes
+  (REQ-SRC-08), the date floor (REQ-SRC-10), confirmation of a far-away time by the absence of a contradiction from another source (REQ-SRC-07),
+  the tie rule (REQ-SRC-09), one offer a minute (the 1 Hz problem), the PPS edge stamped by a task on its own interrupt executor
+  (`firmware/src/gps.rs`: `gps_io_task` on SWI_IRQ_0 at P1; the settings and the status are thread-mode mutexes, so that task only
+  exchanges `Event`s through a channel with `gps_task` in thread mode), `Status.sources`/`sync_source`/the status line written for three
+  sources. Still open until the module is on the bench: the jitter of the stamp (REQ-GPS-07), the settle time, the keep limit, the flash
+  saves that stall a PPS producer (B10: the saves run in the storage task and the GPS I/O is on its own executor, but this is unmeasured).
+  A PPS pulse could replace the anchor's free-running phase and allow a lower stratum.
 - **Random numbers.** Pico 2 W: the chip's TRNG. Pico W: ring-oscillator bits read with a pause between them and hashed 2:1
   with the time and the previous state (`core::entropy`, REQ-RNG-01); the quality of the raw bits is not measured.
 

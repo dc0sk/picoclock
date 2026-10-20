@@ -49,7 +49,7 @@ serves the web page, the web password and the WiFi passphrases over plain HTTP. 
 | Controller (**preferred**) | Raspberry Pi **Pico 2 W** (RP2350)                                                                       | All features: HTTPS, NTS with RSA certificate chains, hardware random number generator |
 | Controller (alternative)  | Raspberry Pi **Pico W** (RP2040)                                                                          | Works, with the limits below |
 | DCF77 receiver (optional) | [Pollin DCF1, order no. 810 054](https://www.pollin.de/p/dcf-empfangsmodul-dcf1-810054)                   | Pins PON, TCO, GND, VCC; wiring in *Time sources* |
-| GPS (planned, not yet supported) | SparkFun u-blox NEO-M9N                                                                            | Next release cycle |
+| GPS (in development, not in a release) | SparkFun u-blox NEO-M9N                                                                      | UART1 GP4/GP5, PPS GP3; see *GPS (in development)* |
 | Debug probe (optional)    | Raspberry Pi Debug Probe (CMSIS-DAP)                                                                      | Only for the RTT logs, see *Debugging* |
 
 **What the Pico W (RP2040) cannot do compared with the Pico 2 W:** no HTTPS (the web page is plain HTTP, so the web password
@@ -468,8 +468,7 @@ signature either way. If you would rather keep the protection with your own key,
 
 ## Time sources
 
-Since software 0.2.0 the clock can take its time from NTP/NTS **and** from a DCF77 receiver module (GPS follows in a later
-release). `time_sources` lists the sources in use, best first; the default `ntp` behaves exactly as 0.1.0. `status` shows the
+Since software 0.2.0 the clock can take its time from NTP/NTS **and** from a DCF77 receiver module (GPS is in development, see below). `time_sources` lists the sources in use, best first; the default `ntp` behaves exactly as 0.1.0. `status` shows the
 state of every source: waiting, in use, standby, stale, rejected (outvoted) or no majority, how long ago it delivered, how far
 it is from the clock, and for DCF77 the pulse and frame counters.
 
@@ -497,6 +496,26 @@ it is from the clock, and for DCF77 the pulse and frame counters.
 - **Verified on a Pico 2 W** with a Pollin DCF1 (2026-10-18, VR-59): decoding, DCF77 alone setting a restarted clock, the delay. **Not
   yet:** the module with its supply capacitor, reception at night, and the vote with two live sources that disagree. The
   antenna needs care: it received nothing until it was reseated with its wires bent away from the other components.
+
+### GPS (in development, not in any release)
+
+The third source, a u-blox NEO-M9N (SparkFun board), is built on the branch `feat/gps` and described in
+[ADR-0007](docs/design/adr/0007-gps-time-source.md); it becomes software 0.3.0 once the module has been tried on the clock. **The module is not
+connected yet (2026-10-20)**, so nothing below is verified with a real receiver.
+
+- **Wiring:** the module's TX to GP5 (UART1 RX), its PPS (time pulse) output to GP3, GND, and 3.3 V from the 3V3 pin; GP4 stays unused,
+  the clock sends nothing to the module and works with its factory setting (38400 baud, NMEA with the RMC sentence, a 1 Hz pulse with a fix).
+  `gps` in `time_sources` switches it on, `gps_baud` sets the speed (9600 to 115200), `vote_gps` the vote power.
+- **How a time is taken:** the RMC sentence names the UTC second that began at the PPS edge before it, so the clock needs both wires; without the PPS
+  edge there is no GPS time. A time is offered only after 30 consecutive good seconds (valid fix, seconds one apart, PPS edges 1 s ± 10 ms),
+  then once a minute; it counts as fresh for 10 minutes. It rewrites the RTC only when the clock is more than 50 ms off, and not more often than
+  every 10 s. `status` shows the receiver: silent, settling n/30 or settled, the counters of sentences, bad checksums, no-fix sentences and PPS edges.
+- **Safeguards for every source:** the date floor (no time before 2026-10-01 is accepted, which stops a receiver that repeats an old GPS week),
+  and a time more than 1000 s from the clock needs a second reading of the same source **and** must not be contradicted by another selected source
+  that has a fresh time.
+- **Test build without the module:** `cargo build --release -p picoclock --no-default-features --features rp235x,gps-sim` (with
+  `GPS_SIM_OFFSET_S=<seconds>` in the environment) makes the clock feed itself NMEA sentences and PPS edges, `gps-sim` never goes into a release. It tests
+  the wiring, the selection and the display, not the electrical side or the timing. Run on a Pico 2 W 2026-10-20 (VR-85).
 
 ## Timezone lookup by IP (`timezone=auto`)
 
@@ -653,9 +672,8 @@ See [CHANGELOG.md](CHANGELOG.md) for what each version added, changed and fixed.
 Planned for future releases (not implemented). Delivered in 0.2.0: source selection (`order`, `vote`) and the DCF77 source.
 
 - **NTS:** the exporter patch to `embedded-tls` is offered upstream as https://github.com/embassy-rs/embedded-tls/pull/221 (open, 2026-10-17); the vendored copy stays until it is merged and released.
-- **GPS module (u-blox NEO-M9N, SparkFun board)** as a time source over UART (NMEA/UBX, optionally the PPS pulse for sub-millisecond
-  accuracy; planned wiring UART1 on GP4/GP5 and PPS on GP3, or the I2C bus the RTC uses), which would also let the NTP server claim a low stratum. Delivering it bumps the software version again, after
-  another full-code review.
+- **GPS module (u-blox NEO-M9N, SparkFun board)**: built (see *GPS (in development)*), waiting for the module to be connected and measured; delivering it
+  bumps the software version to 0.3.0. A settled GPS would also let the NTP server claim a low stratum (not part of 0.3.0).
 - Pico 2 W: run it for days; press the buttons and cover the light sensor on it.
 
 **Found by the full-code review of 2026-10-17** (Fable, before the time-source phase). Fixed in that round: the web status

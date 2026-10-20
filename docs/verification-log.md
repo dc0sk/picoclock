@@ -1056,3 +1056,38 @@ again with `tools/provision.py`. **Not verified:** the 503 of the plain port whi
 watchdog, a real cable pull, the Pico W.
 
 Verifies: REQ-UPD-09, REQ-UPD-08, REQ-UPD-11, REQ-CFG-11
+
+### VR-84 · 2026-10-20 · host · GPS decoder, three-source selection, date floor, settings
+
+Unit tests of `picoclock-core` (`cargo test -p picoclock-core --lib`, 228 passed, also with the `rsa` feature). **Decoder** (`core::gps`): the NMEA example that is
+printed everywhere parses with its published checksum (6A); sentences built by the tests (checksum computed, any talker) give the second they
+name, across a leap day and a year end; a flipped data bit, a missing or wrong checksum, no fix (status V, mode N/E/S, empty fields), a leap
+second, a fraction, an impossible date and an overlong line are refused and counted. **Pairing and settling:** a sentence is tied to the one edge in
+the 900 ms before its end (none, an old one or two are discarded; an edge after the line does not belong to it); 29 good seconds give nothing,
+30 one fix; alternating ±4 ms of edge jitter is accepted, one edge 20 ms late, a skipped or repeated second, a no-fix sentence, a bad checksum and silence each
+start the count again; offers come once a minute (seconds 30, 90, 150), at once after a long loss and not after a short one. **Selection:** a
+far-away GPS time (a repeated GPS week) that a fresh NTP time contradicts is held back however often it repeats ("contradicted"), is used when
+nobody contradicts it or the other time is stale, and two sources that agree on a far-away time confirm each other; each source's keep limit (NTP always,
+DCF77 300 ms, GPS 50 ms) and the 10 s gap between RTC writes; with three sources, overlapping groups of equal strength go to the best-ranked member in every
+order and enumeration, more power and a larger group beat rank. **Settings:** `gps` in `time_sources`, `vote_gps`, `gps_baud` (only the five speeds),
+the flash record round trip, the worst-case status and web page still fit. **Date floor** 2026-10-01 to 2099. Planted bugs (edge tolerance 30 ms, a leap second
+accepted, the settle count one short, the tie rule removed, the contradiction check removed) each made a test fail. The tests that
+used 2023/2024 dates were moved to 2027.
+
+Verifies: REQ-GPS-01, REQ-GPS-02, REQ-GPS-03, REQ-GPS-04, REQ-GPS-06, REQ-SRC-07, REQ-SRC-08, REQ-SRC-09, REQ-SRC-10
+
+### VR-85 · 2026-10-20 · hardware · Simulated GPS receiver on the Pico 2 W (no module)
+
+Test build `--features gps-sim` (never in a release): the clock makes its own PPS edges on the second boundaries of the RTC anchor and an RMC sentence 300 ms later.
+**Found at once:** the first version put the whole GPS task on the interrupt executor and panicked ("ThreadModeMutex can only be locked from thread mode") because the
+settings and the status are thread-mode mutexes; the task was split into an I/O task on the interrupt executor (edges and lines through a channel) and a thread-mode
+task (ADR-0007 point 6, architecture section 10). **Then:** with `time_sources ntp,gps` the source settled after 30 s (`settled`, 31 edges, 30 valid), was offered
+once a minute and stood by behind NTP; with `gps,ntp` it was in use (offset 0 to -1 ms, inside its 50 ms keep limit) and the "synced" line named GPS; in vote mode with
+NTP, DCF77 (waiting) and GPS all agreed and were used. Offset **-1024 weeks**: the sentences were valid and the source settled, but the time was ignored (below the date
+floor) and NTP kept the clock. Offset **+100000 s**: "far from the clock and contradicted by another source", the clock stayed on NTP. Offset **+5 s**, vote mode, tolerance 2 s:
+GPS "no majority, clock left alone"; with tolerance 10 s both agreed and GPS (+5 s) set the clock, NTP then showed -4.998 s from it (this is the tolerance doing its job; the clock was restored by
+flashing the normal build, after which the first NTP sync set it right, checked against the host's clock). **Not verified:** everything that needs the module: the UART at 38400 baud, the PPS polarity and the stamp (REQ-GPS-07), the
+settle time, a real fix and its loss, the factory output of the module. A flashing note: `openocd` programming of the RP2350 works with `targets rp2350.cm0; reset init` and
+`adapter speed 2000` on a halted or crashing image, but failed on a running one (the clock was left in BOOTSEL and the UF2 copy brought it back); the console `bootsel` and the UF2 are the safe path.
+
+Verifies: REQ-GPS-04, REQ-GPS-06, REQ-SRC-07, REQ-SRC-10

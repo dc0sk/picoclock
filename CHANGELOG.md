@@ -7,6 +7,19 @@ Settings saved by an older version keep working; new settings start at their def
 
 ## [Unreleased]
 
+### Added
+- **GPS time source, in development** (ADR-0007, REQ-GPS-01 to 07, draft): `gps` in `time_sources`, `vote_gps`, `gps_baud`; NMEA RMC from a u-blox receiver
+  on UART1 (GP5) tied to its PPS edge on GP3, settling for 30 s, one offer a minute. Not in a release until the module has been tried; a
+  test build (`gps-sim`) simulates it. See the README, *GPS (in development)*.
+
+### Changed
+- **Date floor** (REQ-SRC-10): no time before 2026-10-01 is accepted from any source (it was 2020), so a receiver that repeats an old GPS week cannot set the clock.
+- **A far-away time** (more than 1000 s) now also must not be contradicted by another selected source with a fresh time (REQ-SRC-07, draft; REQ-SRC-06 stays).
+- **Per-source keep rule** (REQ-SRC-08, draft): NTP always writes the RTC, DCF77 only when the clock is more than 300 ms off (as before), GPS more than 50 ms; a source
+  other than NTP rewrites the RTC at most every 10 s unless the clock is more than 1 s off.
+- **Vote tie rule** (REQ-SRC-09, draft): groups of equal strength go to the one with the best-ranked member of `time_sources`, whatever the order of enumeration.
+- `status`: the "synced" line names GPS and DCF77 by the source that set the clock.
+
 ## [0.2.2] - 2026-10-20
 
 ### Added

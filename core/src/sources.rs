@@ -11,8 +11,9 @@
 //! The decision is made here, in plain code, so that it can be tested without a clock; the firmware only applies it.
 
 /// The time sources the clock knows. The index is the position in the arrays of [`Policy`] and [`Selector`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Source {
+    #[default]
     Ntp,
     Dcf77,
     Gps,
