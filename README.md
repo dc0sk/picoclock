@@ -5,6 +5,8 @@ a USB terminal, a web configuration page and full use of the clock's hardware. B
 
 Project page: <https://dc0sk.github.io/picoclock/>
 
+[![Donate via PayPal](https://img.shields.io/badge/Donate-PayPal-blue.svg?logo=paypal)](https://www.paypal.com/donate/?hosted_button_id=WY9U4MQ3ZAQWC)
+
 **Requires a Raspberry Pi Pico W** (RP2040) **or Pico 2 W** (RP2350), both with the CYW43439 radio, in the clock.
 A plain Pico or Pico 2 has no WiFi. Both have run in the clock; the Pico W has had far more use (see *Status*).
 
