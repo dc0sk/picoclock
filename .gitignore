@@ -5,3 +5,5 @@ dist/
 # Local credentials and machine-specific settings
 local/
 __pycache__/
+dhcpwatch.pid
+site/images/

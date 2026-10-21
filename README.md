@@ -3,6 +3,8 @@
 Rust firmware for the Waveshare [Pico-Clock-Green](https://www.waveshare.com/wiki/Pico-Clock-Green) with WiFi, NTP,
 a USB terminal, a web configuration page and full use of the clock's hardware. Built on [Embassy](https://embassy.dev).
 
+Project page: <https://dc0sk.github.io/picoclock/>
+
 **Requires a Raspberry Pi Pico W** (RP2040) **or Pico 2 W** (RP2350), both with the CYW43439 radio, in the clock.
 A plain Pico or Pico 2 has no WiFi. Both have run in the clock; the Pico W has had far more use (see *Status*).
 
@@ -28,7 +30,7 @@ serves the web page, the web password and the WiFi passphrases over plain HTTP. 
   resync; the RTC is set exactly on a UTC second boundary, so the displayed seconds match real time.
 - **Secure NTP (NTS, RFC 8915):** an `nts:<host>` entry in `ntp_servers` (for example `nts:time.cloudflare.com`)
   authenticates the time with TLS 1.3 and AES-SIV; see *Secure NTP* below.
-- **Time sources:** NTP/NTS and, since 0.2.0, a DCF77 radio receiver module, combined by an ordered list with
+- **Time sources:** NTP/NTS and, since 0.2.0, a DCF77 radio receiver module (a GPS receiver is built but not in a release yet), combined by an ordered list with
   fallbacks or by a vote between them; see *Time sources*.
 - **HAM mode (optional):** `set ham_mode on` makes the hourly chime the time in Morse code (HHMM, local 24-hour time), and holding
   UP or DOWN for 1.5 seconds sends it on request. SET keeps the menu. Speed `morse_wpm`, default 18.
@@ -223,9 +225,10 @@ Changes apply immediately but are only written to flash by `save` (the web page 
 | `colon_blink` | `on`: the colon between hours and minutes blinks once a second while synchronised | off |
 | `ham_mode`, `morse_wpm` | `on`: the hourly chime and a 1.5 s hold of UP or DOWN send the time as Morse code (HHMM); speed 5 to 40 wpm | off, 18 |
 | `update_check` | `on`: ask GitHub once a day whether a newer release exists (nothing is installed) | on |
-| `time_sources` | the time sources in use, best first: `ntp`, `dcf77` (see *Time sources*) | `ntp` |
+| `time_sources` | the time sources in use, best first: `ntp`, `dcf77`, `gps` (GPS is in development; see *Time sources*) | `ntp` |
 | `time_mode` | `order` (first source with a fresh time) or `vote` (the sources must agree) | `order` |
-| `vote_ntp`, `vote_dcf77` | vote power 0 to 9 per source in mode `vote` (0 = compared and shown, cannot decide) | 1, 1 |
+| `vote_ntp`, `vote_dcf77`, `vote_gps` | vote power 0 to 9 per source in mode `vote` (0 = compared and shown, cannot decide) | 1, 1, 1 |
+| `gps_baud` | speed of the GPS receiver's serial line: 9600, 19200, 38400, 57600 or 115200 | 38400 |
 | `vote_tolerance` | seconds within which two sources count as agreeing in mode `vote` | 2 |
 
 ### Terminal sessions
@@ -473,11 +476,11 @@ state of every source: waiting, in use, standby, stale, rejected (outvoted) or n
 it is from the clock, and for DCF77 the pulse and frame counters.
 
 - **`time_mode order`** (default): a time from a source is used if no source ranked above it has a fresh time. A source counts
-  as fresh for 3 hours (NTP) or 15 minutes (DCF77). When the better source falls silent the next one takes over, and the better
+  as fresh for 3 hours (NTP), 15 minutes (DCF77) or 10 minutes (GPS, in development). When the better source falls silent the next one takes over, and the better
   one takes back at its next time.
 - **`time_mode vote`**: a plausibility check. The fresh times of all selected sources are compared; sources within
   `vote_tolerance` seconds of each other form a group, and a time is used only if its source is in the group that holds **more
-  than half** of the vote power of the sources that deliver (`vote_ntp`, `vote_dcf77`, 0 to 9; 0 means compared and shown, but
+  than half** of the vote power of the sources that deliver (`vote_ntp`, `vote_dcf77`, `vote_gps`, 0 to 9; 0 means compared and shown, but
   it cannot decide). With equal powers two sources that disagree leave the clock alone and `status` says "no majority". A
   source that is alone is a majority of itself. Example: `set time_sources ntp,dcf77`, `set time_mode vote`, `set vote_ntp 2`
   lets NTP outvote a wrongly decoded DCF77 time, and DCF77 alone still sets the clock when the network is down.
@@ -499,7 +502,7 @@ it is from the clock, and for DCF77 the pulse and frame counters.
 
 ### GPS (in development, not in any release)
 
-The third source, a u-blox NEO-M9N (SparkFun board), is built on the branch `feat/gps` and described in
+The third source, a u-blox NEO-M9N (SparkFun board), is built (it is on `main`, but in no release) and described in
 [ADR-0007](docs/design/adr/0007-gps-time-source.md); it becomes software 0.3.0 once the module has been tried on the clock. **The module is not
 connected yet (2026-10-20)**, so nothing below is verified with a real receiver.
 

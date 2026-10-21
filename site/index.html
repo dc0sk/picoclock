@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>picoclock: firmware for the Pico-Clock-Green</title>
+<meta name="description" content="Rust firmware for the Waveshare Pico-Clock-Green with WiFi, NTP and NTS, DCF77, HTTPS, signed updates and a web and USB configuration.">
+<style>
+:root { --bg:#fbfbf8; --fg:#1d2024; --mute:#5b626b; --line:#dcdcd4; --card:#ffffff; --accent:#b4381f; --code:#f0efe8; }
+@media (prefers-color-scheme: dark) { :root { --bg:#14161a; --fg:#e8e6df; --mute:#9aa1aa; --line:#2b2f36; --card:#1b1e23; --accent:#ff8a6b; --code:#22262c; } }
+* { box-sizing:border-box }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif }
+main, header > div, footer > div { max-width:62rem; margin:0 auto; padding:0 16px }
+header { border-bottom:1px solid var(--line); padding:3rem 0 2.5rem }
+h1 { font-size:2.4rem; margin:0 0 .4rem; letter-spacing:-.02em }
+h2 { font-size:1.4rem; margin:2.6rem 0 .8rem }
+h3 { font-size:1.05rem; margin:0 0 .3rem }
+.lead { font-size:1.15rem; color:var(--mute); max-width:44rem; margin:0 0 1.4rem }
+a { color:var(--accent) }
+.btn { display:inline-block; padding:.55rem 1rem; border:1px solid var(--accent); border-radius:6px; text-decoration:none; font-weight:600; margin:0 .5rem .5rem 0 }
+.btn.main { background:var(--accent); color:var(--bg) }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(15rem,1fr)); gap:14px }
+.card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px }
+.card p { margin:0; color:var(--mute); font-size:.95rem }
+.shots { display:grid; grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)); gap:14px }
+.shots img { width:100%; height:auto; border:1px solid var(--line); border-radius:6px; background:#fff }
+.shots figcaption { color:var(--mute); font-size:.9rem; margin-top:.3rem }
+figure { margin:0 }
+table { border-collapse:collapse; width:100%; font-size:.95rem }
+th, td { text-align:left; padding:.45rem .6rem; border-bottom:1px solid var(--line); vertical-align:top }
+code, pre { background:var(--code); border-radius:4px; font:.9em ui-monospace,Menlo,Consolas,monospace }
+code { padding:.1em .3em }
+pre { padding:12px 14px; overflow-x:auto }
+footer { border-top:1px solid var(--line); margin-top:3rem; padding:1.5rem 0; color:var(--mute); font-size:.9rem }
+.tablewrap { overflow-x:auto }
+</style>
+</head>
+<body>
+<header><div>
+<h1>picoclock</h1>
+<p class="lead">Rust firmware for the Waveshare Pico-Clock-Green. It sets itself by NTP or authenticated NTS, serves a web page over HTTPS, takes signed updates, and can use a DCF77 receiver as a second time source.</p>
+<a class="btn main" href="https://github.com/dc0sk/picoclock/releases/latest">Download the latest release</a>
+<a class="btn" href="https://github.com/dc0sk/picoclock">Source on GitHub</a>
+<a class="btn" href="https://github.com/dc0sk/picoclock#readme">Read the manual</a>
+</div></header>
+<main>
+
+<h2>What it does</h2>
+<div class="grid">
+<div class="card"><h3>Time you can trust</h3><p>NTP, NTS (RFC 8915) with TLS 1.3, and a DCF77 radio module. Pick an ordered list with fallbacks, or let the sources vote. The RTC holds UTC and is set on the second boundary.</p></div>
+<div class="card"><h3>Timezones with DST</h3><p>An IANA name (486 built in), a POSIX rule, or a lookup by your public IP. Daylight saving needs no sync.</p></div>
+<div class="card"><h3>Configuration three ways</h3><p>A web page (HTTPS on the Pico 2 W), a USB serial terminal, and the three buttons for everyday settings. One validator for all three.</p></div>
+<div class="card"><h3>Signed updates</h3><p>Releases are Ed25519-signed and swapped in by a bootloader that can go back. The clock checks for a release on request and installs only after you confirm.</p></div>
+<div class="card"><h3>Also</h3><p>Morse-code chime, an NTP server for your LAN, up to 8 WiFi networks, alarm, buzzer, light-sensor dimming, a hardware watchdog.</p></div>
+<div class="card"><h3>Open source</h3><p>AGPL-3.0-or-later, built on <a href="https://embassy.dev">Embassy</a>. Every requirement is traced to a test or a dated hardware run.</p></div>
+</div>
+
+<h2>Screens</h2>
+<div class="shots">
+<figure><img src="images/web-status.png" alt="The status page" loading="lazy"><figcaption>Status</figcaption></figure>
+<figure><img src="images/web-time.png" alt="Time settings" loading="lazy"><figcaption>Time sources and timezone</figcaption></figure>
+<figure><img src="images/web-security.png" alt="Security page" loading="lazy"><figcaption>Security: certificate, trust anchors, update</figcaption></figure>
+<figure><img src="images/terminal-status.png" alt="The USB terminal showing status" loading="lazy"><figcaption>USB terminal: <code>status</code></figcaption></figure>
+</div>
+<p style="color:var(--mute);font-size:.9rem">The screenshots use invented data.</p>
+
+<h2>What you need</h2>
+<div class="tablewrap"><table>
+<tr><th>Clock</th><td><a href="https://www.waveshare.com/pico-clock-green.htm">Waveshare Pico-Clock-Green</a></td></tr>
+<tr><th>Controller</th><td>Raspberry Pi <strong>Pico 2 W</strong> (recommended: HTTPS, NTS with RSA chains, hardware random numbers) or <strong>Pico W</strong> (plain HTTP only)</td></tr>
+<tr><th>Optional</th><td>DCF77 module (Pollin DCF1). A u-blox NEO-M9N GPS is built and in testing, not in a release yet.</td></tr>
+</table></div>
+
+<h2>Install</h2>
+<p>Download the <code>.uf2</code> for your board from the <a href="https://github.com/dc0sk/picoclock/releases/latest">latest release</a>, hold BOOTSEL while plugging the Pico in, and copy the file to the drive that appears. Then connect over USB and set up WiFi:</p>
+<pre>set wifi1_ssid MyNetwork
+set wifi1_password MyPassphrase
+set timezone Europe/Berlin
+save</pre>
+<p>Later versions install over the air from the web page or the terminal; the <code>.pcu</code> files in each release are the signed update packages. Checksums are in <code>SHA256SUMS</code>. The <a href="https://github.com/dc0sk/picoclock#readme">README</a> covers building from source, NTS, HTTPS, the buttons and the limits.</p>
+
+<h2>Documents</h2>
+<ul>
+<li><a href="https://github.com/dc0sk/picoclock/blob/main/CHANGELOG.md">Changelog</a></li>
+<li><a href="https://github.com/dc0sk/picoclock/blob/main/docs/srs.md">Requirements</a> and the <a href="https://github.com/dc0sk/picoclock/blob/main/docs/traceability-matrix.md">traceability matrix</a>, generated from the code</li>
+<li><a href="https://github.com/dc0sk/picoclock/blob/main/docs/design/architecture.md">Architecture</a> and the <a href="https://github.com/dc0sk/picoclock/tree/main/docs/design/adr">decision records</a></li>
+<li><a href="https://github.com/dc0sk/picoclock/blob/main/docs/verification-log.md">Verification log</a>: what was run on real clocks, and what was not</li>
+</ul>
+</main>
+<footer><div>picoclock is AGPL-3.0-or-later. Waveshare, Raspberry Pi and u-blox are trademarks of their owners; this project is not affiliated with them.</div></footer>
+</body>
+</html>
