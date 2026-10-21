@@ -251,7 +251,7 @@ pub fn describe(out: &mut impl core::fmt::Write, r: &Report) -> core::fmt::Resul
     write!(out, "; PPS edges {}", r.stats.edges)?;
     match r.since_edge_ms {
         Some(ms) => write!(out, " (last {}.{} s ago)", ms / 1000, ms % 1000 / 100)?,
-        None if r.bytes > 0 => out.write_str(" (none seen: check the PPS wire on GP3; without it there is no GPS time)")?,
+        None if r.bytes > 0 => out.write_str(" (none seen: check the PPS wire on GP8; without it there is no GPS time)")?,
         None => {}
     }
     write!(out, ", unpaired sentences {}, runs broken {}", r.stats.unpaired, r.stats.breaks)

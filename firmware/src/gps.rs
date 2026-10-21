@@ -1,4 +1,4 @@
-//! GPS receiver (u-blox NEO-M9N, ADR-0007): NMEA on UART1 RX (GP5, the module's TX) and the 1 pulse per second on GP3.
+//! GPS receiver (u-blox NEO-M9N, ADR-0007): NMEA on UART1 RX (GP5, the module's TX) and the 1 pulse per second on GP8 (not GP3: the DS3231's 1 Hz square wave is on it).
 //!
 //! Two tasks. `gps_io_task` runs on an interrupt executor of higher priority than the main one (below the display), so that a
 //! stalled main executor (the NTS key exchange blocks it for up to 7 s on the RP2040) cannot delay the stamp of a PPS edge: it
@@ -27,11 +27,11 @@ pub enum Event {
     Line(u64, heapless::Vec<u8, LINE_MAX>),
 }
 
-/// Room for a stall of the main executor: 2 events a second, a stall of up to 7 s.
-static EVENTS: Channel<Cs, Event, 16> = Channel::new();
+/// Room for a stall of the main executor: 2 events a second, a stall of up to 7 s fills 14 of the 24.
+static EVENTS: Channel<Cs, Event, 24> = Channel::new();
 /// The speed to listen at, 0 = do not listen (set by `gps_task` from the settings).
 static LISTEN_BAUD: AtomicU32 = AtomicU32::new(0);
-/// Bytes received since the receiver was switched on, and errors of the serial line plus events that could not be queued. Two
+/// Bytes received since the receiver was switched on, and errors of the serial line. Two
 /// tasks touch them and the RP2040 has no atomic read-modify-write, hence a critical section (a few instructions long).
 static COUNTS: Mutex<Cs, Cell<(u32, u32)>> = Mutex::new(Cell::new((0, 0)));
 
@@ -42,6 +42,7 @@ fn add_bytes(n: u32) {
     });
 }
 
+#[cfg(not(feature = "gps-sim"))]
 fn add_error() {
     COUNTS.lock(|c| {
         let (b, e) = c.get();
@@ -67,7 +68,8 @@ mod io {
     use embassy_rp::gpio::Input;
     use embassy_rp::peripherals::{PIN_5, UART1};
     use embassy_rp::uart::{self, BufferedUartRx};
-    use embassy_time::{Instant, Timer};
+    use defmt::warn;
+    use embassy_time::{Duration, Instant, Timer};
     use picoclock_core::gps::LineBuffer;
     use static_cell::StaticCell;
 
@@ -89,27 +91,33 @@ mod io {
             let mut rx = BufferedUartRx::new(uart.reborrow(), rx_pin.reborrow(), crate::Irqs, &mut buf[..], config);
             let mut lines = LineBuffer::new();
             let mut chunk = [0u8; 64];
+            // when to look at LISTEN_BAUD again: a fixed time, because a timer made anew on every pass would be dropped by every
+            // chunk of bytes and edge and never run out while the receiver talks
+            let mut check = Instant::now() + Duration::from_secs(1);
             'listen: loop {
                 // one edge future for as long as it takes an edge to come: dropping and re-creating it on every chunk of bytes
                 // would leave short gaps in which an edge is not noticed
                 let mut edge = core::pin::pin!(pps.wait_for_rising_edge());
                 loop {
-                    match select(&mut edge, select(rx.read(&mut chunk), Timer::after_secs(1))).await {
+                    match select(&mut edge, select(rx.read(&mut chunk), Timer::at(check))).await {
                         Either::First(()) => {
                             // stamped first, before anything else is done
                             let at = Instant::now().as_micros();
                             if EVENTS.try_send(Event::Edge(at)).is_err() {
-                                add_error();
+                                warn!("gps: event queue full, a PPS edge was lost");
                             }
                             break;
                         }
                         Either::Second(Either::Second(())) => {
+                            check = Instant::now() + Duration::from_secs(1);
                             if LISTEN_BAUD.load(Relaxed) != baud {
                                 break 'listen;
                             }
                         }
                         Either::Second(Either::First(Err(_))) => {
                             add_error();
+                            // a line held low or noise can return an error at once, again and again: let the other tasks run
+                            embassy_futures::yield_now().await;
                         }
                         Either::Second(Either::First(Ok(n))) => {
                             let at = Instant::now().as_micros();
@@ -121,7 +129,7 @@ mod io {
                                     let mut v = heapless::Vec::new();
                                     let _ = v.extend_from_slice(line);
                                     if EVENTS.try_send(Event::Line(at, v)).is_err() {
-                                        add_error();
+                                        warn!("gps: event queue full, a sentence was lost");
                                     }
                                 }
                                 lines.done();
@@ -215,7 +223,9 @@ pub async fn gps_task() -> ! {
             embassy_futures::select::Either::First(_) => {}
             embassy_futures::select::Either::Second(()) => {
                 // once a second: has anything arrived?
-                tick += embassy_time::Duration::from_secs(1);
+                // after a stall of the main executor the missed ticks would run off one after another within microseconds, find
+                // no new bytes and declare the receiver silent: the next check is a second from now
+                tick = (tick + embassy_time::Duration::from_secs(1)).max(Instant::now() + embassy_time::Duration::from_millis(500));
                 let bytes = counts().0;
                 if bytes != last_bytes {
                     (quiet, silent) = (0, false);

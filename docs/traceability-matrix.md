@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/traceability-matrix.md
 status: living
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # Traceability matrix
@@ -24,7 +24,7 @@ last_updated: 2026-10-20
 | Ratified with unit tests only (no hardware, host or build record) | 16    |
 | Ratified and UNVERIFIED (stated reason)                           | 0     |
 | Unit tests bound to requirements                                  | 243   |
-| Verification records                                              | 84    |
+| Verification records                                              | 85    |
 
 ## Forward: requirement to evidence
 
@@ -137,12 +137,12 @@ last_updated: 2026-10-20
 | REQ-NFR-02  | ratified | high   | APP, DISPLAY                       | 0          | VR-45, VR-46                             | hardware              |
 | REQ-NFR-03  | ratified | medium | APP, CLI                           | 0          | VR-57                                    | hardware              |
 | REQ-RNG-01  | ratified | high   | ENTROPY, APP                       | 2          | -                                        | unit                  |
-| REQ-GPS-01  | draft    | high   | SOURCES                            | 7          | VR-84                                    | -                     |
+| REQ-GPS-01  | draft    | high   | SOURCES                            | 7          | VR-84, VR-86                             | -                     |
 | REQ-GPS-02  | draft    | high   | SOURCES, APP                       | 2          | VR-84                                    | -                     |
 | REQ-GPS-03  | draft    | high   | SOURCES                            | 2          | VR-84                                    | -                     |
 | REQ-GPS-04  | draft    | medium | SOURCES                            | 1          | VR-84, VR-85                             | -                     |
 | REQ-GPS-05  | draft    | medium | SOURCES, CONFIG, CLI, APP          | 0          | -                                        | -                     |
-| REQ-GPS-06  | draft    | medium | SOURCES, CLI, HTTP                 | 2          | VR-84, VR-85                             | -                     |
+| REQ-GPS-06  | draft    | medium | SOURCES, CLI, HTTP                 | 2          | VR-84, VR-85, VR-86                      | -                     |
 | REQ-GPS-07  | draft    | high   | APP, SOURCES                       | 0          | -                                        | -                     |
 | REQ-SRC-07  | draft    | high   | SOURCES                            | 1          | VR-84, VR-85                             | -                     |
 | REQ-SRC-08  | draft    | medium | SOURCES                            | 1          | VR-84                                    | -                     |
@@ -395,3 +395,4 @@ These have never been seen working on the clock (they may still have unit tests)
 | VR-83  | 2026-10-20 | hardware | Release 0.2.2: update through the web page, factory reset keeps the trust record (Pico 2 W) | REQ-UPD-09, REQ-UPD-08, REQ-UPD-11, REQ-CFG-11                                                             |
 | VR-84  | 2026-10-20 | host     | GPS decoder, three-source selection, date floor, settings                                   | REQ-GPS-01, REQ-GPS-02, REQ-GPS-03, REQ-GPS-04, REQ-GPS-06, REQ-SRC-07, REQ-SRC-08, REQ-SRC-09, REQ-SRC-10 |
 | VR-85  | 2026-10-20 | hardware | Simulated GPS receiver on the Pico 2 W (no module)                                          | REQ-GPS-04, REQ-GPS-06, REQ-SRC-07, REQ-SRC-10                                                             |
+| VR-86  | 2026-10-21 | hardware | Real GPS I/O task with nothing wired; PPS pin; review fixes                                 | REQ-GPS-01, REQ-GPS-06                                                                                     |

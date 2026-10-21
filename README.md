@@ -51,7 +51,7 @@ serves the web page, the web password and the WiFi passphrases over plain HTTP. 
 | Controller (**preferred**) | Raspberry Pi **Pico 2 W** (RP2350)                                                                       | All features: HTTPS, NTS with RSA certificate chains, hardware random number generator |
 | Controller (alternative)  | Raspberry Pi **Pico W** (RP2040)                                                                          | Works, with the limits below |
 | DCF77 receiver (optional) | [Pollin DCF1, order no. 810 054](https://www.pollin.de/p/dcf-empfangsmodul-dcf1-810054)                   | Pins PON, TCO, GND, VCC; wiring in *Time sources* |
-| GPS (in development, not in a release) | SparkFun u-blox NEO-M9N                                                                      | UART1 GP4/GP5, PPS GP3; see *GPS (in development)* |
+| GPS (in development, not in a release) | SparkFun u-blox NEO-M9N                                                                      | UART1 GP4/GP5, PPS GP8; see *GPS (in development)* |
 | Debug probe (optional)    | Raspberry Pi Debug Probe (CMSIS-DAP)                                                                      | Only for the RTT logs, see *Debugging* |
 
 **What the Pico W (RP2040) cannot do compared with the Pico 2 W:** no HTTPS (the web page is plain HTTP, so the web password
@@ -506,7 +506,7 @@ The third source, a u-blox NEO-M9N (SparkFun board), is built (it is on `main`, 
 [ADR-0007](docs/design/adr/0007-gps-time-source.md); it becomes software 0.3.0 once the module has been tried on the clock. **The module is not
 connected yet (2026-10-20)**, so nothing below is verified with a real receiver.
 
-- **Wiring:** the module's TX to GP5 (UART1 RX), its PPS (time pulse) output to GP3, GND, and 3.3 V from the 3V3 pin; GP4 stays unused,
+- **Wiring:** the module's TX to GP5 (UART1 RX), its PPS (time pulse) output to GP8 (not GP3: the RTC's 1 Hz square wave is on it), GND, and 3.3 V from the 3V3 pin; GP4 stays unused,
   the clock sends nothing to the module and works with its factory setting (38400 baud, NMEA with the RMC sentence, a 1 Hz pulse with a fix).
   `gps` in `time_sources` switches it on, `gps_baud` sets the speed (9600 to 115200), `vote_gps` the vote power.
 - **How a time is taken:** the RMC sentence names the UTC second that began at the PPS edge before it, so the clock needs both wires; without the PPS

@@ -13,6 +13,7 @@ Settings saved by an older version keep working; new settings start at their def
   test build (`gps-sim`) simulates it. See the README, *GPS (in development)*.
 
 ### Changed
+- **GPS PPS wire moved from GP3 to GP8** (draft REQ-GPS-01): GP3 carries the DS3231's 1 Hz square wave on the Pico-Clock-Green (found with nothing wired to it, VR-86).
 - **Date floor** (REQ-SRC-10): no time before 2026-10-01 is accepted from any source (it was 2020), so a receiver that repeats an old GPS week cannot set the clock.
 - **A far-away time** (more than 1000 s) now also must not be contradicted by another selected source with a fresh time (REQ-SRC-07, draft; REQ-SRC-06 stays).
 - **Per-source keep rule** (REQ-SRC-08, draft): NTP always writes the RTC, DCF77 only when the clock is more than 300 ms off (as before), GPS more than 50 ms; a source

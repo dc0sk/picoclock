@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/srs.md
 status: living
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # Software requirements specification
@@ -516,7 +516,7 @@ While the receiver stays settled, one GPS time shall be offered to the source se
 *Implemented by:* Time source selection (order, vote), the DCF77 receiver and the GPS receiver
 
 **REQ-GPS-05** (draft, medium)  
-The GPS receiver shall be wired to UART1 (TX on GP4, RX on GP5, 3.3 V logic) and its PPS output to GP3; the serial line shall be read at the speed of the setting `gps_baud` (9600, 19200, 38400, 57600, 115200; default 38400, the NEO-M9N's factory setting), and the receiver shall be listened to only while `gps` is in `time_sources`. The clock shall never send anything to the module. The vote power shall be settable as `vote_gps` like that of the other sources.  
+The GPS receiver shall be wired to UART1 (TX on GP4, RX on GP5, 3.3 V logic) and its PPS output to GP8 (GP3 carries the RTC's 1 Hz square wave and cannot be used); the serial line shall be read at the speed of the setting `gps_baud` (9600, 19200, 38400, 57600, 115200; default 38400, the NEO-M9N's factory setting), and the receiver shall be listened to only while `gps` is in `time_sources`. The clock shall never send anything to the module. The vote power shall be settable as `vote_gps` like that of the other sources.  
 *Why:* ADR-0007 points 1 and 9; pins planned in docs/design/architecture.md. Sending configuration to a module the clock cannot see on the bench is a risk for no gain in 0.3.0.  
 *Implemented by:* Time source selection (order, vote), the DCF77 receiver and the GPS receiver, Configuration model and flash storage, Terminal commands and USB serial console, Composition: task wiring, shared state, chip selection
 

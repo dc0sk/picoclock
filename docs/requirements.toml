@@ -1180,7 +1180,7 @@ id = "REQ-GPS-05"
 area = "Time sources"
 status = "draft"
 criticality = "medium"
-statement = "The GPS receiver shall be wired to UART1 (TX on GP4, RX on GP5, 3.3 V logic) and its PPS output to GP3; the serial line shall be read at the speed of the setting `gps_baud` (9600, 19200, 38400, 57600, 115200; default 38400, the NEO-M9N's factory setting), and the receiver shall be listened to only while `gps` is in `time_sources`. The clock shall never send anything to the module. The vote power shall be settable as `vote_gps` like that of the other sources."
+statement = "The GPS receiver shall be wired to UART1 (TX on GP4, RX on GP5, 3.3 V logic) and its PPS output to GP8 (GP3 carries the RTC's 1 Hz square wave and cannot be used); the serial line shall be read at the speed of the setting `gps_baud` (9600, 19200, 38400, 57600, 115200; default 38400, the NEO-M9N's factory setting), and the receiver shall be listened to only while `gps` is in `time_sources`. The clock shall never send anything to the module. The vote power shall be settable as `vote_gps` like that of the other sources."
 rationale = "ADR-0007 points 1 and 9; pins planned in docs/design/architecture.md. Sending configuration to a module the clock cannot see on the bench is a risk for no gain in 0.3.0."
 cap = ["CAP-SOURCES", "CAP-CONFIG", "CAP-CLI", "CAP-APP"]
 

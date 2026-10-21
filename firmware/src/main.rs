@@ -108,7 +108,7 @@ bind_interrupts!(struct Irqs {
 pub static IMAGE_DEF: embassy_rp::block::ImageDef = embassy_rp::block::ImageDef::secure_exe();
 
 static EXECUTOR_HIGH: InterruptExecutor = InterruptExecutor::new();
-/// The GPS receiver's task: below the display (P2), above thread mode, so that a PPS edge is stamped even while the main executor
+/// The GPS receiver's task: P3, below the display (P2; a lower number is more urgent), above thread mode, so that a PPS edge is stamped even while the main executor
 /// is busy (ADR-0007 point 6).
 #[cfg(not(feature = "gps-sim"))]
 static EXECUTOR_GPS: InterruptExecutor = InterruptExecutor::new();
@@ -359,13 +359,13 @@ async fn main(spawner: Spawner) {
     interrupt::SWI_IRQ_1.set_priority(Priority::P2);
     let hi = EXECUTOR_HIGH.start(interrupt::SWI_IRQ_1);
     hi.spawn(unwrap!(display::scan_task(matrix)));
-    // GPS receiver: UART1 RX on GP5 (the module's TX), PPS on GP3; GP4 (TX) stays unused, the clock sends nothing. The I/O task is on
+    // GPS receiver: UART1 RX on GP5 (the module's TX), PPS on GP8 (GP3 carries the RTC's 1 Hz square wave); GP4 (TX) stays unused, the clock sends nothing. The I/O task is on
     // its own interrupt executor (below the display, above thread mode); the pairing and the offer run in thread mode.
     #[cfg(not(feature = "gps-sim"))]
     {
-        interrupt::SWI_IRQ_0.set_priority(Priority::P1);
+        interrupt::SWI_IRQ_0.set_priority(Priority::P3);
         let gps_executor = EXECUTOR_GPS.start(interrupt::SWI_IRQ_0);
-        gps_executor.spawn(unwrap!(gps::gps_io_task(p.UART1, p.PIN_5, Input::new(p.PIN_3, Pull::Down))));
+        gps_executor.spawn(unwrap!(gps::gps_io_task(p.UART1, p.PIN_5, Input::new(p.PIN_8, Pull::Down))));
     }
     #[cfg(feature = "gps-sim")]
     spawner.spawn(unwrap!(gps::gps_sim_task()));

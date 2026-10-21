@@ -258,7 +258,7 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { group: Group::Web, name: "mdns", help: "on|off: answer for <device name>.local on the LAN (multicast DNS, default on)", secret: false },
     KeyInfo { group: Group::Web, name: "hostname", help: "name of this clock on the network (DHCP, mDNS, HTTPS certificate): 1-24 lowercase letters, digits and hyphens; empty = picoclock-<last MAC block>", secret: false },
     KeyInfo { group: Group::Time, name: "time_mode", help: "order|vote: take the time from the first source in time_sources that has one (order), or only when the sources agree by vote power (vote)", secret: false },
-    KeyInfo { group: Group::Time, name: "time_sources", help: "comma-separated, best first: ntp, dcf77 (a DCF77 receiver on GP0/GP1), gps (a u-blox receiver on GP4/GP5 and PPS on GP3); default ntp", secret: false },
+    KeyInfo { group: Group::Time, name: "time_sources", help: "comma-separated, best first: ntp, dcf77 (a DCF77 receiver on GP0/GP1), gps (a u-blox receiver on GP4/GP5 and PPS on GP8); default ntp", secret: false },
     KeyInfo { group: Group::Time, name: "vote_ntp", help: "0-9: vote power of NTP/NTS in mode vote (0 = compared and shown, cannot decide; default 1)", secret: false },
     KeyInfo { group: Group::Time, name: "vote_dcf77", help: "0-9: vote power of DCF77 in mode vote (default 1)", secret: false },
     KeyInfo { group: Group::Time, name: "vote_gps", help: "0-9: vote power of GPS in mode vote (default 1)", secret: false },

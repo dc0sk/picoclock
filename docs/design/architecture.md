@@ -35,7 +35,7 @@ Pin map (from the Waveshare demo): matrix OE=13, SDI=11, CLK=10, LE=12, A0=16, A
 DOWN=15 (active low, pull-ups); I2C1 SDA=6, SCL=7, DS3231 at 0x68; buzzer 14; light sensor ADC on 26. The
 CYW43 radio uses 23, 24, 25 and 29, so there is no conflict. Pico W and Pico 2 W share this map.
 
-Pins left over on the Pico header: GP0, GP1, GP3, GP4, GP5, GP8, GP9, GP19, GP20, GP21, GP27, GP28 (GP27 and GP28 are
+Pins left over on the Pico header (GP3 is not among them: the DS3231's 1 Hz square wave is on it, seen on 2026-10-21): GP0, GP1, GP4, GP5, GP8, GP9, GP19, GP20, GP21, GP27, GP28 (GP27 and GP28 are
 ADC-capable but nothing here uses the ADC on them). The Waveshare board reserves the 40-pin header for add-ons but does not
 document which pads are reachable, so the wiring below is a plan until it has been tried on the board.
 
@@ -47,7 +47,7 @@ document which pads are reachable, so the wiring below is a plan until it has be
 | DCF77                          | PON (power) | GP0 (pin 1)       | the firmware can switch the receiver off (display and WiFi noise)   |
 | DCF77                          | GND, VCC    | pin 3, 3V3 (36)   | VCC by a wire: pin 4 is GP2, the SET button                         |
 | u-blox GPS (in development)    | UART1 TX/RX | GP4, GP5 (pins 6, 7) | UART1 default pins; keeps UART0 pins GP0/GP1 for the DCF77 module |
-| u-blox GPS (in development)    | PPS         | GP3 (pin 5)       | edge capture; next to the UART pins                                 |
+| u-blox GPS (in development)    | PPS         | GP8 (pin 11)      | edge capture; GP3 is not free: the DS3231 square wave is on it      |
 
 DCF77 module facts (Pollin DCF1, order no. 810 054, datasheet D810054-B; the WHP0027V3 has the same four pins): supply 1.2 to
 3.3 V (typically 3 V), under 90 µA; `PON` low = receiver on, `PON` high = off, and the receiver starts on the falling edge
@@ -380,7 +380,7 @@ crates.io releases.
   for are settled there: `Source::Gps` (last in the enumeration), `fresh_for_ms` 10 min, `keep_ms` per source and a 10 s gap between RTC writes
   (REQ-SRC-08), the date floor (REQ-SRC-10), confirmation of a far-away time by the absence of a contradiction from another source (REQ-SRC-07),
   the tie rule (REQ-SRC-09), one offer a minute (the 1 Hz problem), the PPS edge stamped by a task on its own interrupt executor
-  (`firmware/src/gps.rs`: `gps_io_task` on SWI_IRQ_0 at P1; the settings and the status are thread-mode mutexes, so that task only
+  (`firmware/src/gps.rs`: `gps_io_task` on SWI_IRQ_0 at P3, below the display; the settings and the status are thread-mode mutexes, so that task only
   exchanges `Event`s through a channel with `gps_task` in thread mode), `Status.sources`/`sync_source`/the status line written for three
   sources. Still open until the module is on the bench: the jitter of the stamp (REQ-GPS-07), the settle time, the keep limit, the flash
   saves that stall a PPS producer (B10: the saves run in the storage task and the GPS I/O is on its own executor, but this is unmeasured).

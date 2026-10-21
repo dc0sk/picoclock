@@ -1091,3 +1091,17 @@ settle time, a real fix and its loss, the factory output of the module. A flashi
 `adapter speed 2000` on a halted or crashing image, but failed on a running one (the clock was left in BOOTSEL and the UF2 copy brought it back); the console `bootsel` and the UF2 are the safe path.
 
 Verifies: REQ-GPS-04, REQ-GPS-06, REQ-SRC-07, REQ-SRC-10
+
+### VR-86 · 2026-10-21 · hardware · Real GPS I/O task with nothing wired; PPS pin; review fixes
+
+Normal build (not `gps-sim`, so the real `gps_io_task` with UART1 on GP5 and the edge input) on the Pico 2 W in the clock, `set time_sources ntp,gps`, no module connected. **Found:**
+with the PPS input on GP3 the status counted **PPS edges at 1 Hz** (17 after 17 s, 51 after 51 s) although nothing was wired to it: GP3 carries the DS3231's
+1 Hz square wave (the RTC is set to that output, `firmware/src/rtc.rs`; Waveshare's Pico-RTC-DS3231 schematic points the same way, not read for the clock board itself). The PPS input moved to **GP8**,
+where the same run counted **0 edges** in 135 s (an unconnected pin shows no edge; that GP8 is not driven by the board is not proved by this). The owner has not wired the module yet, so no wiring had to be undone.
+With GP5 floating the receiver showed `silent: nothing arrives on GP5`, 0 serial errors, the main executor and the display unaffected (`scan` worst late 34 ms, the usual
+settings-save pause, 2 waits over 100 µs in 135 s), `set time_sources ntp` switched the receiver off. **Changes from the independent review of the same day** (a Fable reader of the GPS
+code; firmware task, only the compiled path was checked here): the baud/off check of the I/O task uses a fixed deadline (a timer made anew on every pass never ran out while the module talked),
+the silence check no longer counts the ticks that pile up after a stall of the main executor, the GPS executor runs at P3 below the display (P1 was above it), the event queue holds 24 and a lost event is logged, not counted as a serial error, an error of the
+serial line yields. **Not verified:** all of these with a talking module (baud change, stall of 7 s with the PPS running, the priority's effect on the display).
+
+Verifies: REQ-GPS-01, REQ-GPS-06
