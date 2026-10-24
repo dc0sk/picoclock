@@ -1105,3 +1105,20 @@ the silence check no longer counts the ticks that pile up after a stall of the m
 serial line yields. **Not verified:** all of these with a talking module (baud change, stall of 7 s with the PPS running, the priority's effect on the display).
 
 Verifies: REQ-GPS-01, REQ-GPS-06
+
+### VR-87 · 2026-10-24 · host · u-blox setup over UBX: framing, configuration frame, stream splitting, setup state machine, settings, command
+
+Unit tests of `picoclock-core` (`core::ubx`, `core::config`, `core::cli`; no module, no clock attached on this day). **Framing:** the MON-VER poll
+(`B5 62 0A 04 00 00 0E 34`) and the cold-start reset (`B5 62 06 04 04 00 FF FF 02 00 0E 61`) come out byte for byte as printed in u-blox documents; the Fletcher checksum
+of every frame the tests build is recomputed. **Configuration frame:** one UBX-CFG-VALSET (version 0, RAM layer only), 4-byte little-endian keys with 1-byte values, the keys
+of the interface description UBX-21022436 (protocol 32.01, read 2026-10-24): each constellation switches only its own key, GGA/GLL/GSA/GSV/VTG off, RMC and NAV-PVT on, the stationary model.
+**Stream:** NMEA lines and UBX frames in one stream come out whole, a frame whose payload holds line ends, `$` and the sync bytes is one frame, a damaged frame is counted and the next
+sentence found, a 300-byte frame is checked whole and kept in part (damage beyond the kept part is detected). **Readback:** acknowledgement, NAK, version string, NAV-PVT at the offsets of the manual
+(valid 11, tAcc 12, fixType 20, numSV 23; UTC counts as valid only when time is valid and fully resolved). **Setup state machine:** sent until acknowledged, then the version is asked, a
+solution that stops for 5 s starts the setup again, a NAK stops it, three tries without an answer end in "no answer" and a new try after a minute, `stop` silences it. **Settings and command:**
+`gps_config` (default off), `gps_gnss` (default gps,galileo; unknown or doubled names refused), `gps reset hot|warm|cold|hard` (a software reset is refused with the setup off). Planted bugs (checksum
+sum, flash layer in the mask, frame checksum ignored, GLONASS key on the BeiDou bit, lost setup never noticed, UTC valid too early) each made a test fail; the fourth only after the test was made to
+try each constellation alone. The firmware builds for the Pico W and the Pico 2 W, and the `gps-sim` build answers the setup like a receiver would. **Not verified:** everything on the wire: the
+module's answer to the frame, the effect of each key (u-center or the satellite count), the reset pin, the 60 s rule. The clock was not attached on this day, so the simulated run on the board was not repeated.
+
+Verifies: REQ-GPS-08, REQ-GPS-09

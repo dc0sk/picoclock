@@ -63,7 +63,7 @@ static RUNTIME: Mutex<Tm, RefCell<Status>> = Mutex::new(RefCell::new(Status {
     sync_source: picoclock_core::sources::Source::Ntp,
     sources: [None; picoclock_core::sources::SOURCES.len()],
     dcf: picoclock_core::dcf77::Stats { pulses: 0, frames_ok: 0, frames_bad: 0, pulses_bad: 0 },
-    gps: picoclock_core::gps::Report { stats: picoclock_core::gps::Stats { valid: 0, bad_checksum: 0, no_fix: 0, malformed: 0, edges: 0, unpaired: 0, breaks: 0 }, run: 0, bytes: 0, silent: false, since_edge_ms: None, uart_errors: 0 },
+    gps: picoclock_core::gps::Report { stats: picoclock_core::gps::Stats { valid: 0, bad_checksum: 0, no_fix: 0, malformed: 0, edges: 0, unpaired: 0, breaks: 0 }, run: 0, bytes: 0, silent: false, since_edge_ms: None, uart_errors: 0, module: picoclock_core::ubx::Module { setup: picoclock_core::ubx::Setup::Off, ver: [0; picoclock_core::ubx::VER_LEN], ver_len: 0, pvt_seen: false, fix: 0, sats: 0, utc_ok: false, t_acc_ns: 0 } },
     dhcp_server: None,
     prefix: 0,
     dns: None,
@@ -169,6 +169,8 @@ pub static CONFIG_CHANGED: Signal<Cs, ()> = Signal::new();
 pub static FACTORY_RESET: Signal<Cs, ()> = Signal::new();
 pub static SYNC_NOW: Signal<Cs, ()> = Signal::new();
 pub static GEO_NOW: Signal<Cs, ()> = Signal::new();
+/// `gps reset`: restart the GPS receiver (the GPS task does it).
+pub static GPS_RESET: Signal<Cs, picoclock_core::cli::GpsReset> = Signal::new();
 /// Ask GitHub now whether a newer release exists (`update check`, the web page's button).
 pub static UPDATE_NOW: Signal<Cs, ()> = Signal::new();
 /// Fetch the newest release from GitHub into the download slot (`update download`, the web page's button). The net task does it.

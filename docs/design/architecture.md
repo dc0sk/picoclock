@@ -46,7 +46,8 @@ document which pads are reachable, so the wiring below is a plan until it has be
 | DCF77 (WHP0027V3: PON, TCO)    | TCO (data)  | GP1 (pin 2)       | any GPIO can time the pulses; next to GND at pin 3                  |
 | DCF77                          | PON (power) | GP0 (pin 1)       | the firmware can switch the receiver off (display and WiFi noise)   |
 | DCF77                          | GND, VCC    | pin 3, 3V3 (36)   | VCC by a wire: pin 4 is GP2, the SET button                         |
-| u-blox GPS (in development)    | UART1 TX/RX | GP4, GP5 (pins 6, 7) | UART1 default pins; keeps UART0 pins GP0/GP1 for the DCF77 module |
+| u-blox GPS (in development)    | UART1 TX/RX | GP4, GP5 (pins 6, 7) | UART1 default pins; keeps UART0 pins GP0/GP1 for the DCF77 module; TX (GP4) only with `gps_config on` |
+| u-blox GPS (in development)    | nRST        | GP9 (pin 12)      | open drain, only pulled low (`gps reset hard`, a silent receiver); with `gps_config on` |
 | u-blox GPS (in development)    | PPS         | GP8 (pin 11)      | edge capture; GP3 is not free: the DS3231 square wave is on it      |
 
 DCF77 module facts (Pollin DCF1, order no. 810 054, datasheet D810054-B; the WHP0027V3 has the same four pins): supply 1.2 to

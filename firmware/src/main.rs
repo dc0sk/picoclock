@@ -359,13 +359,13 @@ async fn main(spawner: Spawner) {
     interrupt::SWI_IRQ_1.set_priority(Priority::P2);
     let hi = EXECUTOR_HIGH.start(interrupt::SWI_IRQ_1);
     hi.spawn(unwrap!(display::scan_task(matrix)));
-    // GPS receiver: UART1 RX on GP5 (the module's TX), PPS on GP8 (GP3 carries the RTC's 1 Hz square wave); GP4 (TX) stays unused, the clock sends nothing. The I/O task is on
+    // GPS receiver: UART1 RX on GP5 (the module's TX), PPS on GP8 (GP3 carries the RTC's 1 Hz square wave); GP4 (TX) and the reset pin GP9 are used only when `gps_config` is on. The I/O task is on
     // its own interrupt executor (below the display, above thread mode); the pairing and the offer run in thread mode.
     #[cfg(not(feature = "gps-sim"))]
     {
         interrupt::SWI_IRQ_0.set_priority(Priority::P3);
         let gps_executor = EXECUTOR_GPS.start(interrupt::SWI_IRQ_0);
-        gps_executor.spawn(unwrap!(gps::gps_io_task(p.UART1, p.PIN_5, Input::new(p.PIN_8, Pull::Down))));
+        gps_executor.spawn(unwrap!(gps::gps_io_task(p.UART1, p.PIN_4, p.PIN_5, Input::new(p.PIN_8, Pull::Down), embassy_rp::gpio::Flex::new(p.PIN_9))));
     }
     #[cfg(feature = "gps-sim")]
     spawner.spawn(unwrap!(gps::gps_sim_task()));

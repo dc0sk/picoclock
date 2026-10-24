@@ -2,7 +2,7 @@
 project: picoclock
 doc: docs/srs.md
 status: living
-last_updated: 2026-10-21
+last_updated: 2026-10-24
 ---
 
 # Software requirements specification
@@ -516,8 +516,8 @@ While the receiver stays settled, one GPS time shall be offered to the source se
 *Implemented by:* Time source selection (order, vote), the DCF77 receiver and the GPS receiver
 
 **REQ-GPS-05** (draft, medium)  
-The GPS receiver shall be wired to UART1 (TX on GP4, RX on GP5, 3.3 V logic) and its PPS output to GP8 (GP3 carries the RTC's 1 Hz square wave and cannot be used); the serial line shall be read at the speed of the setting `gps_baud` (9600, 19200, 38400, 57600, 115200; default 38400, the NEO-M9N's factory setting), and the receiver shall be listened to only while `gps` is in `time_sources`. The clock shall never send anything to the module. The vote power shall be settable as `vote_gps` like that of the other sources.  
-*Why:* ADR-0007 points 1 and 9; pins planned in docs/design/architecture.md. Sending configuration to a module the clock cannot see on the bench is a risk for no gain in 0.3.0.  
+The GPS receiver shall be wired to UART1 (TX on GP4, RX on GP5, 3.3 V logic) and its PPS output to GP8 (GP3 carries the RTC's 1 Hz square wave and cannot be used); the serial line shall be read at the speed of the setting `gps_baud` (9600, 19200, 38400, 57600, 115200; default 38400, the NEO-M9N's factory setting), and the receiver shall be listened to only while `gps` is in `time_sources`. Unless `gps_config` is on (REQ-GPS-08) the clock shall send nothing to the module and leave its reset pin (GP9) floating. The vote power shall be settable as `vote_gps` like that of the other sources.  
+*Why:* ADR-0007 points 1 and 9; pins planned in docs/design/architecture.md. A receiver of another make must be able to work with the clock as it is: the setup is opt-in.  
 *Implemented by:* Time source selection (order, vote), the DCF77 receiver and the GPS receiver, Configuration model and flash storage, Terminal commands and USB serial console, Composition: task wiring, shared state, chip selection
 
 **REQ-GPS-06** (draft, medium)  
@@ -530,6 +530,17 @@ The PPS edge shall be stamped with the microsecond timer by a task on an interru
 *Why:* ADR-0007 point 6. The assumption that this is enough is not measured; the requirement says what has to be measured before the source is delivered.  
 *Implemented by:* Composition: task wiring, shared state, chip selection, Time source selection (order, vote), the DCF77 receiver and the GPS receiver  
 *Unverified:* no receiver is connected yet (2026-10-20); the jitter is measured when it is
+
+**REQ-GPS-08** (draft, high)  
+While `gps` is in `time_sources` and the setting `gps_config` is on, the clock shall set a u-blox receiver up over UART1 TX (GP4) with one UBX-CFG-VALSET into the RAM layer only: the constellations of `gps_gnss` (a list of gps, galileo, beidou, glonass; default gps,galileo) on and the others off, only the RMC of the NMEA sentences, the navigation solution (UBX-NAV-PVT) once a second, and the stationary platform model. It shall repeat the setup (at most three tries two seconds apart, a new try a minute after the last) when the receiver starts talking after silence, when the settings change, and when the navigation solution stops arriving for 5 s; it shall stop on a refusal (NAK) until a setting changes. `gps reset hot|warm|cold` shall send UBX-CFG-RST and `gps reset hard` shall pull the receiver's reset pin (GP9, open drain) low for 100 ms; a receiver that talked and has been silent for 60 s shall have its reset pin pulled, at most once in 10 minutes. With `gps_config` off nothing shall be sent and the time shall come from NMEA and PPS exactly as without this requirement.  
+*Why:* ADR-0007 point 1 (amended 2026-10-24): the owner wants the constellations chosen (GPS and Galileo, not BeiDou and GLONASS) and the receiver recoverable from the clock. RAM only, so that a power cycle returns the factory state and nothing wears the receiver's flash; opt-in, so that another make of receiver works unchanged.  
+*Implemented by:* Time source selection (order, vote), the DCF77 receiver and the GPS receiver, Configuration model and flash storage, Terminal commands and USB serial console, Composition: task wiring, shared state, chip selection  
+*Unverified:* no receiver is connected yet (2026-10-24): the keys are from the interface description UBX-21022436 (protocol 32.01) and checked on the host only; the acknowledgement, the effect of each key and the reset pin are seen when the module is connected
+
+**REQ-GPS-09** (draft, medium)  
+The serial stream of the receiver shall be split into NMEA sentences and UBX frames so that neither disturbs the other (a frame whose payload contains line ends, dollar signs or the sync bytes is one frame; a frame with a wrong checksum is counted and dropped); of the UBX frames the clock shall read the acknowledgement, the version string and the navigation solution (fix type, number of satellites, validity of UTC and its accuracy), and `status` shall show them in the GPS line once the setup is on.  
+*Why:* ADR-0007 point 1 (amended). The validity flag of UTC is the receiver's own statement that its leap-second count is known, which the NMEA time does not give (review of 2026-10-21, finding 5).  
+*Implemented by:* Time source selection (order, vote), the DCF77 receiver and the GPS receiver, Terminal commands and USB serial console, HTTP parsing, settings page and web server
 
 **REQ-SRC-07** (draft, high)  
 Replaces REQ-SRC-06 when ratified (it contains it). When the clock has a valid time, a sample from a time source that differs from it by more than 1000 seconds shall not set the clock until (a) a second reading of the same source agrees with it within 5 seconds and (b) no other selected source with a fresh sample disagrees with it by more than the vote tolerance; while either is missing the clock shall be left alone, the sample shall not count as fresh for the other sources, and the status shall say which. A far-away NTP time shall still make the clock ask again at once (at most three times in a row). Without a valid time every sample is used.  

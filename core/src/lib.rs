@@ -26,6 +26,7 @@ pub mod entropy;
 pub mod font;
 pub mod geo;
 pub mod gps;
+pub mod ubx;
 pub mod http;
 pub mod image;
 pub mod morse;

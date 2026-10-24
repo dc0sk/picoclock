@@ -145,8 +145,19 @@ pub enum Action {
     ImageUpload(usize),
     /// `update apply`: the session asks for confirmation (see [`INSTALL_WORD`]), then swaps the staged image in and restarts.
     ImageApply,
+    /// `gps reset hot|warm|cold|hard`: restart the receiver (REQ-GPS-08). `hard` pulls its reset pin (nRST) low.
+    GpsReset(GpsReset),
     /// `factory-reset`: the session asks for confirmation (see [`reset_confirmed`]) before anything is erased.
     FactoryReset,
+}
+
+/// How a receiver is restarted by `gps reset`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GpsReset {
+    /// A UBX software reset that keeps (hot), forgets the ephemerides of (warm) or forgets everything stored by (cold) the receiver.
+    Soft(crate::ubx::ResetKind),
+    /// The reset pin.
+    Hard,
 }
 
 /// What the user must type (terminal) or enter (web page) to confirm a factory reset.
@@ -247,6 +258,7 @@ commands:
   time                  show UTC and local time
   tz [prefix]           list known timezone names, e.g. 'tz europe/'
   sync                  query NTP now
+  gps reset <how>       restart the GPS receiver: hot, warm, cold (u-blox, needs gps_config on) or hard (its reset pin)
   geo                   look up the timezone from the public IP now (needs timezone=auto)
   root                  list the certificate authorities trusted for NTS (built in and your own)
   root add              paste a CA certificate (PEM) to trust for NTS; then it ends at the END line
@@ -582,6 +594,26 @@ pub fn execute(line: &str, cfg: &mut Config, st: &Status, out: &mut impl Write) 
             Action::None
         }
         "sync" => Action::SyncNow,
+        "gps" => {
+            let how = match rest {
+                "reset hot" => Some(GpsReset::Soft(crate::ubx::ResetKind::Hot)),
+                "reset warm" => Some(GpsReset::Soft(crate::ubx::ResetKind::Warm)),
+                "reset cold" => Some(GpsReset::Soft(crate::ubx::ResetKind::Cold)),
+                "reset hard" => Some(GpsReset::Hard),
+                _ => None,
+            };
+            match how {
+                Some(GpsReset::Soft(_)) if !cfg.gps_config => {
+                    let _ = out.write_str("gps    : a software reset is a u-blox command; set gps_config on first (or use 'gps reset hard')\n");
+                    Action::None
+                }
+                Some(h) => Action::GpsReset(h),
+                None => {
+                    let _ = out.write_str("usage  : gps reset hot|warm|cold|hard   (hot keeps what the receiver knows, cold forgets everything and needs minutes for a fix, hard pulls the reset pin)\n");
+                    Action::None
+                }
+            }
+        }
         "update" => match rest {
             "" => {
                 let _ = out.write_str("update  : ");
@@ -752,12 +784,18 @@ mod tests {
         assert!(c.web_password.is_empty());
     }
 
-    // VERIFIES: REQ-CLI-01 REQ-NTP-03
+    // VERIFIES: REQ-CLI-01 REQ-NTP-03 REQ-GPS-08
     #[test]
     fn actions() {
         let mut c = Config::default();
         assert_eq!(run(&mut c, "save").0, Action::Save);
         assert_eq!(run(&mut c, "sync").0, Action::SyncNow);
+        let (a, out) = run(&mut c, "gps reset cold");
+        assert_eq!((a, out.contains("gps_config on")), (Action::None, true), "a u-blox command is not sent unless the setup is on");
+        assert_eq!(run(&mut c, "gps reset hard").0, Action::GpsReset(GpsReset::Hard));
+        run(&mut c, "set gps_config on");
+        assert_eq!(run(&mut c, "gps reset warm").0, Action::GpsReset(GpsReset::Soft(crate::ubx::ResetKind::Warm)));
+        assert!(run(&mut c, "gps reset").1.contains("usage"));
         assert_eq!(run(&mut c, "reboot").0, Action::Reboot);
         assert_eq!(run(&mut c, "bootsel").0, Action::Bootsel);
         let (a, out) = run(&mut c, "geo");

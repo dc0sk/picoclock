@@ -127,6 +127,10 @@ async fn run_line(class: &mut Class, line: &str) -> Result<Action, Disconnected>
             state::SYNC_NOW.signal(());
             send(class, "NTP sync requested\r\n").await?;
         }
+        Action::GpsReset(how) => {
+            state::GPS_RESET.signal(how);
+            send(class, "GPS receiver restart requested\r\n").await?;
+        }
         Action::Geolocate => {
             state::GEO_NOW.signal(());
             send(class, "location lookup requested; see 'get geo_rule' in a few seconds\r\n").await?;

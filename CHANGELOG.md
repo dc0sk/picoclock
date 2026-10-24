@@ -9,8 +9,11 @@ Settings saved by an older version keep working; new settings start at their def
 
 ### Added
 - **GPS time source, in development** (ADR-0007, REQ-GPS-01 to 07, draft): `gps` in `time_sources`, `vote_gps`, `gps_baud`; NMEA RMC from a u-blox receiver
-  on UART1 (GP5) tied to its PPS edge on GP3, settling for 30 s, one offer a minute. Not in a release until the module has been tried; a
+  on UART1 (GP5) tied to its PPS edge on GP8, settling for 30 s, one offer a minute. Not in a release until the module has been tried; a
   test build (`gps-sim`) simulates it. See the README, *GPS (in development)*.
+- **GPS receiver setup** (REQ-GPS-08, 09, draft): `gps_config on` sets a u-blox receiver up over its serial line (constellations from `gps_gnss`, default GPS and
+  Galileo; only RMC; stationary model; into the receiver's RAM only), `status` shows its version, fix, satellites and UTC validity, `gps reset hot|warm|cold|hard`,
+  the reset pin on GP9, the TX wire on GP4. Off by default: another make of receiver works unchanged.
 
 ### Changed
 - **GPS PPS wire moved from GP3 to GP8** (draft REQ-GPS-01): GP3 carries the DS3231's 1 Hz square wave on the Pico-Clock-Green (found with nothing wired to it, VR-86).

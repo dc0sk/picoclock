@@ -1019,7 +1019,7 @@ mod tests {
                 Some(crate::sources::Report { source: crate::sources::Source::Gps, state: crate::sources::State::Contradicted, offset_ms: None, age_s: None }),
             ],
             dcf: crate::dcf77::Stats { pulses: 4_000_000_000, frames_ok: 4_000_000_000, frames_bad: 4_000_000_000, pulses_bad: 4_000_000_000 },
-            gps: crate::gps::Report { bytes: u32::MAX, run: u32::MAX, since_edge_ms: Some(u32::MAX), uart_errors: u32::MAX, silent: false, stats: crate::gps::Stats { valid: u32::MAX, bad_checksum: u32::MAX, no_fix: u32::MAX, malformed: u32::MAX, edges: u32::MAX, unpaired: u32::MAX, breaks: u32::MAX } },
+            gps: crate::gps::Report { bytes: u32::MAX, run: u32::MAX, since_edge_ms: Some(u32::MAX), uart_errors: u32::MAX, silent: false, stats: crate::gps::Stats { valid: u32::MAX, bad_checksum: u32::MAX, no_fix: u32::MAX, malformed: u32::MAX, edges: u32::MAX, unpaired: u32::MAX, breaks: u32::MAX }, module: crate::ubx::Module { setup: crate::ubx::Setup::Applied, ver: [b'W'; crate::ubx::VER_LEN], ver_len: crate::ubx::VER_LEN as u8, pvt_seen: true, fix: 255, sats: 255, utc_ok: true, t_acc_ns: u32::MAX - 1 } },
             dhcp_server: Some([192, 168, 121, 1]),
             prefix: 24,
             dns: Some([192, 168, 121, 1]),

@@ -80,6 +80,10 @@ pub struct Config {
     pub dcf77_learned: u16,
     /// Speed of the GPS receiver's serial line (REQ-GPS-05).
     pub gps_baud: u32,
+    /// Send the u-blox setup (UBX) to the receiver; off for any other receiver (REQ-GPS-08).
+    pub gps_config: bool,
+    /// The constellations the u-blox receiver is set to use (`crate::ubx::Gnss` bits).
+    pub gps_gnss: u8,
     /// HAM mode: the hourly chime and a long hold of UP or DOWN send the time in Morse code.
     pub ham_mode: bool,
     /// Morse speed in words per minute.
@@ -143,6 +147,8 @@ impl Config {
             dcf77_delay_ms,
             dcf77_learned,
             gps_baud,
+            gps_config,
+            gps_gnss,
             ham_mode,
             morse_wpm,
             update_check,
@@ -154,7 +160,7 @@ impl Config {
         carry!(
             ntp_servers, timezone, geo_rule, dst, hour12, fahrenheit, brightness, key_beep, hourly_chime, alarm_enabled,
             alarm_minutes, web_password, web_enabled, ntp_serve, https, http_redirect, wifi_strongest, mdns, hostname, time_mode,
-            time_sources, vote_power, vote_tolerance, dcf77_auto, dcf77_delay_ms, dcf77_learned, gps_baud, ham_mode, morse_wpm, update_check, colon_blink
+            time_sources, vote_power, vote_tolerance, dcf77_auto, dcf77_delay_ms, dcf77_learned, gps_baud, gps_config, gps_gnss, ham_mode, morse_wpm, update_check, colon_blink
         );
         for (i, net) in wifi.iter().enumerate() {
             if before.wifi[i] != *net {
@@ -195,6 +201,8 @@ impl Default for Config {
             dcf77_delay_ms: 0,
             dcf77_learned: 0,
             gps_baud: 38400,
+            gps_config: false,
+            gps_gnss: crate::ubx::Gnss::DEFAULT.0,
             ham_mode: false,
             morse_wpm: 18,
             update_check: true,
@@ -264,6 +272,8 @@ pub const KEYS: &[KeyInfo] = &[
     KeyInfo { group: Group::Time, name: "vote_gps", help: "0-9: vote power of GPS in mode vote (default 1)", secret: false },
     KeyInfo { group: Group::Time, name: "vote_tolerance", help: "1-3600 seconds within which sources count as agreeing in mode vote (default 2)", secret: false },
     KeyInfo { group: Group::Time, name: "dcf77_delay", help: "auto, or 0-500 ms: how late the DCF77 receiver's pulses are; auto learns it against NTP (default auto)", secret: false },
+    KeyInfo { group: Group::Time, name: "gps_config", help: "on|off: send a u-blox setup to the GPS receiver (constellations from gps_gnss, only the RMC sentence, stationary model); leave off for any other receiver (default off)", secret: false },
+    KeyInfo { group: Group::Time, name: "gps_gnss", help: "comma-separated constellations a u-blox receiver is set to use when gps_config is on: gps (NAVSTAR), galileo, beidou, glonass (default gps,galileo)", secret: false },
     KeyInfo { group: Group::Time, name: "gps_baud", help: "9600, 19200, 38400, 57600 or 115200: speed of the GPS receiver's serial line (default 38400, the NEO-M9N's factory setting)", secret: false },
     KeyInfo { group: Group::Time, name: "dcf77_learned", help: "0-500 ms: the delay learned in auto mode (kept over restarts; set it to start from a known value)", secret: false },
     KeyInfo { group: Group::Web, name: "update_check", help: "on|off: ask GitHub once a day whether a newer firmware release exists (shown in status; nothing is installed; default on)", secret: false },
@@ -476,6 +486,8 @@ impl Config {
                 }
                 self.gps_baud = baud;
             }
+            "gps_config" => self.gps_config = parse_bool(value)?,
+            "gps_gnss" => self.gps_gnss = crate::ubx::Gnss::parse(value).ok_or(ConfigError::InvalidValue)?.0,
             "vote_tolerance" => {
                 let secs: u16 = value.parse().map_err(|_| ConfigError::InvalidValue)?;
                 if !(1..=3600).contains(&secs) {
@@ -554,6 +566,8 @@ impl Config {
             "vote_dcf77" => write!(out, "{}", self.vote_power[Source::Dcf77 as usize]),
             "vote_gps" => write!(out, "{}", self.vote_power[Source::Gps as usize]),
             "gps_baud" => write!(out, "{}", self.gps_baud),
+            "gps_config" => out.write_str(on_off(self.gps_config)),
+            "gps_gnss" => crate::ubx::Gnss(self.gps_gnss).write(out),
             "vote_tolerance" => write!(out, "{}", self.vote_tolerance),
             "dcf77_delay" if self.dcf77_auto => out.write_str("auto"),
             "dcf77_delay" => write!(out, "{}", self.dcf77_delay_ms),
@@ -704,7 +718,7 @@ mod tests {
         assert_ne!(stored, live);
     }
 
-    // VERIFIES: REQ-SRC-01 REQ-SRC-04
+    // VERIFIES: REQ-SRC-01 REQ-SRC-04 REQ-GPS-08
     #[test]
     fn time_source_settings_are_validated_and_survive_the_flash_record() {
         let mut c = Config::default();
@@ -726,7 +740,11 @@ mod tests {
             assert_eq!(val(&c, "gps_baud"), baud.to_string());
         }
         c.set("time_sources", "dcf77,ntp").unwrap();
-        for (k, bad) in [("time_mode", "both"), ("time_sources", ""), ("time_sources", "ntp,ntp"), ("time_sources", "ntp,glonass"), ("gps_baud", "1200"), ("gps_baud", "fast"), ("vote_gps", "10"), ("time_sources", "ntp,dcf77,ntp"), ("vote_ntp", "10"), ("vote_dcf77", "-1"), ("vote_tolerance", "0"), ("vote_tolerance", "3601"), ("vote_tolerance", "x")] {
+        assert_eq!((val(&c, "gps_config"), val(&c, "gps_gnss")), ("off".into(), "gps,galileo".into()), "the receiver is left alone unless asked; GPS and Galileo when it is");
+        c.set("gps_config", "on").unwrap();
+        c.set("gps_gnss", "galileo, glonass").unwrap();
+        assert_eq!((val(&c, "gps_config"), val(&c, "gps_gnss")), ("on".into(), "galileo,glonass".into()));
+        for (k, bad) in [("gps_gnss", "navstar"), ("gps_gnss", ""), ("gps_gnss", "gps,gps"), ("gps_config", "maybe"), ("time_mode", "both"), ("time_sources", ""), ("time_sources", "ntp,ntp"), ("time_sources", "ntp,glonass"), ("gps_baud", "1200"), ("gps_baud", "fast"), ("vote_gps", "10"), ("time_sources", "ntp,dcf77,ntp"), ("vote_ntp", "10"), ("vote_dcf77", "-1"), ("vote_tolerance", "0"), ("vote_tolerance", "3601"), ("vote_tolerance", "x")] {
             let before = c.clone();
             assert!(c.set(k, bad).is_err(), "{k}={bad:?}");
             assert_eq!(c, before, "a refused value changes nothing");

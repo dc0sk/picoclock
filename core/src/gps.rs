@@ -234,6 +234,8 @@ pub struct Report {
     pub since_edge_ms: Option<u32>,
     /// Framing, overrun and break errors of the serial line (a wrong `gps_baud` gives many).
     pub uart_errors: u32,
+    /// What the receiver reported about itself and the state of the setup the clock sends it (REQ-GPS-08).
+    pub module: crate::ubx::Module,
 }
 
 /// One line for the terminal and the web page: the state, then the counters.
@@ -254,7 +256,12 @@ pub fn describe(out: &mut impl core::fmt::Write, r: &Report) -> core::fmt::Resul
         None if r.bytes > 0 => out.write_str(" (none seen: check the PPS wire on GP8; without it there is no GPS time)")?,
         None => {}
     }
-    write!(out, ", unpaired sentences {}, runs broken {}", r.stats.unpaired, r.stats.breaks)
+    write!(out, ", unpaired sentences {}, runs broken {}", r.stats.unpaired, r.stats.breaks)?;
+    if r.module.setup != crate::ubx::Setup::Off {
+        out.write_str("; module: ")?;
+        crate::ubx::describe(out, &r.module)?;
+    }
+    Ok(())
 }
 
 /// Pairs sentences with PPS edges, counts consecutive good seconds, and decides when a time is offered.
@@ -658,8 +665,8 @@ mod tests {
         assert!(settled.starts_with("settled;") && settled.contains("last 0.0 s ago"), "{settled}");
         assert!(text(&Report { bytes: 9, silent: true, ..Default::default() }).starts_with("receiver went silent"));
         // the worst case fits in the line the terminal reserves for it
-        let worst = text(&Report { bytes: u32::MAX, run: u32::MAX, since_edge_ms: Some(u32::MAX), uart_errors: u32::MAX, stats: Stats { valid: u32::MAX, bad_checksum: u32::MAX, no_fix: u32::MAX, malformed: u32::MAX, edges: u32::MAX, unpaired: u32::MAX, breaks: u32::MAX }, silent: false });
-        assert!(worst.len() < 300, "{}", worst.len());
+        let worst = text(&Report { bytes: u32::MAX, run: u32::MAX, since_edge_ms: Some(u32::MAX), uart_errors: u32::MAX, stats: Stats { valid: u32::MAX, bad_checksum: u32::MAX, no_fix: u32::MAX, malformed: u32::MAX, edges: u32::MAX, unpaired: u32::MAX, breaks: u32::MAX }, silent: false, module: crate::ubx::Module { setup: crate::ubx::Setup::Applied, ver: [b'W'; crate::ubx::VER_LEN], ver_len: crate::ubx::VER_LEN as u8, pvt_seen: true, fix: 255, sats: 255, utc_ok: true, t_acc_ns: u32::MAX - 1 } });
+        assert!(worst.len() < 400, "{}", worst.len());
     }
 
     // VERIFIES: REQ-GPS-01

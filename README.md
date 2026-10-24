@@ -231,6 +231,7 @@ Changes apply immediately but are only written to flash by `save` (the web page 
 | `time_mode` | `order` (first source with a fresh time) or `vote` (the sources must agree) | `order` |
 | `vote_ntp`, `vote_dcf77`, `vote_gps` | vote power 0 to 9 per source in mode `vote` (0 = compared and shown, cannot decide) | 1, 1, 1 |
 | `gps_baud` | speed of the GPS receiver's serial line: 9600, 19200, 38400, 57600 or 115200 | 38400 |
+| `gps_config`, `gps_gnss` | `on`: set a u-blox receiver up over its serial line; the constellations it uses: `gps` (NAVSTAR), `galileo`, `beidou`, `glonass` | off, `gps,galileo` |
 | `vote_tolerance` | seconds within which two sources count as agreeing in mode `vote` | 2 |
 
 ### Terminal sessions
@@ -508,9 +509,16 @@ The third source, a u-blox NEO-M9N (SparkFun board), is built (it is on `main`, 
 [ADR-0007](docs/design/adr/0007-gps-time-source.md); it becomes software 0.3.0 once the module has been tried on the clock. **The module is not
 connected yet (2026-10-20)**, so nothing below is verified with a real receiver.
 
-- **Wiring:** the module's TX to GP5 (UART1 RX), its PPS (time pulse) output to GP8 (not GP3: the RTC's 1 Hz square wave is on it), GND, and 3.3 V from the 3V3 pin; GP4 stays unused,
-  the clock sends nothing to the module and works with its factory setting (38400 baud, NMEA with the RMC sentence, a 1 Hz pulse with a fix).
+- **Wiring:** the module's TX to GP5 (UART1 RX), its PPS (time pulse) output to GP8 (not GP3: the RTC's 1 Hz square wave is on it), GND, and 3.3 V from the 3V3 pin.
+  Only for the setup below: the module's RX to GP4 (UART1 TX) and its RST pin to GP9 (the clock only ever pulls it low). Without the setup the clock sends nothing
+  and works with the factory setting (38400 baud, NMEA with the RMC sentence, a 1 Hz pulse with a fix), also with a receiver of another make.
   `gps` in `time_sources` switches it on, `gps_baud` sets the speed (9600 to 115200), `vote_gps` the vote power.
+- **Setting a u-blox receiver up (`set gps_config on`):** the clock sends one configuration message (into the receiver's RAM only: a power cycle returns the
+  factory state, nothing is written to its flash) that turns on the constellations of `gps_gnss` (default `gps,galileo`; also `beidou`, `glonass`), keeps only the RMC
+  sentence of the NMEA output, adds the navigation solution once a second and sets the stationary model. It repeats the setup when the receiver starts talking
+  after silence. `status` then shows the receiver's version, fix, number of satellites and whether it considers UTC valid. `gps reset hot|warm|cold` restarts
+  the receiver (cold forgets everything and needs minutes for a fix), `gps reset hard` pulls its reset pin; a receiver that has talked and then been silent for 60 s
+  gets its reset pin pulled (at most once in 10 minutes). The time is still taken from NMEA and the PPS edge. Checked on the host only (VR-87).
 - **How a time is taken:** the RMC sentence names the UTC second that began at the PPS edge before it, so the clock needs both wires; without the PPS
   edge there is no GPS time. A time is offered only after 30 consecutive good seconds (valid fix, seconds one apart, PPS edges 1 s ± 10 ms),
   then once a minute; it counts as fresh for 10 minutes. It rewrites the RTC only when the clock is more than 50 ms off, and not more often than

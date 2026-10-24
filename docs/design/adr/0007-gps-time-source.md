@@ -25,10 +25,23 @@ its time-pulse pin that is aligned to UTC once the receiver has a fix.
 
 ## Decision
 
-1. **The clock only listens.** UART1 RX on GP5 (the module's TX), PPS on GP8, 3.3 V logic, speed from the setting `gps_baud`
-   (default 38400). TX on GP4 is reserved and not configured; the clock sends nothing to the module in 0.3.0 and so works with its factory
-   configuration. A module that was reconfigured (no RMC, a different time pulse) shows that in the status counters (REQ-GPS-06).
-   Receiving is on only while `gps` is in `time_sources`.
+1. **The clock listens, and sets a u-blox receiver up only when told to.** UART1 RX on GP5 (the module's TX), PPS on GP8, 3.3 V logic,
+   speed from the setting `gps_baud` (default 38400). Receiving is on only while `gps` is in `time_sources`. With `gps_config off` (the
+   default) the clock sends nothing and leaves the reset pin floating: it works with the factory configuration of a u-blox receiver and with
+   any receiver that sends RMC and a pulse. A module that was reconfigured (no RMC, a different time pulse) shows that in the status counters
+   (REQ-GPS-06).
+
+   *Amended 2026-10-24 (the owner asked for the constellations to be chosen, and for the receiver to be recoverable from the clock;
+   this ADR was still Proposed).* With `gps_config on` the clock also uses UART1 TX on GP4 (the module's RX) and the module's reset pin on GP9
+   (open drain: low or floating, never driven high), and sends one UBX-CFG-VALSET into the **RAM layer only**: `gps_gnss` (default GPS and
+   Galileo on, BeiDou and GLONASS off), only the RMC of the NMEA sentences, UBX-NAV-PVT once a second, the stationary platform model.
+   RAM only means that a power cycle gives the factory state back, nothing wears the receiver's flash, and a replaced module needs no
+   handling; the clock therefore repeats the setup when the receiver starts talking after silence and when the navigation solution stops
+   arriving. The time still comes from NMEA and the PPS edge (decisions 2 and 3): UBX is for the setup and the status (REQ-GPS-08, 09),
+   so that another make of receiver works with the same time path. Read back: the version, the fix type, the number of satellites and the
+   receiver's own statement that UTC is valid and fully resolved, which is the guard that decision 4 cannot give (leap seconds known).
+   Source of the keys: interface description UBX-21022436 (M9 SPG 4.04, protocol 32.01); the keys are checked on the host, not yet against
+   a module. Not done: using UBX-NAV-TIMEUTC or the quantization error (UBX-TIM-TP) for the time, a survey-in (the NEO-M9N has no time mode).
 2. **NMEA, the RMC sentence only** (`core::gps`, plain code like `core::dcf77`): `$` talker `RMC` fields `*` hex checksum. Valid only
    with status `A` and mode `A`/`D` (not `N`, `E`, `S`), every needed field present and in range, and the date (`ddmmyy`, year 2000 to
    2099). Anything else is counted and ignored (REQ-GPS-01).

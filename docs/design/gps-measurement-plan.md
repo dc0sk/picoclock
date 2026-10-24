@@ -12,7 +12,7 @@ receiver (VR-84, VR-85). Nothing has seen a real receiver. This plan lists, in t
 (as VR entries in `docs/verification-log.md`, tier hardware) before the draft requirements are ratified and software 0.3.0 is cut.
 A step that fails is a finding: write it down, fix the cause, and repeat the step; do not adjust the limits to fit the result.
 
-**Setup.** The module's TX to GP5, PPS to GP8, GND, 3.3 V from the 3V3 pin (README, *GPS*). The module needs a view of the sky for
+**Setup.** The module's TX to GP5, PPS to GP8, GND, 3.3 V from the 3V3 pin (README, *GPS*); for steps 13 to 16 also the module's RX to GP4 and its RST to GP9. The module needs a view of the sky for
 the fix (a window is rarely enough; the first fix of a cold NEO-M9N can take minutes). The Debug Probe gives the `gps:` log lines over RTT (README *Debugging*). The firmware does not log the stamps
 of the edges; for step 6 add a temporary `info!("gps edge {}", at)` to `gps_task` in `firmware/src/gps.rs` (a measuring aid, not to be committed). Use the normal release build for everything except steps 1 and 3.
 
@@ -32,10 +32,15 @@ of the edges; for step 6 add a temporary `info!("gps edge {}", at)` to `gps_task
 | 10 | Does a baud change take effect? | `set gps_baud 9600` while the module sends at 38400, then back | the clock follows within a second or two (`bytes` stops growing sensibly at the wrong speed, then recovers); `set time_sources ntp` switches the receiver off | REQ-GPS-01 |
 | 11 | Three sources in vote mode | `set time_sources ntp,dcf77,gps`, `time_mode vote`, with the DCF77 module connected | the groups form as in VR-85; a DCF77 time that disagrees is outvoted | REQ-SRC-03, 09 |
 | 12 | Long run | 48 hours on `order` with GPS first | no restart (`status` has no `reset` line), the RTC is never rewritten more than every 10 s, flash writes stay at the usual number | REQ-NFR-03 |
+| 13 | Does the setup work? | `set gps_config on` (first with the factory setting, `gps_gnss` at its default) | `status` shows `module: set up; <version>`; the NMEA burst shrinks to RMC; NAV-PVT arrives once a second; satellites are only GPS and Galileo (check with u-center or the satellite count against the open sky) | REQ-GPS-08, 09 |
+| 14 | Is a refusal or a missing wire reported? | pull GP4, then `set gps_config on` | `no answer to the setup` after about 6 s; with the wire back it recovers within a minute | REQ-GPS-08 |
+| 15 | Is a forgotten setup noticed? | power-cycle the module (not the clock) | within about 10 s `status` goes through `setting up` to `set up` again | REQ-GPS-08 |
+| 16 | The resets | `gps reset hot`, `warm`, `cold`, `hard`; then unplug the module's TX for 70 s | each restart is followed by the setup; `hard` pulls GP9 (scope or the module's behaviour); the 60 s rule pulls it once and not again within 10 minutes | REQ-GPS-08 |
+| 17 | Does the module call UTC valid before NMEA does? | cold start (`gps reset cold`), watch `UTC valid` against the first offer and compare the first offer with NTP | the first offer is never 18 s off; note when `UTC valid` appears relative to the first RMC with status A | REQ-GPS-09 |
 
 ## After the measurements
 
 1. Record each step as a VR entry with the numbers (the `Verifies:` line names the requirements it covers).
-2. Ratify REQ-GPS-01 to 07 and REQ-SRC-07 to 10; retire REQ-SRC-06 in favour of REQ-SRC-07 and re-point its tests (a ratified statement is never edited).
+2. Ratify REQ-GPS-01 to 09 and REQ-SRC-07 to 10; retire REQ-SRC-06 in favour of REQ-SRC-07 and re-point its tests (a ratified statement is never edited).
 3. Set ADR-0007 to Accepted, with the measured numbers in its consequences.
 4. Bump the version to 0.3.0, raise `MIN_UNIX` to the release date, move the README section *GPS (in development)* into *Time sources*, run `tools/release.sh`.
